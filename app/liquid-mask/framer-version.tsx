@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from "react"
 import { useMotionValue, useSpring, animate } from "framer-motion"
 
-
 import {
     Scene,
     PerspectiveCamera,
@@ -110,37 +109,66 @@ export default function LiquidMask(props: Props) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const uniformsRef = useRef<any>(null)
 
-    // Keep latest hover scale without re-running heavy effect
+    // Detect mobile: disable effect and show base image only
+    const [isMobile, setIsMobile] = useState(false)
+    useEffect(() => {
+        const checkMobile = () => {
+            const coarse =
+                typeof window !== "undefined" && window.matchMedia
+                    ? window.matchMedia("(pointer: coarse)").matches
+                    : false
+            const small =
+                typeof window !== "undefined" && window.matchMedia
+                    ? window.matchMedia("(max-width: 768px)").matches
+                    : false
+            setIsMobile(coarse || small)
+        }
+        checkMobile()
+        window.addEventListener("resize", checkMobile)
+        return () => window.removeEventListener("resize", checkMobile)
+    }, [])
+
+    // Motion/value state for hover scaling
+    const scaleMV = useMotionValue(1)
+    const [springOptions, setSpringOptions] = useState<any>(() => ({
+        stiffness: 170,
+        damping: 26,
+        mass: 1,
+    }))
+    const springScaleMV = useSpring(1, springOptions)
+    const tweenAnimRef = useRef<any>(null)
     const hoverScaleRef = useRef<number>(hover?.scale ?? 1.2)
     useEffect(() => {
         hoverScaleRef.current = Math.max(1, Math.min(3, hover?.scale ?? 1.2))
     }, [hover?.scale])
 
-    // Motion values for driving scale without Motion components
-    const scaleMV = useMotionValue(1)
-    // Spring options derived from ControlType.Transition when type === "spring"
-    const [springOptions, setSpringOptions] = useState<any>(() => ({ stiffness: 170, damping: 26, mass: 1 }))
-    const springScaleMV = useSpring(1, springOptions)
-
-    // Update spring options whenever transition changes
     useEffect(() => {
         const tr = hover?.transition || {}
         if (tr && tr.type === "spring") {
-            // Prefer physical params when provided
-            if (typeof tr.stiffness === "number" || typeof tr.damping === "number" || typeof tr.mass === "number") {
+            if (
+                typeof tr.stiffness === "number" ||
+                typeof tr.damping === "number" ||
+                typeof tr.mass === "number"
+            ) {
                 setSpringOptions({
-                    stiffness: typeof tr.stiffness === "number" ? tr.stiffness : 170,
+                    stiffness:
+                        typeof tr.stiffness === "number" ? tr.stiffness : 170,
                     damping: typeof tr.damping === "number" ? tr.damping : 26,
                     mass: typeof tr.mass === "number" ? tr.mass : 1,
-                    restDelta: typeof tr.restDelta === "number" ? tr.restDelta : undefined,
-                    restSpeed: typeof tr.restSpeed === "number" ? tr.restSpeed : undefined,
+                    restDelta:
+                        typeof tr.restDelta === "number"
+                            ? tr.restDelta
+                            : undefined,
+                    restSpeed:
+                        typeof tr.restSpeed === "number"
+                            ? tr.restSpeed
+                            : undefined,
                 })
             } else {
-                // Map bounce/duration heuristically to physical spring
                 const bounce = Math.max(0, Math.min(1, tr.bounce ?? 0))
                 const duration = Math.max(0.05, tr.duration ?? 0.5)
                 const mass = 1
-                const dampingRatio = 1 - 0.85 * bounce // 1→critically damped, 0.15→bouncy
+                const dampingRatio = 1 - 0.85 * bounce
                 const stiffness = Math.max(50, Math.min(700, 200 / duration))
                 const damping = 2 * Math.sqrt(stiffness * mass) * dampingRatio
                 setSpringOptions({ stiffness, damping, mass })
@@ -148,7 +176,7 @@ export default function LiquidMask(props: Props) {
         }
     }, [hover?.transition])
 
-    // Apply scale to base image and shader uniform whenever motion values change
+    // Apply base image and hover image scale whenever motion values change
     useEffect(() => {
         const applyScale = (v: number) => {
             const clamped = Math.max(1, Math.min(3, v))
@@ -162,10 +190,8 @@ export default function LiquidMask(props: Props) {
                 uniformsRef.current.u_hoverScale.value = clamped
             }
         }
-
         const unsubA = scaleMV.on("change", applyScale)
         const unsubB = springScaleMV.on("change", applyScale)
-        // Set initial
         applyScale(1)
         return () => {
             unsubA?.()
@@ -173,32 +199,27 @@ export default function LiquidMask(props: Props) {
         }
     }, [scaleMV, springScaleMV])
 
-    // Keep reference to current tween animation to cancel when needed
-    const tweenAnimRef = useRef<any>(null)
-
-    // Drive hover scale using ControlType.Transition semantics (tween or spring)
     const animateToScale = useCallback(
         (target: number) => {
             const clamped = Math.max(1, Math.min(3, target))
             const tr: any = hover?.transition || {}
-
-            // Cancel any running tween
-            if (tweenAnimRef.current && typeof tweenAnimRef.current.stop === "function") {
+            if (
+                tweenAnimRef.current &&
+                typeof tweenAnimRef.current.stop === "function"
+            ) {
                 tweenAnimRef.current.stop()
                 tweenAnimRef.current = null
             }
-
             if (tr && tr.type === "spring") {
-                // Let spring drive the value
                 springScaleMV.set(clamped)
             } else if (tr && tr.type === "tween") {
                 tweenAnimRef.current = animate(scaleMV, clamped, {
-                    duration: typeof tr.duration === "number" ? tr.duration : 0.5,
+                    duration:
+                        typeof tr.duration === "number" ? tr.duration : 0.5,
                     delay: typeof tr.delay === "number" ? tr.delay : 0,
-                    ease: tr.ease, // can be string or cubic-bezier array
+                    ease: tr.ease,
                 })
             } else {
-                // Fallback: treat as tween with sensible defaults
                 tweenAnimRef.current = animate(scaleMV, clamped, {
                     duration: 0.25,
                     ease: [0.44, 0, 0.56, 1],
@@ -207,6 +228,9 @@ export default function LiquidMask(props: Props) {
         },
         [hover?.transition, scaleMV, springScaleMV]
     )
+
+    // State for hover effect
+    // (no local hover state needed; Motion values drive scale)
 
     // Debounced prop values to prevent excessive re-renders
     const [debouncedProps, setDebouncedProps] = useState({
@@ -268,6 +292,7 @@ export default function LiquidMask(props: Props) {
     }, [])
 
     useEffect(() => {
+        if (isMobile) return
         const canvas = canvasRef.current
         const imgEl = imgRef.current
         const container = containerRef.current
@@ -286,26 +311,23 @@ export default function LiquidMask(props: Props) {
         })
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 
-        // Get container dimensions instead of viewport
-        const containerRect = container.getBoundingClientRect()
-
-        // For initial sizing, ensure we have valid dimensions
-        const initialWidth = Math.max(containerRect.width, 300) // Fallback minimum
-        const initialHeight = Math.max(containerRect.height, 200) // Fallback minimum
+        // Use clientWidth/clientHeight for more reliable initial sizing
+        const initialWidth = Math.max(container.clientWidth, 300) // Fallback minimum
+        const initialHeight = Math.max(container.clientHeight, 200) // Fallback minimum
         renderer.setSize(initialWidth, initialHeight)
 
         const computeFov = () => {
-            const containerRect = container.getBoundingClientRect()
+            // Use clientHeight for consistent field of view calculation
             return (
                 (180 *
-                    (2 * Math.atan(containerRect.height / 2 / perspective))) /
+                    (2 * Math.atan(container.clientHeight / 2 / perspective))) /
                 Math.PI
             )
         }
 
         const camera = new PerspectiveCamera(
             computeFov(),
-            containerRect.width / containerRect.height,
+            initialWidth / initialHeight,
             1,
             5000
         )
@@ -386,8 +408,8 @@ export default function LiquidMask(props: Props) {
       uniform float u_noiseStrength;
       uniform float u_noiseSize;
       uniform float u_timeSpeed;
-      uniform float u_hoverScale;
       uniform sampler2D u_hoverImage;
+      uniform float u_hoverScale;
       uniform float u_hoverImageAspect;
       uniform float u_containerAspect;
       uniform vec2 u_windowSize;
@@ -524,7 +546,6 @@ export default function LiquidMask(props: Props) {
         }
 
         // Sample the hover image with responsive UV mapping and apply the mask
-        // Apply hover scale (zoom-in) to the hover image only, not the canvas
         responsiveUV = (responsiveUV - vec2(0.5)) / max(u_hoverScale, 1.0) + vec2(0.5);
         vec4 hoverColor = texture2D(u_hoverImage, responsiveUV);
         
@@ -547,39 +568,9 @@ export default function LiquidMask(props: Props) {
         const offset = new Vector2()
 
         const updateFromDOM = () => {
-            const containerRect = container.getBoundingClientRect()
-
-            // Ensure we have valid dimensions
-            if (containerRect.width <= 0 || containerRect.height <= 0) return
-
-            // In Canvas mode, use the parent container's dimensions for better sizing
-            const isCanvasMode = RenderTarget.current() === RenderTarget.canvas
-            let actualWidth = containerRect.width
-            let actualHeight = containerRect.height
-
-            if (isCanvasMode) {
-                // In Canvas mode, sometimes the container dimensions are not accurate
-                // Try to get the actual available space from the parent or canvas dimensions
-                const parentRect =
-                    container.parentElement?.getBoundingClientRect()
-                if (
-                    parentRect &&
-                    parentRect.width > containerRect.width &&
-                    parentRect.height > containerRect.height
-                ) {
-                    // Use parent dimensions if they're larger (more accurate for Canvas mode)
-                    actualWidth = parentRect.width
-                    actualHeight = parentRect.height
-                }
-
-                // Alternative: Use canvas client dimensions if available and larger
-                const canvasClientWidth = canvas.clientWidth
-                const canvasClientHeight = canvas.clientHeight
-                if (canvasClientWidth > actualWidth)
-                    actualWidth = canvasClientWidth
-                if (canvasClientHeight > actualHeight)
-                    actualHeight = canvasClientHeight
-            }
+            // Use clientWidth/clientHeight for more reliable sizing
+            const actualWidth = Math.max(container.clientWidth, 2)
+            const actualHeight = Math.max(container.clientHeight, 2)
 
             // Make the mesh fill the entire container (not just the image)
             sizes.set(actualWidth, actualHeight)
@@ -605,6 +596,9 @@ export default function LiquidMask(props: Props) {
                 window.innerWidth,
                 window.innerHeight
             )
+
+            // Get container position for offset calculations
+            const containerRect = container.getBoundingClientRect()
             uniforms.u_containerOffset.value.set(
                 containerRect.left,
                 containerRect.top
@@ -625,46 +619,9 @@ export default function LiquidMask(props: Props) {
             if (isAnimating) {
                 renderer.render(scene, camera)
             }
-
-            // Debug: log dimensions in Canvas mode
-            if (isCanvasMode) {
-                console.log(
-                    "Canvas updateFromDOM - Container:",
-                    containerRect.width,
-                    "x",
-                    containerRect.height,
-                    "Actual:",
-                    actualWidth,
-                    "x",
-                    actualHeight,
-                    "Parent:",
-                    container.parentElement?.getBoundingClientRect().width,
-                    "x",
-                    container.parentElement?.getBoundingClientRect().height
-                )
-            }
         }
 
-        // Initial setup - ensure Canvas mode gets proper dimensions
-        updateFromDOM()
-
-        // Additional update for Canvas mode to ensure proper sizing
-        if (RenderTarget.current() === RenderTarget.canvas) {
-            // Force multiple updates in Canvas mode to ensure proper sizing
-            setTimeout(() => updateFromDOM(), 50)
-            setTimeout(() => updateFromDOM(), 150)
-            setTimeout(() => updateFromDOM(), 300)
-
-            // Debug: log aspect ratios in Canvas mode
-            setTimeout(() => {
-                console.log(
-                    "Canvas mode - Container aspect:",
-                    uniforms.u_containerAspect.value,
-                    "Image aspect:",
-                    uniforms.u_hoverImageAspect.value
-                )
-            }, 350)
-        }
+        // Initial setup
         updateFromDOM()
 
         let targetProgress = 0
@@ -719,22 +676,17 @@ export default function LiquidMask(props: Props) {
                 targetProgress = 1
                 // Set mouse position to center (0.5, 0.5)
                 uniforms.u_mouse.value.set(0.5, 0.5)
+                // Use normal radius (no scaling needed with proper dimension detection)
+                uniforms.u_radius.value = mapRadius(debouncedProps.radius)
 
-                // Scale radius in Canvas mode to match live preview behavior
-                // Canvas mode needs adjustment to match live preview sizing
-                uniforms.u_radius.value = mapRadius(debouncedProps.radius) * 0.8
-
-                // Also adjust texture parameters in Canvas mode for consistency
-                const canvasTextureParams = mapTexture(
-                    debouncedProps.texture * 1.25
-                ) // Boost texture in Canvas mode
-                uniforms.u_noiseFreq.value = canvasTextureParams.freq
-                uniforms.u_noiseStrength.value = canvasTextureParams.strength
-                uniforms.u_noiseSize.value = canvasTextureParams.size
+                uniforms.u_noiseFreq.value = currentTextureParams.freq * 1.25
+                // Boost noise intensity by 10% in Canvas mode to match live preview
+                //uniforms.u_noiseStrength.value = currentTextureParams.strength * 1.5
             } else {
                 // Normal behavior - use mouse position and hover state
                 // targetProgress will be updated by mouse events
                 uniforms.u_radius.value = mapRadius(debouncedProps.radius)
+                uniforms.u_noiseStrength.value = currentTextureParams.strength
             }
 
             // ease progress
@@ -756,29 +708,6 @@ export default function LiquidMask(props: Props) {
             if (resizeTimeout) return
 
             resizeTimeout = setTimeout(() => {
-                const containerRect = container.getBoundingClientRect()
-                renderer.setSize(containerRect.width, containerRect.height)
-                camera.aspect = containerRect.width / containerRect.height
-                camera.fov = computeFov()
-                camera.updateProjectionMatrix()
-
-                // Update all resolution-related uniforms
-                if (uniforms.u_resolution)
-                    uniforms.u_resolution.value.set(
-                        containerRect.width,
-                        containerRect.height
-                    )
-                if (uniforms.u_res)
-                    uniforms.u_res.value.set(
-                        containerRect.width,
-                        containerRect.height
-                    )
-                if (uniforms.u_pr)
-                    uniforms.u_pr.value = Math.min(
-                        window.devicePixelRatio || 1,
-                        2
-                    )
-
                 // Update DOM and force re-render
                 updateFromDOM()
 
@@ -796,19 +725,10 @@ export default function LiquidMask(props: Props) {
             // Immediate update for critical dimension changes
             entries.forEach((entry) => {
                 const { width, height } = entry.contentRect
-                const isCanvasMode =
-                    RenderTarget.current() === RenderTarget.canvas
 
-                // In Canvas mode, be more aggressive about updating on any size change
-                if (isCanvasMode || width !== sizes.x || height !== sizes.y) {
-                    // Force immediate update for dimension changes
+                // Update if dimensions have changed
+                if (width !== sizes.x || height !== sizes.y) {
                     updateFromDOM()
-
-                    // In Canvas mode, also force additional updates with delay
-                    // if (isCanvasMode) {
-                    //     setTimeout(() => updateFromDOM(), 10)
-                    //     setTimeout(() => updateFromDOM(), 50)
-                    // }
                 }
             })
             // Also use throttled resize for performance
@@ -864,11 +784,10 @@ export default function LiquidMask(props: Props) {
             const isCanvasMode = RenderTarget.current() === RenderTarget.canvas
             if (isCanvasMode && debouncedProps.preview) return
 
-            if (!(hover && hover.enabled)) return
-
             targetProgress = 1
-            // Animate scale via Motion values (hover image + base image)
-            animateToScale(hoverScaleRef.current)
+            if (hover && hover.enabled) {
+                animateToScale(hoverScaleRef.current)
+            }
 
             // Start animation if not already running
             if (!isAnimating && shouldAnimate()) {
@@ -880,11 +799,10 @@ export default function LiquidMask(props: Props) {
             const isCanvasMode = RenderTarget.current() === RenderTarget.canvas
             if (isCanvasMode && debouncedProps.preview) return
 
-            if (!(hover && hover.enabled)) return
-
             targetProgress = 0
-            // Animate scale back to 1
-            animateToScale(1)
+            if (hover && hover.enabled) {
+                animateToScale(1)
+            }
         }
 
         container.addEventListener("mousemove", onMove)
@@ -914,6 +832,7 @@ export default function LiquidMask(props: Props) {
         debouncedProps.circleBoost,
         debouncedProps.texture,
         debouncedProps.timeSpeed,
+        // no debounced hoverScale in new pattern
         debouncedProps.preview,
         imageBase?.positionX,
         imageBase?.positionY,
@@ -924,6 +843,7 @@ export default function LiquidMask(props: Props) {
         mapCircleBoost,
         mapTexture,
         mapTimeSpeed,
+        isMobile,
     ])
 
     return (
@@ -969,32 +889,32 @@ export default function LiquidMask(props: Props) {
                         padding: 0,
                         userSelect: "none",
                         pointerEvents: "none",
-                        // transform applied imperatively via Motion value subscriber
                     }}
                 />
             </figure>
 
             {/* Hover image rendered by canvas - no DOM element needed */}
 
-            {/* Three.js canvas - renders hover effect */}
-            <canvas
-                ref={canvasRef}
-                id="stage"
-                style={{
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    zIndex: 3,
-                    pointerEvents: "none",
-                    opacity: 1,
-                    // Ensure canvas takes full space in Canvas mode
-                    minWidth: "100%",
-                    minHeight: "100%",
-                    maxWidth: "100%",
-                    maxHeight: "100%",
-                }}
-            />
+            {/* Three.js canvas - renders hover effect (hidden on mobile) */}
+            {!isMobile && (
+                <canvas
+                    ref={canvasRef}
+                    id="stage"
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                        zIndex: 3,
+                        pointerEvents: "none",
+                        opacity: 1,
+                        minWidth: "100%",
+                        minHeight: "100%",
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                    }}
+                />
+            )}
         </div>
     )
 }
@@ -1007,9 +927,73 @@ addPropertyControls(LiquidMask, {
         enabledTitle: "On",
         disabledTitle: "Off",
     },
+    imageBase: {
+        type: ControlType.ResponsiveImage,
+        title: "Base",
+    },
+    imageHover: {
+        type: ControlType.ResponsiveImage,
+        title: "Hover",
+    },
+    borderRadius: {
+        type: ControlType.Number,
+        title: "Radius",
+        min: 0,
+        max: 100,
+        step: 1,
+        defaultValue: 10,
+        unit: "px",
+    },
+    radius: {
+        type: ControlType.Number,
+        title: "Size",
+        min: 10,
+        max: 1000,
+        step: 10,
+        defaultValue: 100,
+        unit: "px",
+    },
+    blur: {
+        type: ControlType.Number,
+        title: "Interaction",
+        min: 0,
+        max: 1,
+        step: 0.01,
+        defaultValue: 0.5,
+        unit: "",
+    },
+    circleBoost: {
+        type: ControlType.Number,
+        title: "Boost",
+        min: 0,
+        max: 1,
+        step: 0.01,
+        defaultValue: 0.5,
+        unit: "",
+    },
+    texture: {
+        type: ControlType.Number,
+        title: "Texture",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+        unit: "",
+    },
+    timeSpeed: {
+        type: ControlType.Number,
+        title: "Speed",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        defaultValue: 5,
+        unit: "",
+    },
     hover: {
         type: ControlType.Object,
         title: "Hover",
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             enabled: {
                 type: ControlType.Boolean,
@@ -1040,70 +1024,6 @@ addPropertyControls(LiquidMask, {
                 hidden: (props) => !props.enabled,
             },
         },
-    },
-    imageBase: {
-        type: ControlType.ResponsiveImage,
-        title: "Base",
-    },
-    imageHover: {
-        type: ControlType.ResponsiveImage,
-        title: "Hover",
-    },
-    borderRadius: {
-        type: ControlType.Number,
-        title: "Radius",
-        min: 0,
-        max: 100,
-        step: 1,
-        defaultValue: 10,
-        unit: "px",
-    },
-    radius: {
-        type: ControlType.Number,
-        title: "Size",
-        min: 10,
-        max: 1000,
-        step: 10,
-        defaultValue: 100,
-        unit: "px",
-    },
-    blur: {
-        type: ControlType.Number,
-        title: "Blur",
-        min: 0,
-        max: 1,
-        step: 0.01,
-        defaultValue: 0.5,
-        unit: "",
-    },
-    circleBoost: {
-        type: ControlType.Number,
-        title: "Boost",
-        min: 0,
-        max: 1,
-        step: 0.01,
-        defaultValue: 0.5,
-        unit: "",
-    },
-    texture: {
-        type: ControlType.Number,
-        title: "Texture",
-        min: 0,
-        max: 1,
-        step: 0.01,
-        defaultValue: 0.5,
-        unit: "",
-    },
-    timeSpeed: {
-        type: ControlType.Number,
-        title: "Speed",
-        min: 0,
-        max: 10,
-        step: 0.5,
-        defaultValue: 5,
-        unit: "",
-        description:
-            "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 

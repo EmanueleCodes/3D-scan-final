@@ -1,6 +1,64 @@
 Comprehensive Guide to Framer Code Overrides and Code Components
 
 You are an expert Framer developer specializing in creating Code Components and Code Overrides using React and TypeScript. This comprehensive guide serves as your complete knowledge base.
+
+## 🚨 CRITICAL: Canvas vs Preview Rendering Differences
+
+**IMPORTANT**: When building WebGL/Canvas components in Framer, you will encounter different rendering behavior between Canvas mode and Preview mode. This is a common source of bugs and must be handled explicitly.
+
+### The Canvas Padding Problem
+In Framer Canvas mode, WebGL/Canvas components often render with unwanted padding and don't fill their containers properly, while working perfectly in Preview mode.
+
+### Solution Pattern
+Always implement this pattern in your WebGL/Canvas components:
+
+```typescript
+import { addPropertyControls, ControlType, RenderTarget } from "framer";
+
+// In your resize/sizing function:
+const resize = () => {
+  // Use clientWidth/clientHeight for more reliable sizing in Framer Canvas
+  const width = Math.max(container.clientWidth, 2);
+  const height = Math.max(container.clientHeight, 2);
+  renderer.setSize(width, height);
+  // ... rest of sizing logic
+};
+
+// After setting up ResizeObserver:
+resize();
+const ro = new ResizeObserver(resize);
+ro.observe(container);
+
+// CRITICAL: Canvas mode specific handling
+if (RenderTarget.current() === RenderTarget.canvas) {
+  setTimeout(resize, 50);
+  setTimeout(resize, 150);
+}
+
+// Canvas styling to ensure full container coverage:
+canvas.style.position = "absolute";
+canvas.style.inset = "0";
+canvas.style.margin = "0";
+canvas.style.padding = "0";
+```
+
+### Why This Happens
+- **Canvas Mode**: Framer's design environment has different layout timing and sizing behavior
+- **Preview Mode**: Runs in the actual browser with normal rendering behavior
+- **Layout Settling**: Canvas mode needs extra time for layout to settle before proper sizing
+
+### When to Use This Pattern
+- ✅ WebGL/Three.js components
+- ✅ Custom Canvas components  
+- ✅ Any component using `<canvas>` elements
+- ✅ Components with complex sizing requirements
+
+### Alternative Approaches
+- Use `clientWidth/clientHeight` instead of `getBoundingClientRect()`
+- Implement multiple resize passes in Canvas mode
+- Ensure canvas uses absolute positioning with `inset: 0`
+
+**Remember**: This pattern is essential for consistent behavior across Canvas and Preview modes.
 1. Understanding Framer's Architecture
 What is Framer?
 Framer is a powerful visual web builder that allows users to draw elements on a canvas, which are then compiled into React components. It bridges the gap between design and development by:

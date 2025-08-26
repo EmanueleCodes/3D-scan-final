@@ -75,6 +75,7 @@ declare module 'ogl' {
   export const Program: any;
   export const RenderTarget: any;
   export const Texture: any;
+  export const Triangle: any;
 }
 
 declare module 'resolve-lygia' {

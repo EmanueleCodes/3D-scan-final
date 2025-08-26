@@ -62,6 +62,25 @@ export default function BulgeDistortion(props: Props) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [textureLoaded, setTextureLoaded] = useState(false)
 
+    // Detect mobile: disable interactive effects on mobile
+    const [isMobile, setIsMobile] = useState(false)
+    useEffect(() => {
+        const checkMobile = () => {
+            const coarse =
+                typeof window !== "undefined" && window.matchMedia
+                    ? window.matchMedia("(pointer: coarse)").matches
+                    : false
+            const small =
+                typeof window !== "undefined" && window.matchMedia
+                    ? window.matchMedia("(max-width: 768px)").matches
+                    : false
+            setIsMobile(coarse || small)
+        }
+        checkMobile()
+        window.addEventListener("resize", checkMobile)
+        return () => window.removeEventListener("resize", checkMobile)
+    }, [])
+
     useEffect(() => {
         const container = containerRef.current
         const canvas = canvasRef.current
@@ -306,6 +325,12 @@ export default function BulgeDistortion(props: Props) {
 
         // Mouse move handling (normalized to component coordinates)
         const updateMouse = (clientX: number, clientY: number) => {
+            // On mobile, keep mouse position fixed at center
+            if (isMobile) {
+                targetMouse.set(centerX, centerY)
+                return
+            }
+            
             const rect = container.getBoundingClientRect()
             const x = (clientX - rect.left) / Math.max(rect.width, 1)
             const y = 1 - (clientY - rect.top) / Math.max(rect.height, 1)
@@ -315,10 +340,13 @@ export default function BulgeDistortion(props: Props) {
         }
 
         const onMouseMove = (e: MouseEvent) => {
-            updateMouse(e.clientX, e.clientY)
+            if (!isMobile) {
+                updateMouse(e.clientX, e.clientY)
+            }
         }
         const onTouchMove = (e: TouchEvent) => {
-            if (e.touches && e.touches.length > 0) {
+            // Disable touch interaction on mobile
+            if (!isMobile && e.touches && e.touches.length > 0) {
                 updateMouse(e.touches[0].clientX, e.touches[0].clientY)
             }
         }
@@ -371,20 +399,27 @@ export default function BulgeDistortion(props: Props) {
         // Always run animation loop
         loop()
 
-        // Initialize mouse at props center
-        targetMouse.set(centerX, centerY)
-        currentMouse.set(centerX, centerY)
-        uniforms.uMousePosition.value.set(centerX, centerY)
-        // Listeners
-        container.addEventListener("mousemove", onMouseMove)
-        container.addEventListener("touchmove", onTouchMove, { passive: true })
+        // Initialize mouse at props center (always center on mobile)
+        const initialX = isMobile ? 0.5 : centerX
+        const initialY = isMobile ? 0.5 : centerY
+        targetMouse.set(initialX, initialY)
+        currentMouse.set(initialX, initialY)
+        uniforms.uMousePosition.value.set(initialX, initialY)
+        
+        // Listeners (conditionally add based on mobile state)
+        if (!isMobile) {
+            container.addEventListener("mousemove", onMouseMove)
+            container.addEventListener("touchmove", onTouchMove, { passive: true })
+        }
 
         return () => {
             if (raf) cancelAnimationFrame(raf)
             resizeObserver.disconnect()
             window.removeEventListener("resize", onResize)
-            container.removeEventListener("mousemove", onMouseMove)
-            container.removeEventListener("touchmove", onTouchMove)
+            if (!isMobile) {
+                container.removeEventListener("mousemove", onMouseMove)
+                container.removeEventListener("touchmove", onTouchMove)
+            }
             geometry.dispose()
             material.dispose()
             renderer.dispose()
@@ -399,6 +434,7 @@ export default function BulgeDistortion(props: Props) {
         cursorMode,
         movement,
         fishEyeIntensity,
+        isMobile,
     ])
 
     // If no image yet, show helpful message
