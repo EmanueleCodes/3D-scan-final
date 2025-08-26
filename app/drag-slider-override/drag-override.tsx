@@ -10,6 +10,12 @@ const useVariantStore = createStore({
         "D - 03 (Home)",
         "D - 04 (Home)",
     ],
+    contentVariants: [
+        "Breakfast",
+        "Lunch",
+        "Snacks",
+        "Dinner",
+    ],
     // Add rotation state to the central store
     rotation: 0, // persistent snapped rotation (deg)
     gestureRotation: 0, // temporary rotation during active drag (deg)
@@ -83,13 +89,20 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
             
             setStore({ isDragging: false })
             
-            // Determine final rotation INCREMENTALLY based on direction
+            // Determine direction once
             const delta = info.offset.x < 0 ? -90 : 90
-            const finalRotation = store.rotation + delta
-            console.log('🔄 Drag end - applying delta', delta, '=>', finalRotation)
             
-            // Apply final rotation
-            setStore({ rotation: finalRotation, gestureRotation: 0, hasSnapped: true })
+            // Apply ONE rotation per gesture: only if we haven't already snapped during drag
+            if (!store.hasSnapped) {
+                const finalRotation = store.rotation + delta
+                console.log('🔄 Drag end - applying single delta', delta, '=>', finalRotation)
+                setStore({ rotation: finalRotation })
+            } else {
+                console.log('✅ Rotation already applied during drag – skipping extra rotation on end')
+            }
+            
+            // Clear gesture state
+            setStore({ gestureRotation: 0, hasSnapped: true })
             
             // Handle variant switching (same threshold)
             if (Math.abs(info.offset.x) >= rotationThreshold) {
@@ -154,6 +167,27 @@ export function withVariantListener(Component: ComponentType): ComponentType {
 }
 
 /**
+ * Variant Listener Override - Listens to store changes and applies variants
+ * Apply this to components that should change variants based on store updates
+ */
+export function withContentVariantListener(Component: ComponentType): ComponentType {
+    return forwardRef((props: any, ref) => {
+        const [store] = useVariantStore()
+        const currentVariant = store.contentVariants[store.currentIndex]
+
+        console.log("👂 Variant listener - applying variant:", currentVariant)
+
+        return (
+            <Component
+                ref={ref}
+                {...props}
+                variant={currentVariant}
+            />
+        )
+    })
+}
+
+/**
  * Rotation Listener Override - Listens to store and applies rotation transforms
  * Apply this to components that should rotate based on drag gestures
  */
@@ -180,6 +214,72 @@ export function withRotationListener(Component: ComponentType): ComponentType {
                     rotate: currentRotation
                 }}
                 
+            />
+        )
+    })
+}
+
+/**
+ * Button Override: withNext
+ * - Advances to next variant (wrap-around)
+ * - Applies +90deg rotation increment
+ */
+export function withNext(Component: ComponentType): ComponentType {
+    return forwardRef((props: any, ref) => {
+        const [store, setStore] = useVariantStore()
+
+        const handleClick = (event?: any) => {
+            const nextIndex = (store.currentIndex + 1) % store.variants.length
+            setStore({
+                currentIndex: nextIndex,
+                rotation: store.rotation + 90,
+                gestureRotation: 0,
+                hasSnapped: true,
+                isDragging: false,
+            })
+            if (props.onClick) props.onClick(event)
+            if (props.onTap) props.onTap(event)
+        }
+
+        return (
+            <Component
+                ref={ref}
+                {...props}
+                onClick={handleClick}
+                onTap={handleClick}
+            />
+        )
+    })
+}
+
+/**
+ * Button Override: withPrevious
+ * - Goes to previous variant (wrap-around)
+ * - Applies -90deg rotation increment
+ */
+export function withPrevious(Component: ComponentType): ComponentType {
+    return forwardRef((props: any, ref) => {
+        const [store, setStore] = useVariantStore()
+
+        const handleClick = (event?: any) => {
+            const prevIndex = store.currentIndex === 0 ? store.variants.length - 1 : store.currentIndex - 1
+            setStore({
+                currentIndex: prevIndex,
+                rotation: store.rotation - 90,
+                gestureRotation: 0,
+                hasSnapped: true,
+                isDragging: false,
+            })
+            if (props.onClick) props.onClick(event)
+            if (props.onTap) props.onTap(event)
+        }
+
+        return (
+            <Component
+                ref={ref}
+                {...props}
+                onClick={handleClick}
+                onTap={handleClick}
             />
         )
     })
