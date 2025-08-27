@@ -93,13 +93,13 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
             const initialIndex = foundIndex >= 0 ? foundIndex : 0
             setStore({
                 currentIndex: initialIndex,
-                rotation: 0, // Always start rotation at 0° (no base rotation from variants)
+                rotation: 0, // Start with 0° rotation for incremental system
                 gestureRotation: 0,
                 isDragging: false,
                 hasSnapped: false,
                 isInitialized: true,
             })
-            //console.log('🔎 CANVAS Init via exact match => index', initialIndex, 'rotation: 0°')
+            //console.log('🔎 CANVAS Init via exact match => index', initialIndex, 'rotation:', initialRotation + '°')
         }, [store.isInitialized])
 
         // In Preview: initialize once based on URL or data-framer-name, then allow drag interactions
@@ -137,13 +137,13 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
             
             setStore({
                 currentIndex: initialIndex,
-                rotation: 0, // Always start rotation at 0° (no base rotation from variants)
+                rotation: 0, // Start with 0° rotation for incremental system
                 gestureRotation: 0,
                 isDragging: false,
                 hasSnapped: false,
                 isInitialized: true,
             })
-            //console.log('🔎 PREVIEW Init => index', initialIndex, 'rotation: 0°')
+            //console.log('🔎 PREVIEW Init => index', initialIndex, 'rotation:', initialRotation + '°')
         }, [store.isInitialized])
 
         // Listen for variant changes (Canvas and Preview) and keep store in sync
@@ -165,16 +165,29 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                 return 0
             }
             const apply = () => {
+                // === DISABLE CANVAS SYNC DURING DRAG ===
+                // Never override user drag changes
+                if (store.isDragging) {
+                    console.log('🔎 CANVAS Sync: DISABLED - user is dragging')
+                    return
+                }
+                
                 const idx = computeIndex()
                 if (idx !== store.currentIndex) {
-                    //console.log('🔎 CANVAS Sync: switching to index', idx, 'rotation unchanged at', store.rotation)
+                    // For incremental system, don't change rotation when Canvas syncs variants
+                    // The rotation should only change from user interactions, not Canvas changes
+                    console.log('🔎 CANVAS Sync: switching to index', idx, 'rotation unchanged at', store.rotation)
                     setStore({ currentIndex: idx, rotation: store.rotation, gestureRotation: 0, hasSnapped: false })
                 }
             }
             // Initial sync
             apply()
             // Observe data-framer-name changes anywhere
-            const observer = new MutationObserver(() => apply())
+            const observer = new MutationObserver(() => {
+                // === DELAYED CANVAS SYNC: Wait for drag operations to complete ===
+                // This prevents Canvas sync from immediately overriding drag changes
+                setTimeout(() => apply(), 100)
+            })
             observer.observe(root.documentElement, {
                 attributes: true,
                 subtree: true,
@@ -218,88 +231,61 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
             const currentDragRotation = Math.min(dragProgress * maxRotation, maxRotation)
             
             // === ROTATION DIRECTION: Apply rotation based on drag direction ===
-            // info.offset.x < 0: drag left → counter-clockwise (negative rotation)
-            // info.offset.x > 0: drag right → clockwise (positive rotation)
-            const newRotation = info.offset.x < 0 
-                ? -currentDragRotation  // counter-clockwise (left drag)
-                : currentDragRotation   // clockwise (right drag)
+            // info.offset.x > 0: drag right → next variant → clockwise (positive rotation)
+            // info.offset.x < 0: drag left → previous variant → counter-clockwise (negative rotation)
+            const newRotation = info.offset.x > 0 
+                ? currentDragRotation   // clockwise (right drag = next)
+                : -currentDragRotation  // counter-clockwise (left drag = previous)
             
             // Update TEMPORARY gestureRotation (will be added to persistent rotation in listener)
             setStore({ gestureRotation: newRotation })
-            //console.log('🔄 Central drag - rotation:', newRotation, 'offsetX:', info.offset.x, 'threshold met')
-
-            // === SNAP THRESHOLD: Apply permanent ±90° rotation ===
-            // If drag exceeds 2x threshold (200px or 10vw), commit to full 90° rotation
-            // This creates the "snap" effect when dragging far enough
-            if (Math.abs(info.offset.x) >= rotationThreshold * 2) {
-                const delta = info.offset.x < 0 ? -90 : 90  // ±90° based on direction
-                const snapped = store.rotation + delta        // Add to existing rotation
-                setStore({ 
-                    rotation: snapped,        // Update PERSISTENT rotation
-                    gestureRotation: 0,       // Clear TEMPORARY rotation (now incorporated)
-                    hasSnapped: true          // Prevent multiple snaps this gesture
-                })
-                //console.log('🧲 Snapped rotation by', delta, '=>', snapped)
-            }
+            //console.log('🔄 Central drag - gestureRotation:', newRotation, 'offsetX:', info.offset.x)
         }
 
         const handleDragEnd = (event: any, info: any) => {
-            //console.log('🔄 Drag end - offsetX:', info.offset.x)
+            console.log('🔄 Drag end - offsetX:', info.offset.x)
             
-            // Only apply rotation if we've moved enough pixels
-            const vwThreshold = typeof window !== 'undefined' ? window.innerWidth * 0.05 : 0
-            const rotationThreshold = Math.max(100, vwThreshold) // px or 5vw
+            // === THRESHOLD CHECK: 100px minimum for variant change ===
+            const threshold = 100 // Fixed 100px threshold
             
-            //console.log('🔄 End threshold check - offsetX:', Math.abs(info.offset.x), 'threshold:', rotationThreshold)
-            
-            if (Math.abs(info.offset.x) < rotationThreshold) {
-                // Too small movement - discard gesture rotation and keep existing rotation
+            if (Math.abs(info.offset.x) < threshold) {
+                // Too small - just clear drag state, no variant change
                 setStore({ isDragging: false, gestureRotation: 0, hasSnapped: false })
-                //console.log('🔄 Drag too small - keeping rotation, clearing gestureRotation')
+                console.log('🔄 Drag too small - no changes')
                 return
             }
             
-            setStore({ isDragging: false })
+            // === DRAG > 100px: Switch variant AND update rotation to match ===
+            let newIndex
             
-            // Determine direction once
-            const delta = info.offset.x < 0 ? -90 : 90
-            
-            // Apply ONE rotation per gesture: only if we haven't already snapped during drag
-            if (!store.hasSnapped) {
-                const finalRotation = store.rotation + delta
-                //console.log('🔄 Drag end - applying single delta', delta, '=>', finalRotation)
-                setStore({ rotation: finalRotation })
+            if (info.offset.x > 0) {
+                // Dragged right - next variant (clockwise)
+                newIndex = (store.currentIndex + 1) % store.contentVariants.length
+                console.log('🚀 RIGHT: next variant (clockwise)')
             } else {
-                //console.log('✅ Rotation already applied during drag – skipping extra rotation on end')
+                // Dragged left - previous variant (counter-clockwise)  
+                newIndex = store.currentIndex === 0 
+                    ? store.contentVariants.length - 1 
+                    : store.currentIndex - 1
+                console.log('🚀 LEFT: previous variant (counter-clockwise)')
             }
             
-            // Clear gesture state
-            setStore({ gestureRotation: 0, hasSnapped: true })
+            // === INCREMENTAL ROTATION: Add/subtract 90° from current rotation ===
+            // Each drag gesture increments/decrements the rotation by 90°
+            // This creates a continuous spinning effect that can go beyond 360°
+            const rotationDelta = info.offset.x > 0 ? 90 : -90  // +90° for right drag, -90° for left drag
+            const newRotation = store.rotation + rotationDelta
             
-            // Handle variant switching (same threshold)
-            if (Math.abs(info.offset.x) >= rotationThreshold) {
-                let newIndex
-                
-                if (info.offset.x < 0) {
-                    // Dragged left - next variant
-                    newIndex = (store.currentIndex + 1) % store.contentVariants.length
-                    //console.log('🚀 Dragged LEFT - next variant:', store.contentVariants[newIndex])
-                } else {
-                    // Dragged right - previous variant
-                    newIndex = store.currentIndex === 0 
-                        ? store.contentVariants.length - 1 
-                        : store.currentIndex - 1
-                    //console.log('🚀 Dragged RIGHT - previous variant:', store.contentVariants[newIndex])
-                }
-                
-                //console.log('🔄 DRAG: switching variant to index', newIndex, 'rotation unchanged at', store.rotation)
-                setStore({ 
-                    currentIndex: newIndex,
-                    rotation: store.rotation, // Keep current rotation (don't reset to 0)
-                    gestureRotation: 0,
-                    hasSnapped: false
-                })
-            }
+            console.log('🔄 APPLYING: variant', store.contentVariants[newIndex], 'index', newIndex, 'rotation', newRotation)
+            
+            // === ATOMIC: Variant + rotation change together ===
+            setStore({ 
+                currentIndex: newIndex,
+                rotation: newRotation,
+                gestureRotation: 0,
+                hasSnapped: false,
+                isDragging: false
+            })
         }
 
         return (
@@ -327,34 +313,33 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
  * Variant Initialization Override - ONLY handles initial variant setup
  * Sets the initial variant based on data-framer-name or URL, then stops listening
  * Apply this to components that need initial variant but shouldn't change dynamically
+ * The rotation of the parent container will create the visual effect of switching variants
  */
 export function withVariantInitialization(Component: ComponentType): ComponentType {
     return forwardRef((props: any, ref) => {
         const [store] = useVariantStore()
         const initialVariantRef = useRef<string | null>(null)
         
-        // === INITIALIZATION ONLY: Capture variant once, never change ===
-        // Use useRef to store the initial variant and never update it
-        // This prevents re-renders on store changes
+        // === INITIALIZATION ONLY: Get initial variant from store once, never change ===
+        // Wait for store to be initialized, capture the variant, then never update it
+        // The parent rotation handles the visual switching effect
         
-        // Wait for store to be initialized
         if (!store.isInitialized) {
-            // Return a loading state or default variant while waiting
-            console.log("🔎 Variant initialization - waiting for store to initialize...")
+            // Return default variant while waiting for store
             return (
                 <Component
                     ref={ref}
                     {...props}
-                    variant={store.contentVariants[0]} // Default to first variant while waiting
+                    variant="Breakfast"
                 />
             )
         }
         
-        // Once initialized, capture the variant ONCE and never change it
+        // Once store is initialized, capture the variant ONCE and never change it
         if (initialVariantRef.current === null) {
-            const currentVariant = store.contentVariants[store.currentIndex]
-            initialVariantRef.current = currentVariant
-            console.log("🔎 Variant initialization - CAPTURED variant:", currentVariant, "at index:", store.currentIndex)
+            const initialVariant = store.contentVariants[store.currentIndex]
+            initialVariantRef.current = initialVariant
+            console.log("🔎 Variant initialization - CAPTURED variant:", initialVariant, "at index:", store.currentIndex, "- will never change")
         }
         
         // Always use the captured initial variant (never changes)
@@ -376,6 +361,13 @@ export function withContentVariantListener(Component: ComponentType): ComponentT
     return forwardRef((props: any, ref) => {
         const [store] = useVariantStore()
         const currentVariant = store.contentVariants[store.currentIndex]
+
+        // === INCREMENTAL ROTATION SYSTEM ===
+        // With incremental rotations, rotation and variant index are independent
+        // Rotation accumulates from user interactions, variant changes from store updates
+        // No need to check for mismatches in this system
+        
+        //console.log("👂 Variant listener - applying variant:", currentVariant)
 
         //console.log("👂 Variant listener - applying variant:", currentVariant)
 
@@ -439,13 +431,14 @@ export function withPrevious(Component: ComponentType): ComponentType {
         const [store, setStore] = useVariantStore()
 
         const handleClick = (event?: any) => {
-            // === BUTTON ROTATION: Manual +90° increment ===
-            // Advances to next variant AND applies +90° rotation increment
-            // Unlike drag, buttons apply rotation immediately without gesture states
+            // === BUTTON ROTATION: Go to next variant with incremental rotation ===
+            // Advances to next variant AND adds +90° to current rotation
+            // This creates the same incremental effect as drag gestures
             const nextIndex = (store.currentIndex + 1) % store.contentVariants.length
+            const newRotation = store.rotation + 90  // Add +90° to current rotation
             setStore({
                 currentIndex: nextIndex,           // Switch to next variant
-                rotation: store.rotation + 90,    // Add +90° to PERSISTENT rotation
+                rotation: newRotation,            // Increment rotation by +90°
                 gestureRotation: 0,               // Clear any temporary rotation
                 hasSnapped: true,                 // Mark as "completed gesture" state
                 isDragging: false,                // Ensure drag state is clear
@@ -475,16 +468,17 @@ export function withNext(Component: ComponentType): ComponentType {
         const [store, setStore] = useVariantStore()
 
         const handleClick = (event?: any) => {
-            // === BUTTON ROTATION: Manual -90° increment ===
-            // Goes to previous variant AND applies -90° rotation increment  
-            // Unlike drag, buttons apply rotation immediately without gesture states
+            // === BUTTON ROTATION: Go to previous variant with incremental rotation ===
+            // Goes to previous variant AND subtracts -90° from current rotation
+            // This creates the same incremental effect as drag gestures
             const prevIndex = store.currentIndex === 0 ? store.contentVariants.length - 1 : store.currentIndex - 1
+            const newRotation = store.rotation - 90  // Subtract -90° from current rotation
             setStore({
                 currentIndex: prevIndex,           // Switch to previous variant
-                rotation: store.rotation - 90,    // Subtract 90° from PERSISTENT rotation
+                rotation: newRotation,            // Decrement rotation by -90°
                 gestureRotation: 0,               // Clear any temporary rotation
                 hasSnapped: true,                 // Mark as "completed gesture" state
-                isDragging: false,
+                isDragging: false,                // Ensure drag state is clear
             })
             if (props.onClick) props.onClick(event)
             if (props.onTap) props.onTap(event)
