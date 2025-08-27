@@ -16,20 +16,20 @@ const useVariantStore = createStore({
     // === ROTATION SYSTEM ===
     // The rotation system tracks 2 types of rotation:
     // 1. PERSISTENT rotation from completed drag gestures (stored in `rotation`)
-    // 2. TEMPORARY rotation during active dragging (stored in `gestureRotation`) 
-    
+    // 2. TEMPORARY rotation during active dragging (stored in `gestureRotation`)
+
     rotation: 0, // PERSISTENT: Cumulative rotation from all completed drag gestures (±90° increments)
-                 // Always starts at 0° and accumulates: 0° → 90° → 180° → 270° → 360° etc.
-                 // Persists across variant changes (rotation doesn't reset when switching variants)
-    
+    // Always starts at 0° and accumulates: 0° → 90° → 180° → 270° → 360° etc.
+    // Persists across variant changes (rotation doesn't reset when switching variants)
+
     gestureRotation: 0, // TEMPORARY: Subtle rotation during active drag gesture (0° to ±8°)
-                        // Used for visual feedback while dragging (tilt effect)
-                        // Reset to 0 when drag ends or snaps to full rotation
-                        // This creates the "preview" of rotation direction before committing
-    
+    // Used for visual feedback while dragging (tilt effect)
+    // Reset to 0 when drag ends or snaps to full rotation
+    // This creates the "preview" of rotation direction before committing
+
     isDragging: false, // Flag: true when user is actively dragging
     hasSnapped: false, // Flag: true when current drag gesture has already applied a ±90° rotation
-                        // Prevents multiple rotations per single drag gesture
+    // Prevents multiple rotations per single drag gesture
     isInitialized: false, // Flag: true when store has been initialized (prevents multiple inits)
 })
 
@@ -48,34 +48,40 @@ const VARIANT_KEYS = ["breakfast", "lunch", "snacks", "dinner"]
 function createInitialIndexSetter(targetIndex: number) {
     return function withSetIndex(Component: ComponentType): ComponentType {
         return forwardRef((props: any, ref) => {
+            // CANVAS MODE: Skip all logic, let Framer handle variants natively
+            if (RenderTarget.current() === RenderTarget.canvas) {
+                return <Component ref={ref} {...props} />
+            }
+
             const [store, setStore] = useVariantStore()
             const hasInitialized = useRef(false)
-            const componentId = useRef(Math.random().toString(36).substr(2, 9))
-            
+
             // CRITICAL: Set store EXACTLY ONCE before any rendering
             // Use ref to prevent multiple calls during React's reconciliation
             if (!hasInitialized.current && !store.isInitialized) {
                 hasInitialized.current = true
-                setStore({ 
+                setStore({
                     currentIndex: targetIndex,
                     rotation: 0,
                     gestureRotation: 0,
                     isDragging: false,
                     hasSnapped: false,
-                    isInitialized: true
+                    isInitialized: true,
                 })
             }
-            
+
             // FRAMER PREVIEW RELOAD DETECTION: Reset on every component mount in preview
             // This handles Framer's navigation/reload behavior where components re-mount
             useLayoutEffect(() => {
                 if (store.isInitialized && store.currentIndex !== targetIndex) {
                     // In Framer preview, always reset to target variant on mount
                     // This ensures store variants match native Framer variants after navigation
-                    console.log(`🔄 Framer reload detected - resetting to variant ${targetIndex} (${store.contentVariants[targetIndex]})`)
-                    setStore({ 
+                    console.log(
+                        `🔄 Framer reload detected - resetting to variant ${targetIndex} (${store.contentVariants[targetIndex]})`
+                    )
+                    setStore({
                         currentIndex: targetIndex,
-                        rotation: 0  // Also reset rotation to ensure full sync
+                        rotation: 0, // Also reset rotation to ensure full sync
                     })
                 }
             }, []) // Empty deps = runs only on mount
@@ -114,12 +120,12 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
             else if (ref && typeof (ref as any) === "object")
                 (ref as any).current = node
         }
-        
+
         const handleDragStart = () => {
             // === DRAG START: Initialize new gesture ===
             // Reset TEMPORARY rotation values but keep PERSISTENT rotation from previous gestures
             // - isDragging: true (enables gestureRotation in rotation listener)
-            // - gestureRotation: 0 (reset temporary rotation for new gesture)  
+            // - gestureRotation: 0 (reset temporary rotation for new gesture)
             // - hasSnapped: false (allow this gesture to apply rotation)
             // - rotation: UNCHANGED (keep accumulated rotation from previous drags)
             setStore({
@@ -135,7 +141,7 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
 
         const handleDrag = (event: any, info: any) => {
             //console.log('🔄 Drag event - offsetX:', info.offset.x, 'hasSnapped:', store.hasSnapped)
-            
+
             // === DRAG PREVENTION: One rotation per gesture ===
             // If we already applied a ±90° rotation during this drag, ignore further updates
             // This prevents multiple snaps during a single long drag gesture
@@ -150,9 +156,9 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
             const vwThreshold =
                 typeof window !== "undefined" ? window.innerWidth * 0.05 : 0
             const rotationThreshold = Math.max(100, vwThreshold) // px or 5vw, whichever is larger
-            
+
             //console.log('🔄 Threshold check - offsetX:', Math.abs(info.offset.x), 'threshold:', rotationThreshold)
-            
+
             // === BELOW THRESHOLD: No rotation yet ===
             if (Math.abs(info.offset.x) < rotationThreshold) {
                 // Movement too small - reset any temporary rotation and wait for more movement
@@ -160,7 +166,7 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                 setStore({ gestureRotation: 0 })
                 return
             }
-            
+
             // === GESTURE ROTATION: Subtle tilt during drag ===
             // Creates visual feedback showing rotation direction without committing to full rotation
             // Maps drag progress to 0°-8° rotation for subtle tilt effect
@@ -172,7 +178,7 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                 dragProgress * maxRotation,
                 maxRotation
             )
-            
+
             // === ROTATION DIRECTION: Apply rotation based on drag direction ===
             // info.offset.x > 0: drag right → positive rotation (follows mouse)
             // info.offset.x < 0: drag left → negative rotation (follows mouse)
@@ -180,7 +186,7 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                 info.offset.x > 0
                     ? currentDragRotation // positive (right drag = positive)
                     : -currentDragRotation // negative (left drag = negative)
-            
+
             // Update TEMPORARY gestureRotation (will be added to persistent rotation in listener)
             setStore({ gestureRotation: newRotation })
             //console.log('🔄 Central drag - gestureRotation:', newRotation, 'offsetX:', info.offset.x)
@@ -188,10 +194,10 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
 
         const handleDragEnd = (event: any, info: any) => {
             console.log("🔄 Drag end - offsetX:", info.offset.x)
-            
+
             // === THRESHOLD CHECK: 100px minimum for variant change ===
             const threshold = 100 // Fixed 100px threshold
-            
+
             if (Math.abs(info.offset.x) < threshold) {
                 // Too small - just clear drag state, no variant change
                 setStore({
@@ -202,16 +208,16 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                 console.log("🔄 Drag too small - no changes")
                 return
             }
-            
+
             // === DRAG > 100px: Switch variant AND update rotation to match ===
             let newIndex
-            
+
             if (info.offset.x > 0) {
                 // Dragged right - DECREASE index (clockwise rotation -90°)
                 newIndex =
                     store.currentIndex === 0
-                    ? store.contentVariants.length - 1 
-                    : store.currentIndex - 1
+                        ? store.contentVariants.length - 1
+                        : store.currentIndex - 1
                 console.log("🚀 RIGHT: previous variant (clockwise rotation)")
             } else {
                 // Dragged left - INCREASE index (counter-clockwise rotation +90°)
@@ -221,13 +227,13 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                     "🚀 LEFT: next variant (counter-clockwise rotation)"
                 )
             }
-            
+
             // === INCREMENTAL ROTATION: Add/subtract 90° from current rotation ===
             // Each drag gesture increments/decrements the rotation by 90°
             // This creates a continuous spinning effect that can go beyond 360°
             const rotationDelta = info.offset.x > 0 ? 90 : -90 // +90° for right drag, -90° for left drag
             const newRotation = store.rotation + rotationDelta
-            
+
             console.log(
                 "🔄 APPLYING: variant",
                 store.contentVariants[newIndex],
@@ -236,9 +242,9 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                 "rotation",
                 newRotation
             )
-            
+
             // === ATOMIC: Variant + rotation change together ===
-            setStore({ 
+            setStore({
                 currentIndex: newIndex,
                 rotation: newRotation,
                 gestureRotation: 0,
@@ -291,6 +297,11 @@ export function withContentVariantListener(
     Component: ComponentType
 ): ComponentType {
     return forwardRef((props: any, ref) => {
+        // CANVAS MODE: Skip all logic, let Framer handle variants natively
+        if (RenderTarget.current() === RenderTarget.canvas) {
+            return <Component ref={ref} {...props} />
+        }
+
         const [store] = useVariantStore()
         const currentVariant = store.contentVariants[store.currentIndex]
 
@@ -298,7 +309,7 @@ export function withContentVariantListener(
         // With incremental rotations, rotation and variant index are independent
         // Rotation accumulates from user interactions, variant changes from store updates
         // No need to check for mismatches in this system
-        
+
         //console.log("👂 Variant listener - applying variant:", currentVariant)
 
         return <Component ref={ref} {...props} variant={currentVariant} />
@@ -311,6 +322,11 @@ export function withContentVariantListener(
  */
 export function withRotationListener(Component: ComponentType): ComponentType {
     return forwardRef((props: any, ref) => {
+        // CANVAS MODE: Skip all logic, let Framer handle variants natively
+        if (RenderTarget.current() === RenderTarget.canvas) {
+            return <Component ref={ref} {...props} />
+        }
+
         const [store, setStore] = useVariantStore()
 
         // === ENSURE ROTATION STARTS AT 0° ON FIRST LOAD ===
@@ -327,7 +343,7 @@ export function withRotationListener(Component: ComponentType): ComponentType {
         // Example states:
         // - At rest: currentRotation = 180° + 177° (shows tilt direction)
         // - During drag: currentRotation = 180° + (-3°) = 177° (shows tilt direction)
-        // - After snap: currentRotation = 270° + 0° = 270° (new persistent rotation)
+        // - After snap: currentRotation = 270° + 0° = 0° (new persistent rotation)
         const currentRotation =
             store.rotation + (store.isDragging ? store.gestureRotation : 0)
         
