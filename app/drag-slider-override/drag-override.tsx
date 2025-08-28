@@ -56,29 +56,31 @@ function createInitialIndexSetter(targetIndex: number) {
             const [store, setStore] = useVariantStore()
             const hasInitialized = useRef(false)
 
-            // CRITICAL: Set store EXACTLY ONCE before any rendering
-            // Use ref to prevent multiple calls during React's reconciliation
-            if (!hasInitialized.current && !store.isInitialized) {
-                hasInitialized.current = true
-                setStore({
-                    currentIndex: targetIndex,
-                    rotation: 0,
-                    gestureRotation: 0,
-                    isDragging: false,
-                    hasSnapped: false,
-                    isInitialized: true,
-                })
-            }
+            // CRITICAL: Set store EXACTLY ONCE, but do it in a passive effect
+            // so we don't update during hydration and trip Suspense boundaries
+            useEffect(() => {
+                if (!hasInitialized.current && !store.isInitialized) {
+                    hasInitialized.current = true
+                    setStore({
+                        currentIndex: targetIndex,
+                        rotation: 0,
+                        gestureRotation: 0,
+                        isDragging: false,
+                        hasSnapped: false,
+                        isInitialized: true,
+                    })
+                }
+            }, [store.isInitialized])
 
             // FRAMER PREVIEW RELOAD DETECTION: Reset on every component mount in preview
             // This handles Framer's navigation/reload behavior where components re-mount
-            useLayoutEffect(() => {
+            useEffect(() => {
                 if (store.isInitialized && store.currentIndex !== targetIndex) {
                     // In Framer preview, always reset to target variant on mount
                     // This ensures store variants match native Framer variants after navigation
-                    console.log(
-                        `🔄 Framer reload detected - resetting to variant ${targetIndex} (${store.contentVariants[targetIndex]})`
-                    )
+                    // console.log(
+                    //     `🔄 Framer reload detected - resetting to variant ${targetIndex} (${store.contentVariants[targetIndex]})`
+                    // )
                     setStore({
                         currentIndex: targetIndex,
                         rotation: 0, // Also reset rotation to ensure full sync
@@ -193,7 +195,7 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
         }
 
         const handleDragEnd = (event: any, info: any) => {
-            console.log("🔄 Drag end - offsetX:", info.offset.x)
+            //console.log("🔄 Drag end - offsetX:", info.offset.x)
 
             // === THRESHOLD CHECK: 100px minimum for variant change ===
             const threshold = 100 // Fixed 100px threshold
@@ -205,7 +207,7 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                     gestureRotation: 0,
                     hasSnapped: false,
                 })
-                console.log("🔄 Drag too small - no changes")
+                //console.log("🔄 Drag too small - no changes")
                 return
             }
 
@@ -218,14 +220,14 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
                     store.currentIndex === 0
                         ? store.contentVariants.length - 1
                         : store.currentIndex - 1
-                console.log("🚀 RIGHT: previous variant (clockwise rotation)")
+                //console.log("🚀 RIGHT: previous variant (clockwise rotation)")
             } else {
                 // Dragged left - INCREASE index (counter-clockwise rotation +90°)
                 newIndex =
                     (store.currentIndex + 1) % store.contentVariants.length
-                console.log(
-                    "🚀 LEFT: next variant (counter-clockwise rotation)"
-                )
+                //console.log(
+                //    "🚀 LEFT: next variant (counter-clockwise rotation)"
+                //)
             }
 
             // === INCREMENTAL ROTATION: Add/subtract 90° from current rotation ===
@@ -234,14 +236,14 @@ export function withVariantDrag(Component: ComponentType): ComponentType {
             const rotationDelta = info.offset.x > 0 ? 90 : -90 // +90° for right drag, -90° for left drag
             const newRotation = store.rotation + rotationDelta
 
-            console.log(
-                "🔄 APPLYING: variant",
-                store.contentVariants[newIndex],
-                "index",
-                newIndex,
-                "rotation",
-                newRotation
-            )
+            // console.log(
+            //     "🔄 APPLYING: variant",
+            //     store.contentVariants[newIndex],
+            //     "index",
+            //     newIndex,
+            //     "rotation",
+            //     newRotation
+            // )
 
             // === ATOMIC: Variant + rotation change together ===
             setStore({
@@ -305,14 +307,31 @@ export function withContentVariantListener(
         const [store] = useVariantStore()
         const currentVariant = store.contentVariants[store.currentIndex]
 
+        // Gate variant application until after mount and initialization
+        // to avoid updates during hydration and the initial flash
+        const [isMounted, setIsMounted] = useState(false)
+        useEffect(() => {
+            setIsMounted(true)
+        }, [])
+
         // === INCREMENTAL ROTATION SYSTEM ===
         // With incremental rotations, rotation and variant index are independent
         // Rotation accumulates from user interactions, variant changes from store updates
         // No need to check for mismatches in this system
 
         //console.log("👂 Variant listener - applying variant:", currentVariant)
-
-        return <Component ref={ref} {...props} variant={currentVariant} />
+        return (
+            <Component
+                ref={ref}
+                {...props}
+                // Hide until mounted to prevent the flash of wrong variant
+                style={{
+                    ...props.style,
+                    visibility: isMounted ? (props.style?.visibility ?? "visible") : "hidden",
+                }}
+                {...(isMounted ? { variant: currentVariant } : {})}
+            />
+        )
     })
 }
 

@@ -13,17 +13,28 @@ interface GradientBlindsProps {
   className?: string;
   dpr?: number;
   paused?: boolean;
-  gradientColors?: string[];
+  colors?: {
+    paletteCount?: number;
+    bgColor?: string;
+    color1?: string;
+    color2?: string;
+    color3?: string;
+    color4?: string;
+    color5?: string;
+    color6?: string;
+    color7?: string;
+    color8?: string;
+  };
   angle?: number;
   noise?: number;
   blindCount?: number;
   blindMinWidth?: number;
-  mouseDampening?: number;
   mirrorGradient?: boolean;
   spotlight?: {
     radius?: number;
     softness?: number;
     opacity?: number;
+    mouseDampening?: number;
   };
   distortAmount?: number;
   shineDirection?: "left" | "right";
@@ -31,6 +42,83 @@ interface GradientBlindsProps {
 }
 
 const MAX_COLORS = 8;
+
+// CSS variable token and color parsing (hex/rgba/var())
+const cssVariableRegex =
+    /var\s*\(\s*(--[\w-]+)(?:\s*,\s*((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*))?\s*\)/
+
+function extractDefaultValue(cssVar: string): string {
+    if (!cssVar || !cssVar.startsWith("var(")) return cssVar
+    const match = cssVariableRegex.exec(cssVar)
+    if (!match) return cssVar
+    const fallback = (match[2] || "").trim()
+    if (fallback.startsWith("var(")) return extractDefaultValue(fallback)
+    return fallback || cssVar
+}
+
+function resolveTokenColor(input: any): any {
+    if (typeof input !== "string") return input
+    if (!input.startsWith("var(")) return input
+    return extractDefaultValue(input)
+}
+
+function parseColorToRgba(input: string): {
+    r: number
+    g: number
+    b: number
+    a: number
+} {
+    if (!input) return { r: 0, g: 0, b: 0, a: 1 }
+    const str = input.trim()
+    
+    // rgba(R,G,B,A)
+    const rgbaMatch = str.match(
+        /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
+    )
+    if (rgbaMatch) {
+        const r = Math.max(0, Math.min(255, parseFloat(rgbaMatch[1]))) / 255
+        const g = Math.max(0, Math.min(255, parseFloat(rgbaMatch[2]))) / 255
+        const b = Math.max(0, Math.min(255, parseFloat(rgbaMatch[3]))) / 255
+        const a =
+            rgbaMatch[4] !== undefined
+                ? Math.max(0, Math.min(1, parseFloat(rgbaMatch[4])))
+                : 1
+        return { r, g, b, a }
+    }
+    
+    // #RRGGBBAA or #RRGGBB
+    const hex = str.replace(/^#/, "")
+    if (hex.length === 8) {
+        const r = parseInt(hex.slice(0, 2), 16) / 255
+        const g = parseInt(hex.slice(2, 4), 16) / 255
+        const b = parseInt(hex.slice(4, 6), 16) / 255
+        const a = parseInt(hex.slice(6, 8), 16) / 255
+        return { r, g, b, a }
+    }
+    if (hex.length === 6) {
+        const r = parseInt(hex.slice(0, 2), 16) / 255
+        const g = parseInt(hex.slice(2, 4), 16) / 255
+        const b = parseInt(hex.slice(4, 6), 16) / 255
+        return { r, g, b, a: 1 }
+    }
+    if (hex.length === 4) {
+        // #RGBA
+        const r = parseInt(hex[0] + hex[0], 16) / 255
+        const g = parseInt(hex[1] + hex[1], 16) / 255
+        const b = parseInt(hex[2] + hex[2], 16) / 255
+        const a = parseInt(hex[3] + hex[3], 16) / 255
+        return { r, g, b, a }
+    }
+    if (hex.length === 3) {
+        // #RGB
+        const r = parseInt(hex[0] + hex[0], 16) / 255
+        const g = parseInt(hex[1] + hex[1], 16) / 255
+        const b = parseInt(hex[2] + hex[2], 16) / 255
+        return { r, g, b, a: 1 }
+    }
+    return { r: 0, g: 0, b: 0, a: 1 }
+}
+
 const hexToRGB = (hex: string): [number, number, number] => {
   const c = hex.replace("#", "").padEnd(6, "0");
   const r = parseInt(c.slice(0, 2), 16) / 255;
@@ -38,35 +126,84 @@ const hexToRGB = (hex: string): [number, number, number] => {
   const b = parseInt(c.slice(4, 6), 16) / 255;
   return [r, g, b];
 };
-const prepStops = (stops?: string[]) => {
-  const base = (stops && stops.length ? stops : ["#FF9FFC", "#5227FF"]).slice(
-    0,
-    MAX_COLORS
-  );
-  if (base.length === 1) base.push(base[0]);
-  while (base.length < MAX_COLORS) base.push(base[base.length - 1]);
+const prepStops = (stops?: string[], paletteCount?: number) => {
+  // Debug logging
+  if (typeof window !== 'undefined') {
+    console.log('prepStops - Input stops:', stops);
+    console.log('prepStops - Type of stops:', typeof stops);
+    console.log('prepStops - Is array:', Array.isArray(stops));
+  }
+  
+  // Ensure we have valid colors and handle edge cases
+  let base: string[];
+  
+  if (stops && Array.isArray(stops) && stops.length > 0) {
+    // Filter out invalid colors, resolve CSS variables, and ensure they have # prefix
+    base = stops
+      .filter(color => color && typeof color === 'string' && color.trim() !== '')
+      .map(color => {
+        const resolved = resolveTokenColor(color);
+        const rgba = parseColorToRgba(resolved);
+        // Convert back to hex for the shader
+        const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0');
+        return `#${toHex(rgba.r)}${toHex(rgba.g)}${toHex(rgba.b)}`;
+      })
+      .slice(0, MAX_COLORS);
+    
+    if (typeof window !== 'undefined') {
+      console.log('prepStops - Filtered base colors:', base);
+    }
+  } else {
+    base = ["#FF9FFC", "#5227FF"];
+    if (typeof window !== 'undefined') {
+      console.log('prepStops - Using default colors:', base);
+    }
+  }
+  
+  // Ensure we have at least 2 colors
+  if (base.length === 0) {
+    base = ["#FF9FFC", "#5227FF"];
+  } else if (base.length === 1) {
+    base.push(base[0]);
+  }
+  
+  // Fill remaining slots with the last color
+  while (base.length < MAX_COLORS) {
+    base.push(base[base.length - 1]);
+  }
+  
   const arr: [number, number, number][] = [];
-  for (let i = 0; i < MAX_COLORS; i++) arr.push(hexToRGB(base[i]));
-  const count = Math.max(2, Math.min(MAX_COLORS, stops?.length ?? 2));
-  return { arr, count };
+  for (let i = 0; i < MAX_COLORS; i++) {
+    arr.push(hexToRGB(base[i]));
+  }
+  
+  // Use the actual number of colors provided, not the padded array length
+  const actualCount = Math.max(1, Math.min(MAX_COLORS, paletteCount || stops?.length || 2));
+  
+  if (typeof window !== 'undefined') {
+    console.log('prepStops - Final result:', { base, arr, count: actualCount });
+  }
+  
+  return { arr, count: actualCount };
 };
 
 export default function GradientBlinds ({
   className,
   dpr,
   paused = false,
-  gradientColors,
+  colors,
   angle = 0,
   noise = 0.3,
   blindCount = 16,
   blindMinWidth = 60,
-  mouseDampening = 0.15,
   mirrorGradient = false,
-  spotlight = { radius: 0.5, softness: 1, opacity: 1 },
+  spotlight = { radius: 0.5, softness: 1, opacity: 1, mouseDampening: 0.3},
   distortAmount = 0,
   shineDirection = "left",
   mixBlendMode = "lighten",
 }: GradientBlindsProps) {
+  const bgColor = colors?.bgColor;
+  const mouseDampening = spotlight?.mouseDampening || 0.3;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const programRef = useRef<typeof Program | null>(null);
@@ -76,6 +213,13 @@ export default function GradientBlinds ({
   const mouseTargetRef = useRef<[number, number]>([0, 0]);
   const lastTimeRef = useRef<number>(0);
   const firstResizeRef = useRef<boolean>(true);
+
+  // Debug effect to monitor gradientColors changes
+  useEffect(() => {
+    if (RenderTarget.current() === RenderTarget.canvas) {
+      console.log('GradientBlinds - gradientColors prop changed:', colors);
+    }
+  }, [colors]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -87,10 +231,17 @@ export default function GradientBlinds ({
         (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1),
       alpha: true,
       antialias: true,
+      background: null, // Ensure no background color is set
+      premultipliedAlpha: false, // Important for proper alpha blending
     });
     rendererRef.current = renderer;
     const gl = renderer.gl;
     const canvas = gl.canvas as HTMLCanvasElement;
+
+    // Ensure WebGL context is transparent
+    gl.clearColor(0, 0, 0, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     canvas.style.width = "100%";
     canvas.style.height = "100%";
@@ -99,6 +250,8 @@ export default function GradientBlinds ({
     canvas.style.inset = "0";
     canvas.style.margin = "0";
     canvas.style.padding = "0";
+    canvas.style.background = "transparent"; // Ensure canvas background is transparent
+    canvas.style.backgroundColor = "transparent"; // Double-check canvas background
     container.appendChild(canvas);
 
     const vertex = `
@@ -214,7 +367,11 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 col = cir + base - ran;
     col += (rand(gl_FragCoord.xy + iTime) - 0.5) * uNoise;
 
-    fragColor = vec4(col, 1.0);
+    // Calculate alpha based on content - transparent where there's no effect
+    float alpha = max(max(col.r, col.g), col.b);
+    alpha = clamp(alpha, 0.0, 1.0);
+    
+    fragColor = vec4(col, alpha);
 }
 
 void main() {
@@ -224,7 +381,30 @@ void main() {
 }
 `;
 
-    const { arr: colorArr, count: colorCount } = prepStops(gradientColors);
+    const { arr: colorArr, count: colorCount } = prepStops([
+      colors?.color1, colors?.color2, colors?.color3, colors?.color4, colors?.color5, colors?.color6, colors?.color7, colors?.color8
+    ].filter(Boolean) as string[], colors?.paletteCount);
+    
+    // Debug logging to help troubleshoot color issues
+    if (RenderTarget.current() === RenderTarget.canvas) {
+      console.log('GradientBlinds - Background color:', bgColor);
+      console.log('GradientBlinds - Resolved background:', bgColor ? resolveTokenColor(bgColor) : null);
+      console.log('GradientBlinds - Palette count:', colors?.paletteCount);
+      console.log('GradientBlinds - Input colors:', [colors?.color1, colors?.color2, colors?.color3, colors?.color4, colors?.color5, colors?.color6, colors?.color7, colors?.color8]);
+      console.log('GradientBlinds - Resolved colors:', [
+        colors?.color1 ? resolveTokenColor(colors.color1) : null,
+        colors?.color2 ? resolveTokenColor(colors.color2) : null,
+        colors?.color3 ? resolveTokenColor(colors.color3) : null,
+        colors?.color4 ? resolveTokenColor(colors.color4) : null,
+        colors?.color5 ? resolveTokenColor(colors.color5) : null,
+        colors?.color6 ? resolveTokenColor(colors.color6) : null,
+        colors?.color7 ? resolveTokenColor(colors.color7) : null,
+        colors?.color8 ? resolveTokenColor(colors.color8) : null,
+      ]);
+      console.log('GradientBlinds - Processed colors:', colorArr);
+      console.log('GradientBlinds - Color count:', colorCount);
+    }
+    
     const uniforms: {
       iResolution: { value: [number, number, number] };
       iMouse: { value: [number, number] };
@@ -272,6 +452,26 @@ void main() {
       uColor7: { value: colorArr[7] },
       uColorCount: { value: colorCount },
     };
+
+    // Debug logging for uniforms
+    if (RenderTarget.current() === RenderTarget.canvas) {
+      console.log('GradientBlinds - Spotlight values:', {
+        radius: spotlight?.radius,
+        softness: spotlight?.softness,
+        opacity: spotlight?.opacity,
+        mouseDampening: spotlight?.mouseDampening,
+      });
+      console.log('GradientBlinds - Uniforms:', {
+        uSpotlightRadius: uniforms.uSpotlightRadius.value,
+        uSpotlightSoftness: uniforms.uSpotlightSoftness.value,
+        uSpotlightOpacity: uniforms.uSpotlightOpacity.value,
+        uColorCount: uniforms.uColorCount.value,
+        uColor0: uniforms.uColor0.value,
+        uColor1: uniforms.uColor1.value,
+        uColor2: uniforms.uColor2.value,
+        uColor3: uniforms.uColor3.value,
+      });
+    }
 
     const program = new Program(gl, {
       vertex,
@@ -398,12 +598,12 @@ void main() {
   }, [
     dpr,
     paused,
-    gradientColors,
+    bgColor,
+    colors,
     angle,
     noise,
     blindCount,
     blindMinWidth,
-    mouseDampening,
     mirrorGradient,
     spotlight,
     distortAmount,
@@ -412,17 +612,28 @@ void main() {
 
   return (
     <div
-      ref={containerRef}
       style={{
         width: "100%",
         height: "100%",
         overflow: "hidden",
         position: "relative",
+        background: bgColor || "#000000",
         ...(mixBlendMode && {
           mixBlendMode: mixBlendMode as React.CSSProperties["mixBlendMode"],
         }),
       }}
-    />
+    >
+      {/* WebGL canvas container */}
+      <div
+        ref={containerRef}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+        }}
+      />
+    </div>
   );
 };
 
@@ -432,12 +643,23 @@ GradientBlinds.defaultProps = {
   noise: 0.3,
   blindCount: 16,
   blindMinWidth: 60,
-  mouseDampening: 0.15,
   mirrorGradient: false,
-  spotlight: { radius: 0.5, softness: 1, opacity: 1 },
+  spotlight: { radius: 0.5, softness: 1, opacity: 1, mouseDampening: 0.3 },
   distortAmount: 0,
   shineDirection: "left" as const,
   mixBlendMode: "lighten" as const,
+  bgColor: "#000000",
+  colors: {
+    paletteCount: 2,
+    color1: "#FF9FFC",
+    color2: "#5227FF",
+    color3: "#FF9FFC",
+    color4: "#5227FF",
+    color5: "#FF9FFC",
+    color6: "#5227FF",
+    color7: "#FF9FFC",
+    color8: "#FF9FFC",
+  },
 };
 
 addPropertyControls(GradientBlinds, {
@@ -452,24 +674,8 @@ addPropertyControls(GradientBlinds, {
   paused: {
     type: ControlType.Boolean,
     title: "paused",
-  },
-  mirrorGradient: {
-    type: ControlType.Boolean,
-    title: "Mirror",
-  },
-  angle: {
-    type: ControlType.Number,
-    title: "angle",
-    min: 0,
-    max: 360,
-    unit: "°",
-  },
-  noise: {
-    type: ControlType.Number,
-    title: "noise",
-    min: 0,
-    max: 1,
-    step: 0.1,
+    hidden:()=> true,
+    defaultValue: true,
   },
   blindCount: {
     type: ControlType.Number,
@@ -485,16 +691,23 @@ addPropertyControls(GradientBlinds, {
     max: 200,
     unit: "px",
   },
-  mouseDampening: {
+  angle: {
     type: ControlType.Number,
-    title: "Smoothing",
+    title: "angle",
+    min: 0,
+    max: 360,
+    unit: "°",
+  },
+  noise: {
+    type: ControlType.Number,
+    title: "noise",
     min: 0,
     max: 1,
-    step: 0.01,
+    step: 0.1,
   },
   distortAmount: {
     type: ControlType.Number,
-    title: "distortAmount",
+    title: "Waveness",
     min: 0,
     max: 10,
     step: 0.1,
@@ -503,6 +716,10 @@ addPropertyControls(GradientBlinds, {
     type: ControlType.Enum,
     title: "Direction",
     options: ["left", "right"],
+  },
+  mirrorGradient: {
+    type: ControlType.Boolean,
+    title: "Mirror",
   },
   mixBlendMode: {
     type: ControlType.Enum,
@@ -520,9 +737,18 @@ addPropertyControls(GradientBlinds, {
         max: 2,
         step: 0.1,
       },
+      mouseDampening: {
+        type: ControlType.Number,
+        title: "Smoothing",
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.3,
+      },
+      
       softness: {
         type: ControlType.Number,
-        title: "softness",
+        title: "Presence",
         min: 0.1,
         max: 3,
         step: 0.1,
@@ -533,16 +759,78 @@ addPropertyControls(GradientBlinds, {
         min: 0,
         max: 1,
         step: 0.1,
+        defaultValue: 1,
+        // Controls the intensity of the spotlight effect (0 = no spotlight, 1 = full spotlight)
       },
     },
   },
-  gradientColors: {
-    type: ControlType.Array,
+  
+  colors: {
+    type: ControlType.Object,
     title: "Colors",
-    control: {
-      type: ControlType.Color,
+    controls: {
+      paletteCount: {
+        type: ControlType.Number,
+        title: "Palette Size",
+        min: 1,
+        max: 8,
+        step: 1,
+        defaultValue: 2,
+      },
+      bgColor: {
+        type: ControlType.Color,
+        title: "Background",
+        defaultValue: "#000000",
+        // Supports Framer color tokens and opacity (e.g., var(--token-bg, #000000) or rgba(0,0,0,0.5))
+      },
+      color1: {
+        type: ControlType.Color,
+        title: "Color 1",
+        defaultValue: "#FF9FFC",
+      },
+      color2: {
+        type: ControlType.Color,
+        title: "Color 2",
+        defaultValue: "#5227FF",
+        hidden: (props: any) => (props?.paletteCount ?? 2) < 2,
+      },
+      color3: {
+        type: ControlType.Color,
+        title: "Color 3",
+        defaultValue: "#FF9FFC",
+        hidden: (props: any) => (props?.paletteCount ?? 2) < 3,
+      },
+      color4: {
+        type: ControlType.Color,
+        title: "Color 4",
+        defaultValue: "#5227FF",
+        hidden: (props: any) => (props?.paletteCount ?? 2) < 4,
+      },
+      color5: {
+        type: ControlType.Color,
+        title: "Color 5",
+        defaultValue: "#FF9FFC",
+        hidden: (props: any) => (props?.paletteCount ?? 2) < 5,
+      },
+      color6: {
+        type: ControlType.Color,
+        title: "Color 6",
+        defaultValue: "#5227FF",
+        hidden: (props: any) => (props?.paletteCount ?? 2) < 6,
+      },
+      color7: {
+        type: ControlType.Color,
+        title: "Color 7",
+        defaultValue: "#FF9FFC",
+        hidden: (props: any) => (props?.paletteCount ?? 2) < 7,
+      },
+      color8: {
+        type: ControlType.Color,
+        title: "Color 8",
+        defaultValue: "#FF9FFC",
+        hidden: (props: any) => (props?.paletteCount ?? 2) < 8,
+      },
     },
-    maxCount: 8,
   },
 });
 
