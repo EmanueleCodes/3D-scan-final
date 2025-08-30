@@ -11,7 +11,6 @@ interface ElectricBorderProps {
     intensity?: number
     borderThickness?: number
     glowPadding?: number
-    className?: string
     style?: React.CSSProperties
 }
 
@@ -37,15 +36,19 @@ export default function ElectricBorder({
     const svgRef = useRef<SVGSVGElement>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const strokeRef = useRef<HTMLDivElement>(null)
+    const filterCreatedRef = useRef(false)
+    const isVisibleRef = useRef(true)
 
     const shouldAnimate =
-        speed > 0 && (RenderTarget.current() === RenderTarget.preview ||
-        (preview && RenderTarget.current() === RenderTarget.canvas))
+        speed > 0 &&
+        isVisibleRef.current &&
+        (RenderTarget.current() === RenderTarget.preview ||
+            (preview && RenderTarget.current() === RenderTarget.canvas))
 
     // Calculate intensity-based values for spikiness (same as fallback version)
-    const baseFreq = 0.005 + (intensity * 0.0095) // 0.005 to 0.1
-    const octaves = Math.round(3 + (intensity * 0.9)) // 3 to 12
-    const displacementScale = 10 + (intensity * 5) // 10 to 60
+    const baseFreq = 0.005 + intensity * 0.0095 // 0.005 to 0.1
+    const octaves = Math.round(3 + intensity * 0.9) // 3 to 12
+    const displacementScale = 10 + intensity * 5 // 10 to 60
 
     const updateAnim = () => {
         const svg = svgRef.current
@@ -53,7 +56,14 @@ export default function ElectricBorder({
         if (!svg || !host) return
 
         if (strokeRef.current) {
-            strokeRef.current.style.filter = `url(#${filterId})`
+            // Only apply filter once when it's ready
+            if (!filterCreatedRef.current) {
+                const filterEl = svg.querySelector(`#${CSS.escape(filterId)}`)
+                if (filterEl) {
+                    strokeRef.current.style.filter = `url(#${filterId})`
+                    filterCreatedRef.current = true
+                }
+            }
         }
 
         const width = Math.max(
@@ -72,14 +82,15 @@ export default function ElectricBorder({
         const dyAnims = Array.from(
             svg.querySelectorAll('feOffset > animate[attributeName="dy"]')
         )
+        const dxAnims = Array.from(
+            svg.querySelectorAll('feOffset > animate[attributeName="dx"]')
+        )
+
         if (dyAnims.length >= 2) {
             dyAnims[0].setAttribute("values", `${height}; 0`)
             dyAnims[1].setAttribute("values", `0; -${height}`)
         }
 
-        const dxAnims = Array.from(
-            svg.querySelectorAll('feOffset > animate[attributeName="dx"]')
-        )
         if (dxAnims.length >= 2) {
             dxAnims[0].setAttribute("values", `${width}; 0`)
             dxAnims[1].setAttribute("values", `0; -${width}`)
@@ -95,6 +106,7 @@ export default function ElectricBorder({
         if (disp) disp.setAttribute("scale", String(displacementScale))
 
         const filterEl = svg.querySelector(`#${CSS.escape(filterId)}`)
+        
         if (filterEl) {
             filterEl.setAttribute("x", "-200%")
             filterEl.setAttribute("y", "-200%")
@@ -125,18 +137,63 @@ export default function ElectricBorder({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [speed, intensity, shouldAnimate, baseFreq, octaves, displacementScale])
 
+    // Separate effect for filter application
+    useEffect(() => {
+        if (svgRef.current && strokeRef.current && !filterCreatedRef.current) {
+            const checkFilter = () => {
+                const filterEl = svgRef.current?.querySelector(`#${CSS.escape(filterId)}`)
+                if (filterEl && strokeRef.current) {
+                    strokeRef.current.style.filter = `url(#${filterId})`
+                    filterCreatedRef.current = true
+                } else {
+                    setTimeout(checkFilter, 100)
+                }
+            }
+            checkFilter()
+        }
+    }, [filterId])
+
     useLayoutEffect(() => {
         if (!rootRef.current) return
+        
         const ro = new ResizeObserver(() => {
             if (shouldAnimate) {
                 updateAnim()
             }
         })
         ro.observe(rootRef.current)
+        
+        // Intersection Observer for performance optimization
+        const io = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    const wasVisible = isVisibleRef.current
+                    isVisibleRef.current = entry.isIntersecting
+                    
+                    // If visibility changed and we should animate, update animations
+                    if (wasVisible !== isVisibleRef.current && speed > 0) {
+                        if (isVisibleRef.current) {
+                            updateAnim()
+                        } else {
+                        }
+                    }
+                })
+            },
+            {
+                rootMargin: "50px", // 50px margin in all directions
+                threshold: 0
+            }
+        )
+        io.observe(rootRef.current)
+        
         if (shouldAnimate) {
             updateAnim()
         }
-        return () => ro.disconnect()
+        
+        return () => {
+            ro.disconnect()
+            io.disconnect()
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [shouldAnimate])
 
@@ -385,17 +442,15 @@ export default function ElectricBorder({
                 />
             </div>
 
-                            <div
-                    style={{
-                        position: "relative",
-                        width: "100%",
-                        height: "100%",
-                        zIndex: 15,
-                        pointerEvents: "auto",
-                    }}
-                >
-                    
-                </div>
+            <div
+                style={{
+                    position: "relative",
+                    width: "100%",
+                    height: "100%",
+                    zIndex: 15,
+                    pointerEvents: "auto",
+                }}
+            ></div>
         </div>
     )
 }
@@ -411,7 +466,6 @@ addPropertyControls(ElectricBorder, {
         type: ControlType.Boolean,
         title: "Glow",
         defaultValue: true,
-       
     },
     glowIntensity: {
         type: ControlType.Number,
@@ -420,7 +474,7 @@ addPropertyControls(ElectricBorder, {
         max: 1,
         step: 0.1,
         defaultValue: 0.5,
-        
+
         hidden: (props) => !props.showGlow,
     },
     speed: {
@@ -429,7 +483,7 @@ addPropertyControls(ElectricBorder, {
         min: 0,
         max: 3,
         step: 0.1,
-        defaultValue:1.5,
+        defaultValue: 1.5,
     },
     intensity: {
         type: ControlType.Number,
@@ -438,7 +492,6 @@ addPropertyControls(ElectricBorder, {
         max: 10,
         step: 0.5,
         defaultValue: 2.5,
-        
     },
     borderThickness: {
         type: ControlType.Number,
@@ -459,3 +512,4 @@ addPropertyControls(ElectricBorder, {
 })
 
 ElectricBorder.displayName = "Electric Border"
+

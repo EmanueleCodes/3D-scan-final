@@ -1,14 +1,18 @@
-import React, { useMemo, useRef, useLayoutEffect } from "react"
+import { useEffect, useId, useLayoutEffect, useRef } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 interface ElectricBorderProps {
+    children?: React.ReactNode
     borderColor?: string
     preview?: boolean
     showGlow?: boolean
-    speed?:number
     glowIntensity?: number
-    borderRadius?: number
+    speed?: number
+    intensity?: number
     borderThickness?: number
+    glowPadding?: number
+    className?: string
+    style?: React.CSSProperties
 }
 
 /**
@@ -18,76 +22,129 @@ interface ElectricBorderProps {
  * @framerIntrinsicHeight 400
  * @framerDisableUnlink
  */
-export default function ElectricBorder(props: ElectricBorderProps) {
-    const {
-        borderColor = "#dd8448",
-        preview = false,
-        showGlow = true,
-        glowIntensity = 0.6,
-        borderRadius = 24,
-        borderThickness = 2,
-        speed = 6
-    } = props
-
-    // Ensure unique filter id per instance to avoid DOM collisions and slow starts
-    const filterId = useMemo(
-        () => `turbulent-displace-${Math.random().toString(36).slice(2)}`,
-        []
-    )
-
-    // Refs for dynamic sizing
-    const rootRef = useRef<HTMLDivElement>(null)
+export default function ElectricBorder({
+    borderColor = "#FFD9BF",
+    preview = true,
+    showGlow = true,
+    glowIntensity = 0.5,
+    speed = 5,
+    intensity = 2.5,
+    borderThickness = 2,
+    style,
+}: ElectricBorderProps) {
+    const rawId = useId().replace(/[:]/g, "")
+    const filterId = `turbulent-displace-${rawId}`
     const svgRef = useRef<SVGSVGElement>(null)
+    const rootRef = useRef<HTMLDivElement>(null)
+    const strokeRef = useRef<HTMLDivElement>(null)
 
     const shouldAnimate =
-        RenderTarget.current() === RenderTarget.preview ||
-        (preview && RenderTarget.current() === RenderTarget.canvas)
+        speed > 0 &&
+        (RenderTarget.current() === RenderTarget.preview ||
+            (preview && RenderTarget.current() === RenderTarget.canvas))
 
-    // Function to update animation values based on component size
+    // Calculate intensity-based values for spikiness (same as fallback version)
+    const baseFreq = 0.005 + intensity * 0.0095 // 0.005 to 0.1
+    const octaves = Math.round(3 + intensity * 0.9) // 3 to 12
+    const displacementScale = 10 + intensity * 5 // 10 to 60
+
     const updateAnim = () => {
-        if (!svgRef.current || !rootRef.current) return
-
-        const host = rootRef.current
         const svg = svgRef.current
+        const host = rootRef.current
+        if (!svg || !host) return
 
-        // Get actual component dimensions
-        const width = Math.max(1, Math.round(host.clientWidth || host.getBoundingClientRect().width || 0))
-        const height = Math.max(1, Math.round(host.clientHeight || host.getBoundingClientRect().height || 0))
+        if (strokeRef.current) {
+            strokeRef.current.style.filter = `url(#${filterId})`
+        }
 
-        // Update dy animations (vertical movement)
-        const dyAnims = svg.querySelectorAll('feOffset > animate[attributeName="dy"]')
+        const width = Math.max(
+            1,
+            Math.round(
+                host.clientWidth || host.getBoundingClientRect().width || 0
+            )
+        )
+        const height = Math.max(
+            1,
+            Math.round(
+                host.clientHeight || host.getBoundingClientRect().height || 0
+            )
+        )
+
+        const dyAnims = Array.from(
+            svg.querySelectorAll('feOffset > animate[attributeName="dy"]')
+        )
         if (dyAnims.length >= 2) {
             dyAnims[0].setAttribute("values", `${height}; 0`)
             dyAnims[1].setAttribute("values", `0; -${height}`)
         }
 
-        // Update dx animations (horizontal movement)
-        const dxAnims = svg.querySelectorAll('feOffset > animate[attributeName="dx"]')
+        const dxAnims = Array.from(
+            svg.querySelectorAll('feOffset > animate[attributeName="dx"]')
+        )
         if (dxAnims.length >= 2) {
             dxAnims[0].setAttribute("values", `${width}; 0`)
             dxAnims[1].setAttribute("values", `0; -${width}`)
         }
 
-        // Update animation duration based on speed
         const baseDur = 6
         const dur = Math.max(0.001, baseDur / (speed || 1))
-        const allAnims = [...dyAnims, ...dxAnims]
-        allAnims.forEach((anim) => {
-            if (anim) anim.setAttribute("dur", `${dur}s`)
+        ;[...dyAnims, ...dxAnims].forEach((a) =>
+            a.setAttribute("dur", `${dur}s`)
+        )
+
+        const disp = svg.querySelector("feDisplacementMap")
+        if (disp) disp.setAttribute("scale", String(displacementScale))
+
+        const filterEl = svg.querySelector(`#${CSS.escape(filterId)}`)
+        if (filterEl) {
+            filterEl.setAttribute("x", "-200%")
+            filterEl.setAttribute("y", "-200%")
+            filterEl.setAttribute("width", "500%")
+            filterEl.setAttribute("height", "500%")
+        }
+
+        requestAnimationFrame(() => {
+            ;[...dyAnims, ...dxAnims].forEach((a) => {
+                const animateElement = a as SVGAnimateElement
+                if (typeof animateElement.beginElement === "function") {
+                    try {
+                        animateElement.beginElement()
+                    } catch {
+                        console.warn(
+                            "ElectricBorder: beginElement failed, this may be due to a browser limitation."
+                        )
+                    }
+                }
+            })
         })
     }
 
-    // Set up ResizeObserver for dynamic sizing
+    useEffect(() => {
+        if (shouldAnimate) {
+            updateAnim()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [speed, intensity, shouldAnimate, baseFreq, octaves, displacementScale])
+
     useLayoutEffect(() => {
         if (!rootRef.current) return
-
-        const ro = new ResizeObserver(() => updateAnim())
+        const ro = new ResizeObserver(() => {
+            if (shouldAnimate) {
+                updateAnim()
+            }
+        })
         ro.observe(rootRef.current)
-        updateAnim() // Initial update
-
+        if (shouldAnimate) {
+            updateAnim()
+        }
         return () => ro.disconnect()
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [speed]) // Re-run when speed changes
+    }, [shouldAnimate])
+
+    const vars = {
+        ["--electric-border-color"]: borderColor,
+        ["--eb-border-width"]: `${borderThickness}px`,
+    }
 
     return (
         <div
@@ -95,22 +152,26 @@ export default function ElectricBorder(props: ElectricBorderProps) {
             style={{
                 width: "100%",
                 height: "100%",
-                overflow: "visible",
+                position: "relative",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                position: "relative",
+                overflow: "visible",
+                boxSizing: "border-box",
+                ...vars,
+                ...style,
             }}
         >
             <svg
                 ref={svgRef}
                 style={{
                     position: "absolute",
-                    overflow: "hidden",
                     width: 0,
                     height: 0,
+                    overflow: "hidden",
                 }}
                 aria-hidden
+                focusable="false"
             >
                 <defs>
                     <filter
@@ -123,8 +184,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
                     >
                         <feTurbulence
                             type="turbulence"
-                            baseFrequency="0.015"
-                            numOctaves="8"
+                            baseFrequency={baseFreq}
+                            numOctaves={octaves}
                             result="noise1"
                             seed="1"
                         />
@@ -137,8 +198,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
                             {shouldAnimate && (
                                 <animate
                                     attributeName="dy"
-                                    values="100; 0"
-                                    dur={`${Math.max(0.001, 6 / (speed || 1))}s`}
+                                    values="700; 0"
+                                    dur="6s"
                                     repeatCount="indefinite"
                                     calcMode="linear"
                                 />
@@ -147,8 +208,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
 
                         <feTurbulence
                             type="turbulence"
-                            baseFrequency="0.02"
-                            numOctaves="10"
+                            baseFrequency={baseFreq}
+                            numOctaves={octaves}
                             result="noise2"
                             seed="1"
                         />
@@ -161,8 +222,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
                             {shouldAnimate && (
                                 <animate
                                     attributeName="dy"
-                                    values="0; -100"
-                                    dur={`${Math.max(0.001, 6 / (speed || 1))}s`}
+                                    values="0; -700"
+                                    dur="6s"
                                     repeatCount="indefinite"
                                     calcMode="linear"
                                 />
@@ -171,8 +232,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
 
                         <feTurbulence
                             type="turbulence"
-                            baseFrequency="0.02"
-                            numOctaves="10"
+                            baseFrequency={baseFreq}
+                            numOctaves={octaves}
                             result="noise1"
                             seed="2"
                         />
@@ -185,8 +246,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
                             {shouldAnimate && (
                                 <animate
                                     attributeName="dx"
-                                    values="100; 0"
-                                    dur={`${Math.max(0.001, 6 / (speed || 1))}s`}
+                                    values="490; 0"
+                                    dur="6s"
                                     repeatCount="indefinite"
                                     calcMode="linear"
                                 />
@@ -195,8 +256,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
 
                         <feTurbulence
                             type="turbulence"
-                            baseFrequency="0.02"
-                            numOctaves="10"
+                            baseFrequency={baseFreq}
+                            numOctaves={octaves}
                             result="noise2"
                             seed="2"
                         />
@@ -209,8 +270,8 @@ export default function ElectricBorder(props: ElectricBorderProps) {
                             {shouldAnimate && (
                                 <animate
                                     attributeName="dx"
-                                    values="0; -100"
-                                    dur={`${Math.max(0.001, 6 / (speed || 1))}s`}
+                                    values="0; -490"
+                                    dur="6s"
                                     repeatCount="indefinite"
                                     calcMode="linear"
                                 />
@@ -233,36 +294,10 @@ export default function ElectricBorder(props: ElectricBorderProps) {
                             mode="color-dodge"
                             result="combinedNoise"
                         />
-
                         <feDisplacementMap
                             in="SourceGraphic"
                             in2="combinedNoise"
-                            scale="20"
-                            xChannelSelector="R"
-                            yChannelSelector="B"
-                        />
-                    </filter>
-
-                    {/* Fallback filter for better consistency */}
-                    <filter
-                        id="turbulent-displace-fallback"
-                        colorInterpolationFilters="sRGB"
-                        x="-20%"
-                        y="-20%"
-                        width="140%"
-                        height="140%"
-                    >
-                        <feTurbulence
-                            type="turbulence"
-                            baseFrequency="0.02"
-                            numOctaves="6"
-                            result="noise"
-                            seed="3"
-                        />
-                        <feDisplacementMap
-                            in="SourceGraphic"
-                            in2="noise"
-                            scale="15"
+                            scale={displacementScale}
                             xChannelSelector="R"
                             yChannelSelector="B"
                         />
@@ -272,204 +307,94 @@ export default function ElectricBorder(props: ElectricBorderProps) {
 
             <div
                 style={{
-                    borderRadius: `${borderRadius}px`,
+                    position: "absolute",
+                    top: `calc(-2px - ${borderThickness / 2}px)`,
+                    left: `calc(-2px - ${borderThickness / 2}px)`,
+                    bottom: 0,
+                    right: 0,
+                    width: `calc(100% + ${borderThickness / 2}px)`,
+                    height: `calc(100% + ${borderThickness / 2}px)`,
+                    //width: "100%",
+                    //height: "100%",
+                    pointerEvents: "none",
+                }}
+            >
+                <div
+                    ref={strokeRef}
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                        borderRadius: "24px",
+                        border: `var(--eb-border-width) solid var(--electric-border-color)`,
+                        filter: `url(#${filterId})`,
+                        zIndex: 10,
+                    }}
+                />
+                <div
+                    style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: "100%",
+                        borderRadius: "24px",
+                        border: `var(--eb-border-width) solid ${borderColor}${Math.floor(
+                            glowIntensity * 255
+                        )
+                            .toString(16)
+                            .padStart(2, "0")}`,
+                        filter: "blur(1px)",
+                        zIndex: 8,
+                        opacity: showGlow ? 1 : 0,
+                    }}
+                />
+                <div
+                    style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: "100%",
+                        borderRadius: "24px",
+                        border: `var(--eb-border-width) solid ${borderColor}${Math.floor(
+                            glowIntensity * 255
+                        )
+                            .toString(16)
+                            .padStart(2, "0")}`,
+                        filter: "blur(4px)",
+                        zIndex: 7,
+                        opacity: showGlow ? 1 : 0,
+                    }}
+                />
+                <div
+                    style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: "100%",
+                        borderRadius: "24px",
+                        background: `linear-gradient(-30deg, ${borderColor}, transparent, ${borderColor})`,
+                        filter: "blur(32px)",
+                        transform: "scale(1.1)",
+                        opacity: showGlow ? glowIntensity * 0.3 : 0,
+                        zIndex: 1,
+                        pointerEvents: "none",
+                    }}
+                />
+            </div>
+
+            <div
+                style={{
                     position: "relative",
                     width: "100%",
                     height: "100%",
-                    boxSizing: "border-box",
-                    overflow: "visible",
-                    margin: "0",
-                    padding: "0",
+                    zIndex: 15,
+                    pointerEvents: "auto",
                 }}
-            >
-                {/* Electric border layer with filter applied */}
-                {/* Pre-warm the filter on a tiny element to compile before main usage */}
-                <div
-                    style={{
-                        position: "absolute",
-                        width: 1,
-                        height: 1,
-                        opacity: 0,
-                        filter: `url(#${filterId})`,
-                        pointerEvents: "none",
-                        overflow:"visible",
-                    }}
-                />
-                <svg
-                    style={{
-                        position: "absolute",
-                        top:0,
-                        left:0,
-                        pointerEvents: "none",
-                        zIndex: 10,
-                        margin: "0",
-                        padding: "0",
-                        willChange: "filter",
-                        contain: "paint",
-                        backfaceVisibility: "hidden",
-                        transform: "translateZ(0)",
-                        overflow:"visible",
-                    }}
-                    width="100%"
-                    height="100%"
-                >
-                    <rect
-                        x={`calc(-${borderThickness / 2}px)`}
-                        y={`calc(-${borderThickness / 2}px)`}
-                        width="100%"
-                        height="100%"
-                        rx={borderRadius}
-                        ry={borderRadius}
-                        fill="none"
-                        stroke={borderColor}
-                        strokeWidth={borderThickness}
-                        filter={`url(#${filterId})`}
-                        vectorEffect="non-scaling-stroke"
-                    />
-                </svg>
-                {/* Glow layers - only shown when showGlow is true */}
-                {showGlow && (
-                    <>
-                        {/* Glow layer 1 - subtle blur */}
-                        <div
-                            style={{
-                                border: `${borderThickness}px solid ${borderColor}${Math.floor(
-                                    glowIntensity * 255
-                                )
-                                    .toString(16)
-                                    .padStart(2, "0")}`,
-                                borderRadius: `${borderRadius}px`,
-                                width: "100%",
-                                height: "100%",
-                                position: "absolute",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                filter: "blur(1px)",
-                                pointerEvents: "none",
-                                zIndex: 8,
-                                margin: "0",
-                                padding: "0",
-                            }}
-                        />
-
-                        {/* Glow layer 2 - medium blur */}
-                        <div
-                            style={{
-                                border: `${borderThickness}px solid ${borderColor}${Math.floor(
-                                    glowIntensity * 255
-                                )
-                                    .toString(16)
-                                    .padStart(2, "0")}`,
-                                borderRadius: `${borderRadius}px`,
-                                width: "100%",
-                                height: "100%",
-                                position: "absolute",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                filter: "blur(4px)",
-                                pointerEvents: "none",
-                                zIndex: 7,
-                            }}
-                        />
-
-                        {/* Overlay effect 1 - using border color */}
-                        <div
-                            style={{
-                                position: "absolute",
-                                width: "100%",
-                                height: "100%",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                borderRadius: `${borderRadius}px`,
-                                opacity: glowIntensity,
-                                mixBlendMode: "overlay",
-                                transform: "scale(1.1)",
-                                filter: "blur(16px)",
-                                background: `linear-gradient(-30deg, ${borderColor}, transparent 30%, transparent 70%, ${borderColor})`,
-                                pointerEvents: "none",
-                                zIndex: 6,
-                            }}
-                        />
-
-                        {/* Overlay effect 2 - using border color */}
-                        <div
-                            style={{
-                                position: "absolute",
-                                width: "100%",
-                                height: "100%",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                borderRadius: `${borderRadius}px`,
-                                opacity: glowIntensity * 0.5,
-                                mixBlendMode: "overlay",
-                                transform: "scale(1.1)",
-                                filter: "blur(16px)",
-                                background: `linear-gradient(-30deg, ${borderColor}, transparent 30%, transparent 70%, ${borderColor})`,
-                                pointerEvents: "none",
-                                zIndex: 5,
-                            }}
-                        />
-
-                        {/* Background glow - using border color */}
-                        <div
-                            style={{
-                                position: "absolute",
-                                width: "100%",
-                                height: "100%",
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                borderRadius: `${borderRadius}px`,
-                                filter: "blur(32px)",
-                                transform: "scale(1.1)",
-                                opacity: glowIntensity * 0.3,
-                                zIndex: 1,
-                                background: `linear-gradient(-30deg, ${borderColor}, transparent, ${borderColor})`,
-                                pointerEvents: "none",
-                            }}
-                        />
-                    </>
-                )}
-
-                {/* Border effect container - transparent so it can overlay any content */}
-                <div
-                    style={{
-                        width: "100%",
-                        height: "100%",
-                        borderRadius: "12px",
-                        boxSizing: "border-box",
-                        position: "relative",
-                        zIndex: 15,
-                        pointerEvents: "none",
-                    }}
-                />
-
-                {/* Simple glow effect */}
-                {/* <div
-                    style={{
-                        position: "absolute",
-                        top: "-4px",
-                        left: "-4px",
-                        right: "-4px",
-                        bottom: "-4px",
-                        border: `2px solid ${borderColor}`,
-                        borderRadius: "12px",
-                        filter: "blur(8px)",
-                        opacity: 0.3,
-                        pointerEvents: "none",
-                        zIndex: 1,
-                    }}
-                /> */}
-            </div>
+            ></div>
         </div>
     )
 }
@@ -479,7 +404,7 @@ addPropertyControls(ElectricBorder, {
     preview: {
         type: ControlType.Boolean,
         title: "Preview",
-        defaultValue: false,
+        defaultValue: true,
     },
     showGlow: {
         type: ControlType.Boolean,
@@ -488,44 +413,43 @@ addPropertyControls(ElectricBorder, {
     },
     glowIntensity: {
         type: ControlType.Number,
-        title: "Intensity",
+        title: "+ Glow -",
         min: 0.1,
         max: 1,
         step: 0.1,
-        defaultValue: 0.6,
+        defaultValue: 0.5,
 
         hidden: (props) => !props.showGlow,
     },
-    borderRadius: {
+    speed: {
         type: ControlType.Number,
-        title: "Radius",
+        title: "Speed",
         min: 0,
-        max: 100,
-        step: 1,
-        defaultValue: 24,
-        unit:"px"
+        max: 3,
+        step: 0.1,
+        defaultValue: 1.5,
     },
-    speed:{
-        type:ControlType.Number,
-        title:"Speed",
-        min:0,
-        max:10,
-        step:0.1,
-        defaultValue:1,
+    intensity: {
+        type: ControlType.Number,
+        title: "Intensity",
+        min: 0,
+        max: 10,
+        step: 0.5,
+        defaultValue: 2.5,
     },
     borderThickness: {
         type: ControlType.Number,
-        title: "Border",
+        title: "Thickness",
         min: 1,
         max: 10,
         step: 1,
         defaultValue: 2,
-        unit: "px",
     },
+
     borderColor: {
         type: ControlType.Color,
-        title: "Color",
-        defaultValue: "#dd8448",
+        title: "Border Color",
+        defaultValue: "#FFD9BF",
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
