@@ -1,19 +1,21 @@
 import React, { useEffect, useRef, useCallback } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
+interface StarProps {
+    count?: number
+    speed?: number
+    thickness?: number
+    opacity?: number
+    length?: number
+    color?: string
+}
+
 interface TravelInSpaceProps {
     paused?: boolean
-    starCount?: number
-    starSpeed?: number
-    starThickness?: number
-    starOpacity?: number
-    starLength?: number
+    star?: StarProps
     innerRadius?: number
     outerRadius?: number
     backgroundColor?: string
-    starColor?: string
-
-    spaghettification?: number
     framerUniversity?: string
 }
 
@@ -40,18 +42,27 @@ interface Star {
  */
 export default function TravelInSpace({
     paused = false,
-    starCount = 150,
-    starSpeed = 0.5,
-    starThickness = 2,
-    starOpacity = 0.8,
-    starLength = 8,
+    star = {
+        count: 150,
+        speed: 0.5,
+        thickness: 2,
+        opacity: 0.8,
+        length: 8,
+        color: "#FFFFFF",
+    },
     innerRadius = 50,
     outerRadius = 300,
     backgroundColor = "#000000",
-    starColor = "#FFFFFF",
-
-    spaghettification = 0.5,
 }: TravelInSpaceProps) {
+    // Destructure star properties for easier access
+    const {
+        count: starCount = 150,
+        speed: starSpeed = 0.5,
+        thickness: starThickness = 2,
+        opacity: starOpacity = 0.8,
+        length: starLength = 8,
+        color: starColor = "#FFFFFF",
+    } = star
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const animationRef = useRef<number>()
     const starsRef = useRef<Star[]>([])
@@ -195,23 +206,49 @@ export default function TravelInSpace({
                 const screenX = centerX + (star.x - centerX) * perspectiveScale
                 const screenY = centerY + (star.y - centerY) * perspectiveScale
 
-                // Check if star should be removed
+                // Calculate distance from center for position-based opacity
                 const distanceFromCenter = Math.sqrt(
                     (star.x - centerX) ** 2 + (star.y - centerY) ** 2
                 )
+
+                // Check if star should be removed (hard boundaries)
                 const shouldRemove =
-                    screenX < -50 ||
-                    screenX > width + 50 ||
-                    screenY < -50 ||
-                    screenY > height + 50 ||
+                    screenX < -100 ||
+                    screenX > width + 100 ||
+                    screenY < -100 ||
+                    screenY > height + 100 ||
                     star.z < 50 ||
-                    star.age > star.maxAge ||
-                    distanceFromCenter < innerRadius
+                    star.age > star.maxAge
 
                 if (shouldRemove) {
-                    // Remove this star
                     stars.splice(i, 1)
-                } else {
+                    continue
+                }
+
+                // Calculate position-based opacity
+                // Stars fade in as they move from outer edge toward center
+                // Stars fade out as they get close to center and disappear completely before inner radius
+                const fadeInDistance = outerRadius * 0.8 // Start fading in at 80% of outer radius
+                const fadeOutStartDistance = innerRadius * 2.5 // Start fading out at 2.5x inner radius
+                const fadeOutEndDistance = innerRadius * 1.2 // Completely faded out at 1.2x inner radius
+                
+                let positionOpacity = 1
+                
+                if (distanceFromCenter > fadeInDistance) {
+                    // Fade in from outer edge
+                    const fadeInProgress = Math.max(0, (outerRadius - distanceFromCenter) / (outerRadius - fadeInDistance))
+                    positionOpacity = Math.pow(fadeInProgress, 2) // Smooth fade-in curve
+                } else if (distanceFromCenter < fadeOutStartDistance) {
+                    // Fade out near center - completely gone before reaching inner radius
+                    const fadeOutProgress = Math.max(0, (distanceFromCenter - fadeOutEndDistance) / (fadeOutStartDistance - fadeOutEndDistance))
+                    positionOpacity = Math.pow(fadeOutProgress, 0.5) // Smooth fade-out curve
+                }
+
+                // Apply position-based opacity
+                star.opacity = star.baseOpacity * positionOpacity
+
+                // Only render if star has some opacity
+                if (star.opacity > 0.01) {
                     // Enhanced 3D perspective calculations
                     const perspective = 1000
                     const perspectiveScale =
@@ -231,25 +268,8 @@ export default function TravelInSpace({
                         distanceFromCenter / maxDistance
                     )
 
-                    // Z-based opacity: stars get brighter as they get closer to viewer (lower z)
-                    // Enhanced z-based opacity: much stronger variation for depth
-                    const zOpacity = Math.max(
-                        0.1,
-                        Math.min(1, Math.pow((1200 - star.z) / 1200, 0.5))
-                    )
-
-                    // Distance-based opacity: stars are brighter when further from center (closer to viewer)
-                    const distanceOpacity = 0.6 + distanceRatio * 0.4 // 30% to 100% opacity
-
-                    // Age-based opacity fade
-                    const ageFade = 1 - star.age / star.maxAge
-
-                    // Combined opacity with z-depth, distance, and age
-                    // Prioritize z-depth for stronger depth effect
-                    const combinedOpacity =
-                        zOpacity * 0.9 + distanceOpacity * 0.1
-                    const currentOpacity =
-                        star.baseOpacity * combinedOpacity * ageFade
+                    // Use the fade-based opacity that was calculated earlier
+                    const currentOpacity = star.opacity
 
                     // Calculate perspective thinning: stars get thinner as they approach center (physically correct)
                     // This counteracts the perspective scaling to maintain consistent visual thickness
@@ -258,31 +278,28 @@ export default function TravelInSpace({
 
                     // Only render if star is visible and large enough
                     if (currentOpacity > 0.05 && currentSize > 0.3) {
-                        // Simple star length calculation based only on spaghettification factor
-                        const baseStarLength = starLength
-
-                        // Apply spaghettification: control how length changes with distance from center
-                        const distanceFromCenter = Math.sqrt(
-                            (star.x - centerX) ** 2 + (star.y - centerY) ** 2
+                        // Calculate perspective-based star length
+                        // Stars closer to the center of viewport appear shorter due to perspective
+                        
+                        // Calculate angular distance from center of viewport
+                        const viewportCenterX = width / 2
+                        const viewportCenterY = height / 2
+                        const angularDistanceFromCenter = Math.sqrt(
+                            (screenX - viewportCenterX) ** 2 + (screenY - viewportCenterY) ** 2
                         )
-                        const maxDistance = Math.max(width, height) * 0.8
-                        const distanceRatio = Math.min(
-                            1,
-                            distanceFromCenter / maxDistance
+                        
+                        // Calculate maximum possible angular distance (corner of viewport)
+                        const maxAngularDistance = Math.sqrt(
+                            (width / 2) ** 2 + (height / 2) ** 2
                         )
-
-                        // spaghettification = 0.5: stars get shorter near center (realistic)
-                        // spaghettification = 1.0: no change in length
-                        // spaghettification = 2.0: stars get longer near center (unrealistic but cool)
-                        const spaghettificationFactor =
-                            1 +
-                            (distanceRatio - 0.5) * (spaghettification - 1) * 2
-
-                        // Simple length calculation: just base length * spaghettification factor
-                        const streakLength = Math.max(
-                            2,
-                            baseStarLength * spaghettificationFactor
-                        )
+                        
+                        // Normalize angular distance (0 = center, 1 = edge)
+                        const normalizedAngularDistance = Math.min(1, angularDistanceFromCenter / maxAngularDistance)
+                        
+                        // Apply perspective shortening: stars closer to center are shorter
+                        // Use a smooth curve that makes center stars significantly shorter
+                        const perspectiveFactor = 0.3 + (normalizedAngularDistance * 0.7) // 0.3 to 1.0
+                        const streakLength = Math.max(2, starLength * perspectiveFactor)
 
                         // Calculate direction from velocity
                         const directionX = star.vx
@@ -349,17 +366,15 @@ export default function TravelInSpace({
                                 )
                             }
 
-                            // Use perspective thinning for line width
-                            // Enhanced z-based thickness: stars closer to viewer are much thicker
-                            const zThickness = Math.max(
-                                0.5,
-                                Math.min(3, (1200 - star.z) / 200)
-                            )
-                            // Remove center-based thinning - keep consistent thickness
-                            const lineWidth = Math.max(
-                                0.3,
-                                currentSize * zThickness
-                            )
+                            // Calculate thickness based on z-distance from viewer and distance from center
+                            // Stars closer to viewer (lower z) are thicker
+                            const zThickness = Math.max(0.3, Math.min(2, (1200 - star.z) / 300))
+                            
+                            // Stars get thinner as they approach the center
+                            const centerThinning = Math.max(0.2, Math.min(1, distanceFromCenter / (outerRadius * 0.5)))
+                            
+                            // Combine z-based thickness with center-based thinning
+                            const lineWidth = Math.max(0.2, starThickness * zThickness * centerThinning)
 
                             // Draw the main streak
                             ctx.beginPath()
@@ -409,7 +424,6 @@ export default function TravelInSpace({
             starThickness,
             starLength,
             outerRadius,
-            spaghettification,
         ]
     )
 
@@ -525,17 +539,17 @@ export default function TravelInSpace({
 
 TravelInSpace.defaultProps = {
     paused: false,
-    starCount: 150,
-    starSpeed: 0.5,
-    starThickness: 2,
-    starOpacity: 0.8,
-    starLength: 8,
+    star: {
+        count: 150,
+        speed: 0.5,
+        thickness: 2,
+        opacity: 0.8,
+        length: 8,
+        color: "#FFFFFF",
+    },
     innerRadius: 50,
     outerRadius: 300,
     backgroundColor: "#000000",
-    starColor: "#FFFFFF",
-
-    spaghettification: 0.5,
     framerUniversity: "https://frameruni.link/cc",
 }
 
@@ -546,51 +560,62 @@ addPropertyControls(TravelInSpace, {
         hidden: () => true,
         defaultValue: false,
     },
-    starCount: {
-        type: ControlType.Number,
-        title: "Star Count",
-        min: 100,
-        max: 2000,
-        step: 100,
-        defaultValue: 500,
-    },
-    starSpeed: {
-        type: ControlType.Number,
-        title: "Star Speed",
-        min: 0.1,
-        max: 10,
-        step: 0.1,
-        defaultValue: 0.5,
-    },
-    starThickness: {
-        type: ControlType.Number,
-        title: "Star Thickness",
-        min: 0.5,
-        max: 10,
-        step: 0.1,
-        defaultValue: 2,
-    },
-    starOpacity: {
-        type: ControlType.Number,
-        title: "Star Opacity",
-        min: 0.1,
-        max: 1,
-        step: 0.1,
-        defaultValue: 0.8,
-    },
-    starLength: {
-        type: ControlType.Number,
-        title: "Star Length",
-        min: 1,
-        max: 300,
-        step: 1,
-        defaultValue: 8,
+    star: {
+        type: ControlType.Object,
+        title: "Star",
+        controls: {
+            count: {
+                type: ControlType.Number,
+                title: "Count",
+                min: 100,
+                max: 2000,
+                step: 100,
+                defaultValue: 150,
+            },
+            speed: {
+                type: ControlType.Number,
+                title: "Speed",
+                min: 0.1,
+                max: 10,
+                step: 0.1,
+                defaultValue: 0.5,
+            },
+            thickness: {
+                type: ControlType.Number,
+                title: "Thickness",
+                min: 0.5,
+                max: 10,
+                step: 0.1,
+                defaultValue: 2,
+            },
+            opacity: {
+                type: ControlType.Number,
+                title: "Opacity",
+                min: 0.1,
+                max: 1,
+                step: 0.1,
+                defaultValue: 0.8,
+            },
+            length: {
+                type: ControlType.Number,
+                title: "Length",
+                min: 1,
+                max: 300,
+                step: 1,
+                defaultValue: 8,
+            },
+            color: {
+                type: ControlType.Color,
+                title: "Color",
+                defaultValue: "#FFFFFF",
+            },
+        },
     },
     innerRadius: {
         type: ControlType.Number,
         title: "Inner Radius",
         min: 10,
-        max: 200,
+        max: 500,
         step: 5,
         defaultValue: 50,
         unit: "px",
@@ -598,7 +623,7 @@ addPropertyControls(TravelInSpace, {
     outerRadius: {
         type: ControlType.Number,
         title: "Outer Radius",
-        min: 100,
+        min: 500,
         max: 5000,
         step: 100,
         defaultValue: 1000,
@@ -608,21 +633,7 @@ addPropertyControls(TravelInSpace, {
         type: ControlType.Color,
         title: "Background",
         defaultValue: "#000000",
-    },
-    starColor: {
-        type: ControlType.Color,
-        title: "Star Color",
-        defaultValue: "#FFFFFF",
-    },
-
-    spaghettification: {
-        type: ControlType.Number,
-        title: "Spaghettification",
-        min: 0.1,
-        max: 2,
-        step: 0.1,
-        defaultValue: 0.5,
-        description:"More components at https://frameruni.link/cc"
+        description: "More components at https://frameruni.link/cc",
     },
 })
 

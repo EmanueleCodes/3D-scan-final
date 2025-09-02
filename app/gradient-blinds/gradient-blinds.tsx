@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import {
     Renderer,
     Program,
@@ -122,13 +122,7 @@ const hexToRGB = (hex: string): [number, number, number] => {
     return [r, g, b]
 }
 const prepStops = (stops?: string[], paletteCount?: number) => {
-    // Debug logging
-    if (typeof window !== "undefined") {
-        console.log("prepStops - Input stops:", stops)
-        console.log("prepStops - Type of stops:", typeof stops)
-        console.log("prepStops - Is array:", Array.isArray(stops))
-    }
-
+    
     // Ensure we have valid colors and handle edge cases
     let base: string[]
 
@@ -151,14 +145,10 @@ const prepStops = (stops?: string[], paletteCount?: number) => {
             })
             .slice(0, MAX_COLORS)
 
-        if (typeof window !== "undefined") {
-            console.log("prepStops - Filtered base colors:", base)
-        }
+    
     } else {
         base = ["#FF9FFC", "#5227FF"]
-        if (typeof window !== "undefined") {
-            console.log("prepStops - Using default colors:", base)
-        }
+        
     }
 
     // Ensure we have at least 2 colors
@@ -183,14 +173,6 @@ const prepStops = (stops?: string[], paletteCount?: number) => {
         1,
         Math.min(MAX_COLORS, paletteCount || stops?.length || 2)
     )
-
-    if (typeof window !== "undefined") {
-        console.log("prepStops - Final result:", {
-            base,
-            arr,
-            count: actualCount,
-        })
-    }
 
     return { arr, count: actualCount }
 }
@@ -234,13 +216,123 @@ export default function GradientBlinds({
     const lastTimeRef = useRef<number>(0)
     const firstResizeRef = useRef<boolean>(true)
     const isPreviewMode = RenderTarget.current() === RenderTarget.preview
+    const uniformsRef = useRef<any>(null) // Store uniforms reference for updates
 
-    // Debug effect to monitor gradientColors changes
+    // Detect mobile: disable mouse interaction on mobile devices
+    const [isMobile, setIsMobile] = useState(false)
     useEffect(() => {
-        if (RenderTarget.current() === RenderTarget.preview) {
-            console.log("GradientBlinds - gradientColors prop changed:", colors)
+        const checkMobile = () => {
+            const coarse =
+                typeof window !== "undefined" && window.matchMedia
+                    ? window.matchMedia("(pointer: coarse)").matches
+                    : false
+            const small =
+                typeof window !== "undefined" && window.matchMedia
+                    ? window.matchMedia("(max-width: 768px)").matches
+                    : false
+            setIsMobile(coarse || small)
         }
-    }, [colors])
+        checkMobile()
+        window.addEventListener("resize", checkMobile)
+        return () => window.removeEventListener("resize", checkMobile)
+    }, [])
+
+
+
+    // Update uniforms when properties change (especially important for Canvas mode)
+    useEffect(() => {
+        if (!uniformsRef.current) return
+
+        const uniforms = uniformsRef.current
+
+        // Update angle
+        uniforms.uAngle.value = (angle * Math.PI) / 180
+
+        // Update noise
+        uniforms.uNoise.value = noise
+
+        // Update spotlight properties
+        if (spotlight) {
+            uniforms.uSpotlightRadius.value = (spotlight.radius ?? 0.5) * 2
+            uniforms.uSpotlightSoftness.value = (spotlight.softness ?? 1) * 3
+            uniforms.uSpotlightOpacity.value = spotlight.opacity ?? 1
+        }
+
+        // Update mirror gradient
+        uniforms.uMirror.value = mirrorGradient === "mirror" ? 1 : 0
+
+        // Update distort amount
+        uniforms.uDistort.value = distortAmount * 10
+
+        // Update shine direction
+        uniforms.uShineFlip.value = shineDirection === "right" ? 1 : 0
+
+        // Update colors
+        const { arr: colorArr, count: colorCount } = prepStops(
+            [
+                colors?.color1,
+                colors?.color2,
+                colors?.color3,
+                colors?.color4,
+                colors?.color5,
+                colors?.color6,
+                colors?.color7,
+                colors?.color8,
+            ].filter(Boolean) as string[],
+            colors?.paletteCount
+        )
+
+        uniforms.uColor0.value = colorArr[0]
+        uniforms.uColor1.value = colorArr[1]
+        uniforms.uColor2.value = colorArr[2]
+        uniforms.uColor3.value = colorArr[3]
+        uniforms.uColor4.value = colorArr[4]
+        uniforms.uColor5.value = colorArr[5]
+        uniforms.uColor6.value = colorArr[6]
+        uniforms.uColor7.value = colorArr[7]
+        uniforms.uColorCount.value = colorCount
+
+        // Update blind count if amount changed
+        if (rendererRef.current && containerRef.current) {
+            const container = containerRef.current
+            const containerWidth = Math.max(container.clientWidth, 2)
+            const containerHeight = Math.max(container.clientHeight, 2)
+            
+            // Calculate dimensions using "cover" behavior - canvas overflows container while maintaining 1:1 aspect ratio
+            const containerAspect = containerWidth / containerHeight
+            
+            let width, height
+            if (containerAspect > 1) {
+                // Container is wider than tall - use width as base (canvas will be taller than container)
+                width = containerWidth
+                height = containerWidth // 1:1 aspect ratio
+            } else {
+                // Container is taller than wide - use height as base (canvas will be wider than container)
+                height = containerHeight
+                width = containerHeight // 1:1 aspect ratio
+            }
+
+            // Recalculate blind count - always recalculate when amount changes
+            const calculatedBlindCount = blindMinWidth && blindMinWidth > 0 
+                ? Math.max(1, Math.floor(width / blindMinWidth))
+                : 16
+            
+            uniforms.uBlindCount.value = calculatedBlindCount
+            
+
+        }
+
+
+    }, [
+        angle,
+        noise,
+        spotlight,
+        mirrorGradient,
+        distortAmount,
+        shineDirection,
+        colors,
+        amount, // Include amount for blind count updates
+    ])
 
     useEffect(() => {
         const container = containerRef.current
@@ -266,30 +358,26 @@ export default function GradientBlinds({
         const initialCenterY = gl.drawingBufferHeight / 2
         mouseTargetRef.current = [initialCenterX, initialCenterY]
         
-        // In Preview mode, ensure mouseTargetRef stays at center (simulating "last known mouse position")
-        if (isPreviewMode) {
-            console.log("GradientBlinds - Preview mode detected: setting mouse target to center", [initialCenterX, initialCenterY])
+        // In Preview or Canvas mode, ensure mouseTargetRef stays at center (simulating "last known mouse position")
+        if (isPreviewMode || RenderTarget.current() === RenderTarget.canvas) {
+            const mode = RenderTarget.current() === RenderTarget.canvas ? "Canvas" : "Preview"
         }
-
-        console.log("GradientBlinds - Initial center:", {
-            initialCenterX,
-            initialCenterY,
-        })
 
         // Ensure WebGL context is transparent
         gl.clearColor(0, 0, 0, 0)
         gl.enable(gl.BLEND)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
-        canvas.style.width = "100%"
-        canvas.style.height = "100%"
         canvas.style.display = "block"
         canvas.style.position = "absolute"
-        canvas.style.inset = "0"
         canvas.style.margin = "0"
         canvas.style.padding = "0"
         canvas.style.background = "transparent" // Ensure canvas background is transparent
         canvas.style.backgroundColor = "transparent" // Double-check canvas background
+        // Center the canvas (will overflow container)
+        canvas.style.top = "50%"
+        canvas.style.left = "50%"
+        canvas.style.transform = "translate(-50%, -50%)"
         container.appendChild(canvas)
 
         const vertex = `
@@ -449,38 +537,6 @@ void main() {
             colors?.paletteCount
         )
 
-        // Debug logging to help troubleshoot color issues
-        if (RenderTarget.current() === RenderTarget.canvas) {
-            console.log("GradientBlinds - Background color:", bgColor)
-            console.log(
-                "GradientBlinds - Resolved background:",
-                bgColor ? resolveTokenColor(bgColor) : null
-            )
-            console.log("GradientBlinds - Palette count:", colors?.paletteCount)
-            console.log("GradientBlinds - Input colors:", [
-                colors?.color1,
-                colors?.color2,
-                colors?.color3,
-                colors?.color4,
-                colors?.color5,
-                colors?.color6,
-                colors?.color7,
-                colors?.color8,
-            ])
-            console.log("GradientBlinds - Resolved colors:", [
-                colors?.color1 ? resolveTokenColor(colors.color1) : null,
-                colors?.color2 ? resolveTokenColor(colors.color2) : null,
-                colors?.color3 ? resolveTokenColor(colors.color3) : null,
-                colors?.color4 ? resolveTokenColor(colors.color4) : null,
-                colors?.color5 ? resolveTokenColor(colors.color5) : null,
-                colors?.color6 ? resolveTokenColor(colors.color6) : null,
-                colors?.color7 ? resolveTokenColor(colors.color7) : null,
-                colors?.color8 ? resolveTokenColor(colors.color8) : null,
-            ])
-            console.log("GradientBlinds - Processed colors:", colorArr)
-            console.log("GradientBlinds - Color count:", colorCount)
-        }
-
         const uniforms: {
             iResolution: { value: [number, number, number] }
             iMouse: { value: [number, number] }
@@ -516,7 +572,7 @@ void main() {
             uSpotlightSoftness: { value: (spotlight?.softness ?? 1) * 3 },
             uSpotlightOpacity: { value: spotlight?.opacity ?? 1 },
             uMirror: { value: mirrorGradient === "mirror" ? 1 : 0 },
-            uDistort: { value: distortAmount * 10 },
+            uDistort: { value: distortAmount * 30 },
             uShineFlip: { value: shineDirection === "right" ? 1 : 0 },
             uColor0: { value: colorArr[0] },
             uColor1: { value: colorArr[1] },
@@ -528,46 +584,14 @@ void main() {
             uColor7: { value: colorArr[7] },
             uColorCount: { value: colorCount },
         }
-
-        // Mouse position is already initialized to center in uniforms object above
-        console.log("GradientBlinds - Render target:", RenderTarget.current())
-        console.log("GradientBlinds - Initial mouse position set to:", uniforms.iMouse.value)
-
-        // Debug logging for uniforms
-        if (RenderTarget.current() === RenderTarget.preview) {
-            console.log("GradientBlinds - Spotlight values:", {
-                radius: spotlight?.radius,
-                softness: spotlight?.softness,
-                opacity: spotlight?.opacity,
-                mouseDampening: spotlight?.mouseDampening,
-            })
-            console.log("GradientBlinds - Spotlight calculations:", {
-                radius: uniforms.uSpotlightRadius.value,
-                softness: uniforms.uSpotlightSoftness.value,
-                opacity: uniforms.uSpotlightOpacity.value,
-                expectedBehavior:
-                    "spotlight acts as a mask - controls visibility of gradient blinds",
-                spotlightActive: uniforms.uSpotlightOpacity.value > 0.0,
-                note: "When opacity = 0, no gradient blinds visible. When opacity > 0, blinds only visible within spotlight area.",
-            })
-            console.log("GradientBlinds - Uniforms:", {
-                uSpotlightRadius: uniforms.uSpotlightRadius.value,
-                uSpotlightSoftness: uniforms.uSpotlightSoftness.value,
-                uSpotlightOpacity: uniforms.uSpotlightOpacity.value,
-                uColorCount: uniforms.uColorCount.value,
-                uColor0: uniforms.uColor0.value,
-                uColor1: uniforms.uColor1.value,
-                uColor2: uniforms.uColor2.value,
-                uColor3: uniforms.uColor3.value,
-            })
-        }
-
+        
         const program = new Program(gl, {
             vertex,
             fragment,
             uniforms,
         })
         programRef.current = program
+        uniformsRef.current = uniforms // Store uniforms reference
 
         const geometry = new Triangle(gl)
         geometryRef.current = geometry
@@ -576,36 +600,49 @@ void main() {
 
         const resize = () => {
             // Use clientWidth/clientHeight for more reliable sizing in Framer Canvas
-            const width = Math.max(container.clientWidth, 2)
-            const height = Math.max(container.clientHeight, 2)
+            const containerWidth = Math.max(container.clientWidth, 2)
+            const containerHeight = Math.max(container.clientHeight, 2)
+            
+            // Calculate dimensions using "cover" behavior - canvas overflows container while maintaining 1:1 aspect ratio
+            const containerAspect = containerWidth / containerHeight
+            
+            let width, height
+            if (containerAspect > 1) {
+                // Container is wider than tall - use width as base (canvas will be taller than container)
+                width = containerWidth
+                height = containerWidth // 1:1 aspect ratio
+            } else {
+                // Container is taller than wide - use height as base (canvas will be wider than container)
+                height = containerHeight
+                width = containerHeight // 1:1 aspect ratio
+            }
+            
+            // Set canvas size to the calculated dimensions (will overflow container)
+            canvas.style.width = `${width}px`
+            canvas.style.height = `${height}px`
+            
             renderer.setSize(width, height)
+            
             uniforms.iResolution.value = [
                 gl.drawingBufferWidth,
                 gl.drawingBufferHeight,
                 1,
             ]
 
-            // Calculate blind count automatically based on blindMinWidth
+            // Calculate blind count dynamically (always recalculate)
             const calculatedBlindCount = blindMinWidth && blindMinWidth > 0 
                 ? Math.max(1, Math.floor(width / blindMinWidth))
                 : 16 // fallback default
-            
             uniforms.uBlindCount.value = calculatedBlindCount
 
-            // In Preview mode, always keep mouse position centered
-            if (RenderTarget.current() === RenderTarget.preview) {
-                const cx = gl.drawingBufferWidth / 2
-                const cy = gl.drawingBufferHeight / 2
-                const currentMouse = uniforms.iMouse.value
-                
-                // Debug: Log resize corrections
-                if (currentMouse[0] !== cx || currentMouse[1] !== cy) {
-                    console.log(`GradientBlinds - Resize: correcting mouse from [${currentMouse[0]}, ${currentMouse[1]}] to [${cx}, ${cy}]`)
-                }
-                
-                uniforms.iMouse.value = [cx, cy]
-                mouseTargetRef.current = [cx, cy] // Keep mouseTargetRef at center in Canvas mode
-            } else if (firstResizeRef.current) {
+                            // In Preview or Canvas mode, always keep mouse position centered
+                if (RenderTarget.current() === RenderTarget.preview || RenderTarget.current() === RenderTarget.canvas) {
+                    const cx = gl.drawingBufferWidth / 2
+                    const cy = gl.drawingBufferHeight / 2
+                    
+                    uniforms.iMouse.value = [cx, cy]
+                    mouseTargetRef.current = [cx, cy] // Keep mouseTargetRef at center in Canvas mode
+                } else if (firstResizeRef.current) {
                 firstResizeRef.current = false
                 const cx = gl.drawingBufferWidth / 2
                 const cy = gl.drawingBufferHeight / 2
@@ -625,6 +662,11 @@ void main() {
         }
 
         const onPointerMove = (e: PointerEvent) => {
+            // In Canvas mode or on mobile, ignore pointer events (spotlight stays centered)
+            if (RenderTarget.current() === RenderTarget.canvas || isMobile) {
+                return
+            }
+            
             const rect = canvas.getBoundingClientRect()
             const scale = (renderer as unknown as { dpr?: number }).dpr || 1
             const x = (e.clientX - rect.left) * scale
@@ -644,32 +686,36 @@ void main() {
             rafRef.current = requestAnimationFrame(loop)
             uniforms.iTime.value = t * 0.001
             
-            // In Preview mode, only force center if mouse hasn't been moved yet (to prevent [0,0] flash)
-            if (RenderTarget.current() === RenderTarget.preview) {
+            // In Preview or Canvas mode, handle mouse position appropriately
+            if (RenderTarget.current() === RenderTarget.preview || RenderTarget.current() === RenderTarget.canvas) {
                 const cx = gl.drawingBufferWidth / 2
                 const cy = gl.drawingBufferHeight / 2
                 const currentMouse = uniforms.iMouse.value
+                const isCanvas = RenderTarget.current() === RenderTarget.canvas
                 
-                // Only force center if mouse is at [0,0] (initial state) or if mouse dampening is disabled
-                if ((currentMouse[0] === 0 && currentMouse[1] === 0) || mouseDampening <= 0) {
-                    if (currentMouse[0] === 0 && currentMouse[1] === 0) {
-                        console.log(`GradientBlinds - Frame ${Math.floor(t)}: Preventing [0,0] flash, setting to center [${cx}, ${cy}]`)
+                                    if (isCanvas) {
+                        // In Canvas mode, ALWAYS force center position (no cursor interaction)
+                        uniforms.iMouse.value = [cx, cy]
+                        mouseTargetRef.current = [cx, cy]
+                    } else {
+                        // In Preview mode, only force center if mouse hasn't been moved yet (to prevent [0,0] flash)
+                        if ((currentMouse[0] === 0 && currentMouse[1] === 0) || mouseDampening <= 0) {
+                            uniforms.iMouse.value = [cx, cy]
+                            mouseTargetRef.current = [cx, cy]
+                        } else if (mouseDampening > 0) {
+                        // Allow normal mouse dampening when mouse has been moved
+                        if (!lastTimeRef.current) lastTimeRef.current = t
+                        const dt = (t - lastTimeRef.current) / 1000
+                        lastTimeRef.current = t
+                        const tau = Math.max(1e-4, mouseDampening)
+                        let factor = 1 - Math.exp(-dt / tau)
+                        if (factor > 1) factor = 1
+                        
+                        const target = mouseTargetRef.current
+                        const cur = uniforms.iMouse.value
+                        cur[0] += (target[0] - cur[0]) * factor
+                        cur[1] += (target[1] - cur[1]) * factor
                     }
-                    uniforms.iMouse.value = [cx, cy]
-                    mouseTargetRef.current = [cx, cy]
-                } else if (mouseDampening > 0) {
-                    // Allow normal mouse dampening when mouse has been moved
-                    if (!lastTimeRef.current) lastTimeRef.current = t
-                    const dt = (t - lastTimeRef.current) / 1000
-                    lastTimeRef.current = t
-                    const tau = Math.max(1e-4, mouseDampening)
-                    let factor = 1 - Math.exp(-dt / tau)
-                    if (factor > 1) factor = 1
-                    
-                    const target = mouseTargetRef.current
-                    const cur = uniforms.iMouse.value
-                    cur[0] += (target[0] - cur[0]) * factor
-                    cur[1] += (target[1] - cur[1]) * factor
                 }
             } else if (mouseDampening > 0) {
                 if (!lastTimeRef.current) lastTimeRef.current = t
@@ -738,6 +784,7 @@ void main() {
         shineDirection,
         colors,
         bgColor,
+        isMobile,
     ])
 
     return (
@@ -758,6 +805,7 @@ void main() {
                     inset: 0,
                     width: "100%",
                     height: "100%",
+                    overflow: "hidden",
                 }}
             />
         </div>
