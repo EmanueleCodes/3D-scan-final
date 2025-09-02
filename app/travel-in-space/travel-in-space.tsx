@@ -12,8 +12,7 @@ interface TravelInSpaceProps {
     outerRadius?: number
     backgroundColor?: string
     starColor?: string
-    centerGlow?: boolean
-    glowIntensity?: number
+
     spaghettification?: number
     framerUniversity?: string
 }
@@ -50,8 +49,7 @@ export default function TravelInSpace({
     outerRadius = 300,
     backgroundColor = "#000000",
     starColor = "#FFFFFF",
-    centerGlow = true,
-    glowIntensity = 0.3,
+
     spaghettification = 0.5,
 }: TravelInSpaceProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -177,28 +175,7 @@ export default function TravelInSpace({
             ctx.fillStyle = backgroundColor
             ctx.fillRect(0, 0, width, height)
 
-            // Create radial gradient for center glow
-            if (centerGlow) {
-                const gradient = ctx.createRadialGradient(
-                    centerX,
-                    centerY,
-                    0,
-                    centerX,
-                    centerY,
-                    width * 0.3
-                )
-                gradient.addColorStop(
-                    0,
-                    `rgba(255, 255, 255, ${glowIntensity * 0.1})`
-                )
-                gradient.addColorStop(
-                    0.3,
-                    `rgba(255, 255, 255, ${glowIntensity * 0.05})`
-                )
-                gradient.addColorStop(1, "transparent")
-                ctx.fillStyle = gradient
-                ctx.fillRect(0, 0, width, height)
-            }
+
 
             const stars = starsRef.current
 
@@ -423,8 +400,6 @@ export default function TravelInSpace({
         },
         [
             backgroundColor,
-            centerGlow,
-            glowIntensity,
             starColor,
             innerRadius,
             starCount,
@@ -559,8 +534,7 @@ TravelInSpace.defaultProps = {
     outerRadius: 300,
     backgroundColor: "#000000",
     starColor: "#FFFFFF",
-    centerGlow: true,
-    glowIntensity: 0.3,
+
     spaghettification: 0.5,
     framerUniversity: "https://frameruni.link/cc",
 }
@@ -640,20 +614,7 @@ addPropertyControls(TravelInSpace, {
         title: "Star Color",
         defaultValue: "#FFFFFF",
     },
-    centerGlow: {
-        type: ControlType.Boolean,
-        title: "Center Glow",
-        defaultValue: true,
-    },
-    glowIntensity: {
-        type: ControlType.Number,
-        title: "Glow Intensity",
-        min: 0,
-        max: 1,
-        step: 0.1,
-        defaultValue: 0.3,
-        hidden: (props) => !props.centerGlow,
-    },
+
     spaghettification: {
         type: ControlType.Number,
         title: "Spaghettification",

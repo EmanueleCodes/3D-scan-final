@@ -12,8 +12,7 @@ interface GradientBlindsProps {
     paused?: boolean
     angle?: number
     noise?: number
-    blindCount?: number
-    blindMinWidth?: number
+    amount?: number
     mirrorGradient?: "no mirror" | "mirror"
     spotlight?: {
         radius?: number
@@ -208,8 +207,7 @@ export default function GradientBlinds({
     paused = false,
     angle = 0,
     noise = 0.3,
-    blindCount = 16,
-    blindMinWidth = 60,
+    amount = 50,
     mirrorGradient = "no mirror",
     spotlight = { radius: 0.5, softness: 1, opacity: 1, mouseDampening: 0.3 },
     distortAmount = 0,
@@ -222,19 +220,24 @@ export default function GradientBlinds({
     bgColor = "#000000",
 }: GradientBlindsProps) {
     const mouseDampening = spotlight?.mouseDampening || 0.3
+    
+    // Convert amount (1-100) to blindMinWidth (500-10px) - inverted mapping
+    const blindMinWidth = 500 - (amount - 1) * (500 - 10) / (100 - 1)
+    
     const containerRef = useRef<HTMLDivElement | null>(null)
     const rafRef = useRef<number | null>(null)
     const programRef = useRef<typeof Program | null>(null)
     const meshRef = useRef<typeof Mesh | null>(null)
     const geometryRef = useRef<typeof Triangle | null>(null)
     const rendererRef = useRef<typeof Renderer | null>(null)
-    const mouseTargetRef = useRef<[number, number]>([0, 0])
+    const mouseTargetRef = useRef<[number, number]>([0, 0]) // Will be set to center in useEffect
     const lastTimeRef = useRef<number>(0)
     const firstResizeRef = useRef<boolean>(true)
+    const isPreviewMode = RenderTarget.current() === RenderTarget.preview
 
     // Debug effect to monitor gradientColors changes
     useEffect(() => {
-        if (RenderTarget.current() === RenderTarget.canvas) {
+        if (RenderTarget.current() === RenderTarget.preview) {
             console.log("GradientBlinds - gradientColors prop changed:", colors)
         }
     }, [colors])
@@ -245,7 +248,7 @@ export default function GradientBlinds({
 
         const renderer = new Renderer({
             dpr:
-                dpr ??
+                dpr ? dpr * 3 : // Multiply normalized value (0.1-1) by 3 to get range 0.3-3
                 (typeof window !== "undefined"
                     ? window.devicePixelRatio || 1
                     : 1),
@@ -257,6 +260,21 @@ export default function GradientBlinds({
         rendererRef.current = renderer
         const gl = renderer.gl
         const canvas = gl.canvas as HTMLCanvasElement
+        
+        // Initialize mouse target to center to prevent spotlight animation from bottom-left
+        const initialCenterX = gl.drawingBufferWidth / 2
+        const initialCenterY = gl.drawingBufferHeight / 2
+        mouseTargetRef.current = [initialCenterX, initialCenterY]
+        
+        // In Preview mode, ensure mouseTargetRef stays at center (simulating "last known mouse position")
+        if (isPreviewMode) {
+            console.log("GradientBlinds - Preview mode detected: setting mouse target to center", [initialCenterX, initialCenterY])
+        }
+
+        console.log("GradientBlinds - Initial center:", {
+            initialCenterX,
+            initialCenterY,
+        })
 
         // Ensure WebGL context is transparent
         gl.clearColor(0, 0, 0, 0)
@@ -489,16 +507,16 @@ void main() {
             iResolution: {
                 value: [gl.drawingBufferWidth, gl.drawingBufferHeight, 1],
             },
-            iMouse: { value: [0, 0] },
+            iMouse: { value: [initialCenterX, initialCenterY] }, // Initialize to center immediately
             iTime: { value: 0 },
             uAngle: { value: (angle * Math.PI) / 180 },
             uNoise: { value: noise },
-            uBlindCount: { value: Math.max(1, blindCount) },
-            uSpotlightRadius: { value: spotlight?.radius ?? 0.5 },
-            uSpotlightSoftness: { value: spotlight?.softness ?? 1 },
+            uBlindCount: { value: 1 }, // Will be calculated in resize function
+            uSpotlightRadius: { value: (spotlight?.radius ?? 0.5) * 2 },
+            uSpotlightSoftness: { value: (spotlight?.softness ?? 1) * 3 },
             uSpotlightOpacity: { value: spotlight?.opacity ?? 1 },
             uMirror: { value: mirrorGradient === "mirror" ? 1 : 0 },
-            uDistort: { value: distortAmount },
+            uDistort: { value: distortAmount * 10 },
             uShineFlip: { value: shineDirection === "right" ? 1 : 0 },
             uColor0: { value: colorArr[0] },
             uColor1: { value: colorArr[1] },
@@ -511,8 +529,12 @@ void main() {
             uColorCount: { value: colorCount },
         }
 
+        // Mouse position is already initialized to center in uniforms object above
+        console.log("GradientBlinds - Render target:", RenderTarget.current())
+        console.log("GradientBlinds - Initial mouse position set to:", uniforms.iMouse.value)
+
         // Debug logging for uniforms
-        if (RenderTarget.current() === RenderTarget.canvas) {
+        if (RenderTarget.current() === RenderTarget.preview) {
             console.log("GradientBlinds - Spotlight values:", {
                 radius: spotlight?.radius,
                 softness: spotlight?.softness,
@@ -563,21 +585,27 @@ void main() {
                 1,
             ]
 
-            if (blindMinWidth && blindMinWidth > 0) {
-                const maxByMinWidth = Math.max(
-                    1,
-                    Math.floor(width / blindMinWidth)
-                )
+            // Calculate blind count automatically based on blindMinWidth
+            const calculatedBlindCount = blindMinWidth && blindMinWidth > 0 
+                ? Math.max(1, Math.floor(width / blindMinWidth))
+                : 16 // fallback default
+            
+            uniforms.uBlindCount.value = calculatedBlindCount
 
-                const effective = blindCount
-                    ? Math.min(blindCount, maxByMinWidth)
-                    : maxByMinWidth
-                uniforms.uBlindCount.value = Math.max(1, effective)
-            } else {
-                uniforms.uBlindCount.value = Math.max(1, blindCount)
-            }
-
-            if (firstResizeRef.current) {
+            // In Preview mode, always keep mouse position centered
+            if (RenderTarget.current() === RenderTarget.preview) {
+                const cx = gl.drawingBufferWidth / 2
+                const cy = gl.drawingBufferHeight / 2
+                const currentMouse = uniforms.iMouse.value
+                
+                // Debug: Log resize corrections
+                if (currentMouse[0] !== cx || currentMouse[1] !== cy) {
+                    console.log(`GradientBlinds - Resize: correcting mouse from [${currentMouse[0]}, ${currentMouse[1]}] to [${cx}, ${cy}]`)
+                }
+                
+                uniforms.iMouse.value = [cx, cy]
+                mouseTargetRef.current = [cx, cy] // Keep mouseTargetRef at center in Canvas mode
+            } else if (firstResizeRef.current) {
                 firstResizeRef.current = false
                 const cx = gl.drawingBufferWidth / 2
                 const cy = gl.drawingBufferHeight / 2
@@ -601,9 +629,13 @@ void main() {
             const scale = (renderer as unknown as { dpr?: number }).dpr || 1
             const x = (e.clientX - rect.left) * scale
             const y = (rect.height - (e.clientY - rect.top)) * scale
-            mouseTargetRef.current = [x, y]
-            if (mouseDampening <= 0) {
-                uniforms.iMouse.value = [x, y]
+            
+            // Ensure we never set invalid coordinates
+            if (x >= 0 && y >= 0 && x <= gl.drawingBufferWidth && y <= gl.drawingBufferHeight) {
+                mouseTargetRef.current = [x, y]
+                if (mouseDampening <= 0) {
+                    uniforms.iMouse.value = [x, y]
+                }
             }
         }
         canvas.addEventListener("pointermove", onPointerMove)
@@ -611,13 +643,42 @@ void main() {
         const loop = (t: number) => {
             rafRef.current = requestAnimationFrame(loop)
             uniforms.iTime.value = t * 0.001
-            if (mouseDampening > 0) {
+            
+            // In Preview mode, only force center if mouse hasn't been moved yet (to prevent [0,0] flash)
+            if (RenderTarget.current() === RenderTarget.preview) {
+                const cx = gl.drawingBufferWidth / 2
+                const cy = gl.drawingBufferHeight / 2
+                const currentMouse = uniforms.iMouse.value
+                
+                // Only force center if mouse is at [0,0] (initial state) or if mouse dampening is disabled
+                if ((currentMouse[0] === 0 && currentMouse[1] === 0) || mouseDampening <= 0) {
+                    if (currentMouse[0] === 0 && currentMouse[1] === 0) {
+                        console.log(`GradientBlinds - Frame ${Math.floor(t)}: Preventing [0,0] flash, setting to center [${cx}, ${cy}]`)
+                    }
+                    uniforms.iMouse.value = [cx, cy]
+                    mouseTargetRef.current = [cx, cy]
+                } else if (mouseDampening > 0) {
+                    // Allow normal mouse dampening when mouse has been moved
+                    if (!lastTimeRef.current) lastTimeRef.current = t
+                    const dt = (t - lastTimeRef.current) / 1000
+                    lastTimeRef.current = t
+                    const tau = Math.max(1e-4, mouseDampening)
+                    let factor = 1 - Math.exp(-dt / tau)
+                    if (factor > 1) factor = 1
+                    
+                    const target = mouseTargetRef.current
+                    const cur = uniforms.iMouse.value
+                    cur[0] += (target[0] - cur[0]) * factor
+                    cur[1] += (target[1] - cur[1]) * factor
+                }
+            } else if (mouseDampening > 0) {
                 if (!lastTimeRef.current) lastTimeRef.current = t
                 const dt = (t - lastTimeRef.current) / 1000
                 lastTimeRef.current = t
                 const tau = Math.max(1e-4, mouseDampening)
                 let factor = 1 - Math.exp(-dt / tau)
                 if (factor > 1) factor = 1
+                
                 const target = mouseTargetRef.current
                 const cur = uniforms.iMouse.value
                 cur[0] += (target[0] - cur[0]) * factor
@@ -670,8 +731,7 @@ void main() {
         paused,
         angle,
         noise,
-        blindCount,
-        blindMinWidth,
+        amount,
         mirrorGradient,
         spotlight,
         distortAmount,
@@ -705,12 +765,11 @@ void main() {
 }
 
 GradientBlinds.defaultProps = {
-    dpr: 1,
+    dpr: 0.5,
     paused: false,
     angle: 0,
     noise: 0.3,
-    blindCount: 16,
-    blindMinWidth: 60,
+    amount: 50,
     mirrorGradient: "no mirror" as const,
     spotlight: { radius: 0.5, softness: 1, opacity: 1, mouseDampening: 0.3 },
     distortAmount: 0,
@@ -727,10 +786,10 @@ addPropertyControls(GradientBlinds, {
     dpr: {
         type: ControlType.Number,
         title: "Resolution",
-        min: 0.5,
-        max: 3,
+        min: 0.1,
+        max: 1,
         step: 0.1,
-        defaultValue: 2,
+        defaultValue: 0.8,
     },
     paused: {
         type: ControlType.Boolean,
@@ -738,40 +797,36 @@ addPropertyControls(GradientBlinds, {
         hidden: () => true,
         defaultValue: false,
     },
-    blindCount: {
+    amount: {
         type: ControlType.Number,
-        title: "Blinds",
+        title: "Amount",
         min: 1,
-        max: 50,
+        max: 100,
         step: 1,
-    },
-    blindMinWidth: {
-        type: ControlType.Number,
-        title: "Min W",
-        min: 10,
-        max: 500,
-        unit: "px",
+        defaultValue: 80,
     },
     angle: {
         type: ControlType.Number,
-        title: "angle",
+        title: "Angle",
         min: 0,
         max: 360,
         unit: "°",
     },
     noise: {
         type: ControlType.Number,
-        title: "noise",
+        title: "Noise",
         min: 0,
         max: 1,
         step: 0.1,
+        defaultValue: 0.1,
     },
     distortAmount: {
         type: ControlType.Number,
         title: "Waveness",
         min: 0,
-        max: 10,
+        max: 1,
         step: 0.1,
+        defaultValue:0.5,
     },
     shineDirection: {
         type: ControlType.Enum,
@@ -783,20 +838,20 @@ addPropertyControls(GradientBlinds, {
     mirrorGradient: {
         type: ControlType.Enum,
         title: "Gradient",
-        options: ["no mirror", "mirror"],
+        options: ["No mirror", "Mirror"],
         displaySegmentedControl: true,
         segmentedControlDirection: "vertical",
-        defaultValue: "no mirror",
+        defaultValue: "No mirror",
     },
     spotlight: {
         type: ControlType.Object,
-        title: "spotlight",
+        title: "Spotlight",
         controls: {
             radius: {
                 type: ControlType.Number,
-                title: "radius",
+                title: "Radius",
                 min: 0.1,
-                max: 2,
+                max: 1,
                 step: 0.1,
                 // Controls the size/area of the spotlight effect
             },
@@ -814,13 +869,13 @@ addPropertyControls(GradientBlinds, {
                 type: ControlType.Number,
                 title: "Presence",
                 min: 0.1,
-                max: 3,
+                max: 1,
                 step: 0.1,
                 // Controls the blur/softness of the spotlight edges
             },
             opacity: {
                 type: ControlType.Number,
-                title: "opacity",
+                title: "Opacity",
                 min: 0,
                 max: 1,
                 step: 0.1,
