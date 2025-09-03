@@ -8,6 +8,7 @@ interface StarProps {
     opacity?: number
     length?: number
     color?: string // Legacy single color prop
+    centerThinning?: number // How much stars thin when approaching center
 }
 
 interface ColorsProps {
@@ -188,6 +189,7 @@ export default function TravelInSpace({
         opacity: 0.8,
         length: 8,
         color: "#FFFFFF",
+        centerThinning: 0.5,
     },
     innerRadius = 50,
     outerRadius = 300,
@@ -205,6 +207,7 @@ export default function TravelInSpace({
         opacity: starOpacity = 0.8,
         length: starLength = 8,
         color: starColor = "#FFFFFF",
+        centerThinning: centerThinning = 0.5,
     } = star
     
     // Prepare color palette
@@ -254,16 +257,17 @@ export default function TravelInSpace({
             // SPAWN VARIATIONS THAT CAUSE SPEED INCONSISTENCY:
             // Stars spawn at different distances and depths, creating different travel distances
             
-            // Spawn on a hemisphere for better depth variety
+            // Spawn stars in a ring around the outer edge to prevent center spawning
             const theta = Math.random() * Math.PI * 2
-            const phi = Math.acos(Math.random())
-            const r = outerRadius * (0.85 + Math.random() * 0.3)  // 85% to 115% of outer radius!
+            const minSpawnRadius = outerRadius * 0.9  // Always spawn at least 120% of outer radius
+            const maxSpawnRadius = outerRadius * 1.2  // Up to 200% of outer radius
+            const spawnRadius = minSpawnRadius + Math.random() * (maxSpawnRadius - minSpawnRadius)
 
-            const offsetX = r * Math.cos(theta) * Math.sin(phi)
-            const offsetY = r * Math.sin(theta) * Math.sin(phi)
-            const offsetZ = r * Math.cos(phi)
+            const offsetX = spawnRadius * Math.cos(theta)
+            const offsetY = spawnRadius * Math.sin(theta)
+            const offsetZ = Math.random() * 300 - 150  // Small Z variation for depth
 
-            const baseZ = 700 + Math.random() * 300  // Z varies from 700 to 1000!
+            const baseZ = 200 + Math.random() * 800  // Z varies from 200 to 1000 (much larger range)
 
             const x = centerX + offsetX
             const y = centerY + offsetY
@@ -280,39 +284,37 @@ export default function TravelInSpace({
             const dz = 0 - z        // Z distance to center (center is at z=0)
             const distance3D = Math.sqrt(dx * dx + dy * dy + dz * dz)
 
-            // CONSTANT APPARENT SPEED SOLUTION:
-            // The problem: as z decreases, perspectiveScale increases, making stars appear faster
-            // Solution: Scale the 3D velocity inversely to the initial perspective scale
-            // This way, stars that will have higher perspective scaling get slower 3D velocity
-            
-            // Calculate initial perspective scale (how much this star will be scaled on screen initially)
-            const initialPerspectiveScale = 1000 / (1000 + z)
-            
-            // Inverse compensation: stars with higher perspective scale get slower 3D velocity
-            // This should result in more consistent apparent speed on screen
-            const perspectiveCompensation = 1.0 / Math.max(0.5, initialPerspectiveScale * 2)
+            // CONSTANT VELOCITY: No perspective compensation - stars maintain constant 3D velocity
 
             // Randomize base opacity for more natural variation
             const randomOpacity = starOpacity * (0.6 + Math.random() * 0.4)
 
-            // Use constant fade-in speed for all stars to ensure consistent visual appearance
-            const fadeInSpeed = 1.5 // Constant fade-in rate for all stars
+            // Use slower fade-in speed for more pronounced fade-in effect
+            const fadeInSpeed = 1 // Slower fade-in rate for more dramatic effect
 
             // Assign color from palette with equal distribution
             const colorIndex = Math.floor(Math.random() * colorPalette.length)
             const colorData = colorPalette[colorIndex]
 
+            // Calculate spawn size based on actual spawn radius (not distance from center)
+            // Stars that spawn further out (larger spawnRadius) should be smaller initially
+            const spawnDistanceFactor = Math.max(0.3, Math.min(1.2, 1 - ((spawnRadius - minSpawnRadius) / (maxSpawnRadius - minSpawnRadius))))
+            
+            // Stars that spawn further out should be smaller initially
+            const baseSize = starThickness * (0.5 + Math.random() * 1.5)
+            const spawnSize = baseSize * spawnDistanceFactor
+
             return {
                 x,
                 y,
                 z,
-                // 3D velocity components: normalized direction * speed * perspective compensation
-                vx: (dx / distance3D) * baseSpeed * perspectiveCompensation,
-                vy: (dy / distance3D) * baseSpeed * perspectiveCompensation,
-                vz: (dz / distance3D) * baseSpeed * perspectiveCompensation,
+                // 3D velocity components: normalized direction * speed (constant velocity)
+                vx: (dx / distance3D) * baseSpeed,
+                vy: (dy / distance3D) * baseSpeed,
+                vz: (dz / distance3D) * baseSpeed,
                 opacity: 0, // Start with 0 opacity for fade-in
                 baseOpacity: randomOpacity,
-                size: starThickness * (0.5 + Math.random() * 1.5),
+                size: spawnSize,
                 age: 0,
                 maxAge: Math.random() * 10 + 15,
                 fadeInProgress: 0,
@@ -371,10 +373,10 @@ export default function TravelInSpace({
             ctx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgRgba.a})`
             ctx.fillRect(0, 0, width, height)
 
-            // Pre-calculate frequently used values
-            const perspective = 1000
-            const fadeOutStartDistance = innerRadius * 2.5
-            const fadeOutEndDistance = innerRadius * 1.2
+            // Pre-calculate frequently used values - lower perspective for more dramatic effect
+            const perspective = 600
+            const fadeOutStartDistance = innerRadius * 2.5  // Start fading much earlier
+            const fadeOutEndDistance = innerRadius * 1    // Fade to center
             const fadeOutRange = fadeOutStartDistance - fadeOutEndDistance
             const viewportCenterX = centerX
             const viewportCenterY = centerY
@@ -388,9 +390,11 @@ export default function TravelInSpace({
                 const star = stars[i]
                 star.age += deltaTimeSeconds
 
-                // Update 3D position with constant velocity
-                star.x += star.vx * deltaTime
-                star.y += star.vy * deltaTime
+                // Update 3D position with perspective-compensated x/y to stabilize on-screen speed
+                const perspectiveScalePre = perspective / (perspective + star.z)
+                const compensation = 1 / perspectiveScalePre
+                star.x += star.vx * deltaTime * compensation
+                star.y += star.vy * deltaTime * compensation
                 star.z += star.vz * deltaTime
 
                 // OPTIMIZED PERSPECTIVE PROJECTION:
@@ -405,13 +409,16 @@ export default function TravelInSpace({
                 const distanceFromCenter = Math.sqrt(dx * dx + dy * dy)
 
                 // Check if star should be removed (hard boundaries)
+                // For perspective-compensated movement, check world-space distance from center
+                const worldDistanceFromCenter = Math.sqrt(dx * dx + dy * dy)
                 const shouldRemove =
                     screenX < -100 ||
                     screenX > width + 100 ||
                     screenY < -100 ||
                     screenY > height + 100 ||
                     star.z < 50 ||
-                    star.age > star.maxAge
+                    star.age > star.maxAge ||
+                    worldDistanceFromCenter < innerRadius * 0.8 // Remove when close to center in world space
 
                 if (shouldRemove) {
                     stars.splice(i, 1)
@@ -472,9 +479,13 @@ export default function TravelInSpace({
                             const endX = screenX + normalizedX * streakLength
                             const endY = screenY + normalizedY * streakLength
 
-                            // OPTIMIZED thickness calculation using cached distance
+                            // OPTIMIZED thickness calculation using cached distance and centerThinning control
                             const thicknessFactor = Math.max(0.2, Math.min(1, distanceFromCenter / outerRadius))
-                            const lineWidth = Math.max(0.2, starThickness * thicknessFactor)
+                            const lineWidth = Math.max(0.2, starThickness * (1 - centerThinning + (thicknessFactor * centerThinning)))
+                            
+                            // Apply thickness-based opacity reduction
+                            const thicknessOpacityFactor = Math.max(0.3, thicknessFactor)
+                            star.opacity *= thicknessOpacityFactor
 
                             // OPTIMIZED canvas operations - set properties once
                             ctx.lineWidth = lineWidth
@@ -686,6 +697,7 @@ TravelInSpace.defaultProps = {
         opacity: 0.8,
         length: 8,
         color: "#FFFFFF",
+        centerThinning: 0.5,
     },
     innerRadius: 50,
     outerRadius: 300,
@@ -712,9 +724,9 @@ addPropertyControls(TravelInSpace, {
         type: ControlType.Number,
                 title: "Count",
         min: 10,
-        max: 400,
+        max: 1000,
         step: 10,
-                defaultValue: 150,
+                defaultValue: 500,
     },
             speed: {
         type: ControlType.Number,
@@ -744,9 +756,17 @@ addPropertyControls(TravelInSpace, {
         type: ControlType.Number,
         title: "Length",
         min: 1,
-        max: 30,
+        max: 100,
         step: 5,
         defaultValue: 8,
+            },
+            centerThinning: {
+        type: ControlType.Number,
+        title: "Center Thinning",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
             },
         },
     },
@@ -763,7 +783,7 @@ addPropertyControls(TravelInSpace, {
         type: ControlType.Number,
         title: "Radius out",
         min: 500,
-        max: 5000,
+        max: 1500,
         step: 100,
         defaultValue: 1000,
         unit: "px",
