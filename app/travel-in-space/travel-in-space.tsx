@@ -7,7 +7,16 @@ interface StarProps {
     thickness?: number
     opacity?: number
     length?: number
-    color?: string
+    color?: string // Legacy single color prop
+}
+
+interface ColorsProps {
+    paletteCount?: number
+    color1?: string
+    color2?: string
+    color3?: string
+    color4?: string
+    color5?: string
 }
 
 interface TravelInSpaceProps {
@@ -16,6 +25,7 @@ interface TravelInSpaceProps {
     innerRadius?: number
     outerRadius?: number
     backgroundColor?: string
+    colors?: ColorsProps
     framerUniversity?: string
 }
 
@@ -31,6 +41,135 @@ interface Star {
     size: number
     age: number
     maxAge: number
+    fadeInProgress: number // Fade-in progress (0-1)
+    fadeInSpeed: number // Speed of fade-in (based on star speed)
+    color: string // RGB color string for this specific star
+    colorAlpha: number // Alpha value from the color token
+    colorIndex: number // Index of the color from the palette
+}
+
+// CSS variable token and color parsing (hex/rgba/var())
+const cssVariableRegex =
+    /var\s*\(\s*(--[\w-]+)(?:\s*,\s*((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*))?\s*\)/
+
+function extractDefaultValue(cssVar: string): string {
+    if (!cssVar || !cssVar.startsWith("var(")) return cssVar
+    const match = cssVariableRegex.exec(cssVar)
+    if (!match) return cssVar
+    const fallback = (match[2] || "").trim()
+    if (fallback.startsWith("var(")) return extractDefaultValue(fallback)
+    return fallback || cssVar
+}
+
+function resolveTokenColor(input: any): any {
+    if (typeof input !== "string") return input
+    if (!input.startsWith("var(")) return input
+    return extractDefaultValue(input)
+}
+
+function parseColorToRgba(input: string): {
+    r: number
+    g: number
+    b: number
+    a: number
+} {
+    if (!input) return { r: 1, g: 1, b: 1, a: 1 }
+    const str = input.trim()
+
+    // rgba(R,G,B,A)
+    const rgbaMatch = str.match(
+        /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
+    )
+    if (rgbaMatch) {
+        const r = Math.max(0, Math.min(255, parseFloat(rgbaMatch[1]))) / 255
+        const g = Math.max(0, Math.min(255, parseFloat(rgbaMatch[2]))) / 255
+        const b = Math.max(0, Math.min(255, parseFloat(rgbaMatch[3]))) / 255
+        const a =
+            rgbaMatch[4] !== undefined
+                ? Math.max(0, Math.min(1, parseFloat(rgbaMatch[4])))
+                : 1
+        return { r, g, b, a }
+    }
+
+    // #RRGGBBAA or #RRGGBB
+    const hex = str.replace(/^#/, "")
+    if (hex.length === 8) {
+        const r = parseInt(hex.slice(0, 2), 16) / 255
+        const g = parseInt(hex.slice(2, 4), 16) / 255
+        const b = parseInt(hex.slice(4, 6), 16) / 255
+        const a = parseInt(hex.slice(6, 8), 16) / 255
+        return { r, g, b, a }
+    }
+    if (hex.length === 6) {
+        const r = parseInt(hex.slice(0, 2), 16) / 255
+        const g = parseInt(hex.slice(2, 4), 16) / 255
+        const b = parseInt(hex.slice(4, 6), 16) / 255
+        return { r, g, b, a: 1 }
+    }
+    if (hex.length === 4) {
+        // #RGBA
+        const r = parseInt(hex[0] + hex[0], 16) / 255
+        const g = parseInt(hex[1] + hex[1], 16) / 255
+        const b = parseInt(hex[2] + hex[2], 16) / 255
+        const a = parseInt(hex[3] + hex[3], 16) / 255
+        return { r, g, b, a }
+    }
+    if (hex.length === 3) {
+        // #RGB
+        const r = parseInt(hex[0] + hex[0], 16) / 255
+        const g = parseInt(hex[1] + hex[1], 16) / 255
+        const b = parseInt(hex[2] + hex[2], 16) / 255
+        return { r, g, b, a: 1 }
+    }
+    return { r: 1, g: 1, b: 1, a: 1 }
+}
+
+// Prepare color palette from colors object
+function prepareColorPalette(colors?: ColorsProps, legacyColor?: string): { color: string; alpha: number }[] {
+    const palette: { color: string; alpha: number }[] = []
+    
+    if (colors) {
+        const paletteCount = Math.max(1, Math.min(5, colors.paletteCount || 1))
+        const colorInputs = [
+            colors.color1,
+            colors.color2,
+            colors.color3,
+            colors.color4,
+            colors.color5,
+        ]
+        
+        for (let i = 0; i < paletteCount; i++) {
+            const colorInput = colorInputs[i]
+            if (colorInput) {
+                const resolved = resolveTokenColor(colorInput)
+                const rgba = parseColorToRgba(resolved)
+                // Convert to RGB string for canvas, preserve alpha separately
+                const r = Math.round(rgba.r * 255)
+                const g = Math.round(rgba.g * 255)
+                const b = Math.round(rgba.b * 255)
+                palette.push({
+                    color: `rgb(${r}, ${g}, ${b})`,
+                    alpha: rgba.a
+                })
+            }
+        }
+    }
+    
+    // Fallback to legacy color or default white
+    if (palette.length === 0) {
+        const fallbackColor = legacyColor || "#FFFFFF"
+        const resolved = resolveTokenColor(fallbackColor)
+        const rgba = parseColorToRgba(resolved)
+        const r = Math.round(rgba.r * 255)
+        const g = Math.round(rgba.g * 255)
+        const b = Math.round(rgba.b * 255)
+        palette.push({
+            color: `rgb(${r}, ${g}, ${b})`,
+            alpha: rgba.a
+        })
+    }
+    
+    return palette
 }
 
 /**
@@ -53,6 +192,10 @@ export default function TravelInSpace({
     innerRadius = 50,
     outerRadius = 300,
     backgroundColor = "#000000",
+    colors = {
+        paletteCount: 1,
+        color1: "#FFFFFF",
+    },
 }: TravelInSpaceProps) {
     // Destructure star properties for easier access
     const {
@@ -63,6 +206,9 @@ export default function TravelInSpace({
         length: starLength = 8,
         color: starColor = "#FFFFFF",
     } = star
+    
+    // Prepare color palette
+    const colorPalette = prepareColorPalette(colors, starColor)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const animationRef = useRef<number>()
     const starsRef = useRef<Star[]>([])
@@ -75,6 +221,13 @@ export default function TravelInSpace({
 
     // Calculate optimal spawn rate based on system parameters
     const getSpawnInterval = useCallback(() => {
+        // MAJOR ISSUE: This calculation assumes all stars travel the same distance!
+        // But stars actually spawn at different distances and have different 3D travel paths.
+        // This causes speed inconsistencies because:
+        // - Stars spawning closer to center have shorter travel distance → appear faster
+        // - Stars spawning further from center have longer travel distance → appear slower
+        // - Stars with different z-depths have different 3D travel distances
+        
         // Calculate travel distance (from outer spawn radius to inner radius)
         const travelDistance = outerRadius - innerRadius
 
@@ -98,53 +251,78 @@ export default function TravelInSpace({
     // Create a single star
     const createStar = useCallback(
         (centerX: number, centerY: number) => {
+            // SPAWN VARIATIONS THAT CAUSE SPEED INCONSISTENCY:
+            // Stars spawn at different distances and depths, creating different travel distances
+            
             // Spawn on a hemisphere for better depth variety
             const theta = Math.random() * Math.PI * 2
             const phi = Math.acos(Math.random())
-            const r = outerRadius * (0.85 + Math.random() * 0.3)
+            const r = outerRadius * (0.85 + Math.random() * 0.3)  // 85% to 115% of outer radius!
 
             const offsetX = r * Math.cos(theta) * Math.sin(phi)
             const offsetY = r * Math.sin(theta) * Math.sin(phi)
             const offsetZ = r * Math.cos(phi)
 
-            const baseZ = 700 + Math.random() * 300
+            const baseZ = 700 + Math.random() * 300  // Z varies from 700 to 1000!
 
             const x = centerX + offsetX
             const y = centerY + offsetY
             const z = baseZ + offsetZ
 
-            // Constant velocity toward center (no distance-based speed variation)
-            const speedJitter = 0.7 + Math.random() * 0.6
-            const baseSpeed = starSpeed * 0.1 * speedJitter
+            // STAR VELOCITY CALCULATION
+            // Each star gets a random speed jitter for natural variation
+            const speedJitter = 0.7 + Math.random() * 0.6  // Random factor between 0.7-1.3
+            const baseSpeed = starSpeed * 0.1 * speedJitter // Base 3D speed with jitter
 
-            // Calculate direction toward center
-            const dx = centerX - x
-            const dy = centerY - y
-            const dz = 0 - z
+            // Calculate 3D direction vector from star position to center (0,0,0)
+            const dx = centerX - x  // X distance to center
+            const dy = centerY - y  // Y distance to center  
+            const dz = 0 - z        // Z distance to center (center is at z=0)
             const distance3D = Math.sqrt(dx * dx + dy * dy + dz * dz)
 
-            // Compensate for perspective effect to maintain linear speed
-            // Stars closer to viewer (lower z) need slower velocity to appear constant
-            const perspectiveCompensation = Math.max(0.3, Math.min(1.0, (z - 400) / 600))
+            // CONSTANT APPARENT SPEED SOLUTION:
+            // The problem: as z decreases, perspectiveScale increases, making stars appear faster
+            // Solution: Scale the 3D velocity inversely to the initial perspective scale
+            // This way, stars that will have higher perspective scaling get slower 3D velocity
+            
+            // Calculate initial perspective scale (how much this star will be scaled on screen initially)
+            const initialPerspectiveScale = 1000 / (1000 + z)
+            
+            // Inverse compensation: stars with higher perspective scale get slower 3D velocity
+            // This should result in more consistent apparent speed on screen
+            const perspectiveCompensation = 1.0 / Math.max(0.5, initialPerspectiveScale * 2)
 
             // Randomize base opacity for more natural variation
             const randomOpacity = starOpacity * (0.6 + Math.random() * 0.4)
+
+            // Use constant fade-in speed for all stars to ensure consistent visual appearance
+            const fadeInSpeed = 1.5 // Constant fade-in rate for all stars
+
+            // Assign color from palette with equal distribution
+            const colorIndex = Math.floor(Math.random() * colorPalette.length)
+            const colorData = colorPalette[colorIndex]
 
             return {
                 x,
                 y,
                 z,
+                // 3D velocity components: normalized direction * speed * perspective compensation
                 vx: (dx / distance3D) * baseSpeed * perspectiveCompensation,
                 vy: (dy / distance3D) * baseSpeed * perspectiveCompensation,
                 vz: (dz / distance3D) * baseSpeed * perspectiveCompensation,
-                opacity: randomOpacity,
+                opacity: 0, // Start with 0 opacity for fade-in
                 baseOpacity: randomOpacity,
                 size: starThickness * (0.5 + Math.random() * 1.5),
                 age: 0,
                 maxAge: Math.random() * 10 + 15,
+                fadeInProgress: 0,
+                fadeInSpeed: fadeInSpeed,
+                color: colorData.color,
+                colorAlpha: colorData.alpha,
+                colorIndex: colorIndex,
             }
         },
-        [starSpeed, starThickness, starOpacity, outerRadius]
+        [starSpeed, starThickness, starOpacity, outerRadius, colorPalette]
     )
 
     // Initialize stars - start with empty canvas for smooth buildup
@@ -182,34 +360,49 @@ export default function TravelInSpace({
             const centerX = width / 2
             const centerY = height / 2
 
-            // Clear canvas
-            ctx.fillStyle = backgroundColor
+            // Clear canvas completely first
+            ctx.clearRect(0, 0, width, height)
+            
+            // Draw background color with opacity support
+            const bgRgba = parseColorToRgba(backgroundColor)
+            const bgR = Math.round(bgRgba.r * 255)
+            const bgG = Math.round(bgRgba.g * 255)
+            const bgB = Math.round(bgRgba.b * 255)
+            ctx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgRgba.a})`
             ctx.fillRect(0, 0, width, height)
 
-
+            // Pre-calculate frequently used values
+            const perspective = 1000
+            const fadeOutStartDistance = innerRadius * 2.5
+            const fadeOutEndDistance = innerRadius * 1.2
+            const fadeOutRange = fadeOutStartDistance - fadeOutEndDistance
+            const viewportCenterX = centerX
+            const viewportCenterY = centerY
+            const maxAngularDistance = Math.sqrt((width / 2) ** 2 + (height / 2) ** 2)
+            const deltaTimeSeconds = deltaTime * 0.001
 
             const stars = starsRef.current
 
             // Update existing stars and remove dead ones
             for (let i = stars.length - 1; i >= 0; i--) {
                 const star = stars[i]
-                star.age += deltaTime * 0.001 // Convert to seconds for more reasonable aging
+                star.age += deltaTimeSeconds
 
-                // Update position with linear speed (no perspective acceleration)
+                // Update 3D position with constant velocity
                 star.x += star.vx * deltaTime
                 star.y += star.vy * deltaTime
                 star.z += star.vz * deltaTime
 
-                // Calculate screen position based on z-depth (true perspective)
-                const perspective = 1000
+                // OPTIMIZED PERSPECTIVE PROJECTION:
+                // Cache perspective calculation and use fast division
                 const perspectiveScale = perspective / (perspective + star.z)
                 const screenX = centerX + (star.x - centerX) * perspectiveScale
                 const screenY = centerY + (star.y - centerY) * perspectiveScale
 
-                // Calculate distance from center for position-based opacity
-                const distanceFromCenter = Math.sqrt(
-                    (star.x - centerX) ** 2 + (star.y - centerY) ** 2
-                )
+                // Fast distance calculation using cached values
+                const dx = star.x - centerX
+                const dy = star.y - centerY
+                const distanceFromCenter = Math.sqrt(dx * dx + dy * dy)
 
                 // Check if star should be removed (hard boundaries)
                 const shouldRemove =
@@ -225,162 +418,74 @@ export default function TravelInSpace({
                     continue
                 }
 
-                // Calculate position-based opacity
-                // Stars fade in as they move from outer edge toward center
-                // Stars fade out as they get close to center and disappear completely before inner radius
-                const fadeInDistance = outerRadius * 0.8 // Start fading in at 80% of outer radius
-                const fadeOutStartDistance = innerRadius * 2.5 // Start fading out at 2.5x inner radius
-                const fadeOutEndDistance = innerRadius * 1.2 // Completely faded out at 1.2x inner radius
-                
-                let positionOpacity = 1
-                
-                if (distanceFromCenter > fadeInDistance) {
-                    // Fade in from outer edge
-                    const fadeInProgress = Math.max(0, (outerRadius - distanceFromCenter) / (outerRadius - fadeInDistance))
-                    positionOpacity = Math.pow(fadeInProgress, 2) // Smooth fade-in curve
-                } else if (distanceFromCenter < fadeOutStartDistance) {
-                    // Fade out near center - completely gone before reaching inner radius
-                    const fadeOutProgress = Math.max(0, (distanceFromCenter - fadeOutEndDistance) / (fadeOutStartDistance - fadeOutEndDistance))
-                    positionOpacity = Math.pow(fadeOutProgress, 0.5) // Smooth fade-out curve
+                // Update fade-in progress based on time and star speed
+                if (star.fadeInProgress < 1) {
+                    star.fadeInProgress = Math.min(1, star.fadeInProgress + deltaTimeSeconds * star.fadeInSpeed)
                 }
 
-                // Apply position-based opacity
-                star.opacity = star.baseOpacity * positionOpacity
+                // OPTIMIZED opacity calculation using cached values
+                let positionOpacity = 1
+                
+                if (distanceFromCenter < fadeOutStartDistance) {
+                    // Use cached fadeOutRange for faster calculation
+                    const fadeOutProgress = Math.max(0, (distanceFromCenter - fadeOutEndDistance) / fadeOutRange)
+                    positionOpacity = Math.sqrt(fadeOutProgress) // Faster than Math.pow(x, 0.5)
+                }
+
+                // Apply both fade-in and position-based opacity, then multiply by color alpha
+                star.opacity = star.baseOpacity * star.fadeInProgress * positionOpacity * star.colorAlpha
 
                 // Only render if star has some opacity
                 if (star.opacity > 0.01) {
-                    // Enhanced 3D perspective calculations
-                    const perspective = 1000
-                    const perspectiveScale =
-                        perspective / (perspective + star.z)
-
-                    // Calculate current size with better perspective scaling
-                    // Stars get larger when closer to viewer (lower z values)
+                    // OPTIMIZED: Reuse perspective scale from earlier calculation
                     const currentSize = star.size * perspectiveScale
-
-                    // Distance from center for perspective thinning
-                    const distanceFromCenter = Math.sqrt(
-                        (star.x - centerX) ** 2 + (star.y - centerY) ** 2
-                    )
-                    const maxDistance = Math.max(width, height) * 0.8
-                    const distanceRatio = Math.min(
-                        1,
-                        distanceFromCenter / maxDistance
-                    )
-
-                    // Use the fade-based opacity that was calculated earlier
                     const currentOpacity = star.opacity
-
-                    // Calculate perspective thinning: stars get thinner as they approach center (physically correct)
-                    // This counteracts the perspective scaling to maintain consistent visual thickness
-                    // Use a more aggressive thinning factor to prevent center thickening
-                    const perspectiveThinning = 0.3
 
                     // Only render if star is visible and large enough
                     if (currentOpacity > 0.05 && currentSize > 0.3) {
-                        // Calculate perspective-based star length
-                        // Stars closer to the center of viewport appear shorter due to perspective
-                        
-                        // Calculate angular distance from center of viewport
-                        const viewportCenterX = width / 2
-                        const viewportCenterY = height / 2
+                        // OPTIMIZED perspective-based star length calculation
+                        // Reuse screen coordinates and cached maxAngularDistance
                         const angularDistanceFromCenter = Math.sqrt(
                             (screenX - viewportCenterX) ** 2 + (screenY - viewportCenterY) ** 2
                         )
                         
-                        // Calculate maximum possible angular distance (corner of viewport)
-                        const maxAngularDistance = Math.sqrt(
-                            (width / 2) ** 2 + (height / 2) ** 2
-                        )
-                        
-                        // Normalize angular distance (0 = center, 1 = edge)
+                        // Fast normalization using pre-calculated max distance
                         const normalizedAngularDistance = Math.min(1, angularDistanceFromCenter / maxAngularDistance)
                         
-                        // Apply perspective shortening: stars closer to center are shorter
-                        // Use a smooth curve that makes center stars significantly shorter
-                        const perspectiveFactor = 0.3 + (normalizedAngularDistance * 0.7) // 0.3 to 1.0
+                        // Apply perspective shortening
+                        const perspectiveFactor = 0.3 + (normalizedAngularDistance * 0.7)
                         const streakLength = Math.max(2, starLength * perspectiveFactor)
 
-                        // Calculate direction from velocity
-                        const directionX = star.vx
-                        const directionY = star.vy
-                        const directionLength = Math.sqrt(
-                            directionX * directionX + directionY * directionY
-                        )
+                        // OPTIMIZED direction calculation
+                        const directionLength = Math.sqrt(star.vx * star.vx + star.vy * star.vy)
 
                         if (directionLength > 0 && streakLength > 1) {
-                            // Normalize direction
-                            const normalizedX = directionX / directionLength
-                            const normalizedY = directionY / directionLength
+                            // Fast normalize without intermediate variables
+                            const invDirLength = 1 / directionLength
+                            const normalizedX = star.vx * invDirLength
+                            const normalizedY = star.vy * invDirLength
 
                             // Calculate streak endpoints
-                            const startX =
-                                screenX - normalizedX * streakLength * 0.3
-                            const startY =
-                                screenY - normalizedY * streakLength * 0.3
+                            const streakOffset = streakLength * 0.3
+                            const startX = screenX - normalizedX * streakOffset
+                            const startY = screenY - normalizedY * streakOffset
                             const endX = screenX + normalizedX * streakLength
                             const endY = screenY + normalizedY * streakLength
 
-                            // Create gradient for the streak
-                            const gradient = ctx.createLinearGradient(
-                                startX,
-                                startY,
-                                endX,
-                                endY
-                            )
+                            // OPTIMIZED thickness calculation using cached distance
+                            const thicknessFactor = Math.max(0.2, Math.min(1, distanceFromCenter / outerRadius))
+                            const lineWidth = Math.max(0.2, starThickness * thicknessFactor)
 
-                            // Parse star color to create gradient
-                            const opacity = currentOpacity
-                            if (starColor.startsWith("#")) {
-                                // Convert hex to RGB for gradient
-                                const r = parseInt(starColor.slice(1, 3), 16)
-                                const g = parseInt(starColor.slice(3, 5), 16)
-                                const b = parseInt(starColor.slice(5, 7), 16)
-
-                                // Reversed gradient: more opaque on outside (start), fading toward center (end)
-                                gradient.addColorStop(
-                                    0,
-                                    `rgba(${r}, ${g}, ${b}, ${opacity})`
-                                )
-                                gradient.addColorStop(
-                                    0.5,
-                                    `rgba(${r}, ${g}, ${b}, ${opacity * 0.8})`
-                                )
-                                gradient.addColorStop(
-                                    1,
-                                    `rgba(${r}, ${g}, ${b}, ${opacity * 0.1})`
-                                )
-                            } else {
-                                // Reversed gradient: more opaque on outside (start), fading toward center (end)
-                                gradient.addColorStop(
-                                    0,
-                                    `rgba(255, 255, 255, ${opacity})`
-                                )
-                                gradient.addColorStop(
-                                    0.5,
-                                    `rgba(255, 255, 255, ${opacity * 0.8})`
-                                )
-                                gradient.addColorStop(
-                                    1,
-                                    `rgba(255, 255, 255, ${opacity * 0.1})`
-                                )
-                            }
-
-                            // Calculate thickness based on z-distance from viewer and distance from center
-                            // Stars closer to viewer (lower z) are thicker
-                            const zThickness = Math.max(0.3, Math.min(2, (1200 - star.z) / 300))
-                            
-                            // Stars get thinner as they approach the center
-                            const centerThinning = Math.max(0.2, Math.min(1, distanceFromCenter / (outerRadius * 0.5)))
-                            
-                            // Combine z-based thickness with center-based thinning
-                            const lineWidth = Math.max(0.2, starThickness * zThickness * centerThinning)
-
-                            // Draw the main streak
-                            ctx.beginPath()
-                            ctx.strokeStyle = gradient
+                            // OPTIMIZED canvas operations - set properties once
                             ctx.lineWidth = lineWidth
                             ctx.lineCap = "round"
+                            
+                            // Use the star's assigned color with the calculated opacity (already includes color alpha)
+                            const baseColor = star.color.replace('rgb(', '').replace(')', '')
+                            ctx.strokeStyle = `rgba(${baseColor}, ${currentOpacity})`
+                            
+                            // Draw the streak
+                            ctx.beginPath()
                             ctx.moveTo(startX, startY)
                             ctx.lineTo(endX, endY)
                             ctx.stroke()
@@ -415,7 +520,6 @@ export default function TravelInSpace({
         },
         [
             backgroundColor,
-            starColor,
             innerRadius,
             starCount,
             createStar,
@@ -430,7 +534,39 @@ export default function TravelInSpace({
     // Animation loop
     const animate = useCallback(
         (currentTime: number) => {
-            if (paused) {
+            // Only apply paused state in Canvas mode
+            const isCanvas = RenderTarget.current() === RenderTarget.canvas
+            if (!paused && isCanvas) {
+                // In Canvas mode when paused, ensure we have stars and render a static frame
+                const canvas = canvasRef.current
+                if (canvas) {
+                    const ctx = canvas.getContext("2d")
+                    if (ctx) {
+                        // Ensure we have enough stars for the paused view
+                        if (starsRef.current.length < starCount * 0.5) {
+                            // If we don't have enough stars, spawn some more
+                            const centerX = canvas.width / 2
+                            const centerY = canvas.height / 2
+                            const needed = Math.min(starCount, starCount - starsRef.current.length)
+                            for (let i = 0; i < needed; i++) {
+                                const newStar = createStar(centerX, centerY)
+                                // For paused mode, ensure stars are visible
+                                newStar.fadeInProgress = 1.0 // Fully faded in
+                                newStar.opacity = newStar.baseOpacity * newStar.colorAlpha // Set proper opacity
+                                starsRef.current.push(newStar)
+                            }
+                        }
+                        
+                        // Render the current state with no delta time to keep stars still
+                        updateAndRender(
+                            ctx,
+                            canvas.width,
+                            canvas.height,
+                            0, // No delta time to keep stars completely still
+                            currentTime
+                        )
+                    }
+                }
                 animationRef.current = requestAnimationFrame(animate)
                 return
             }
@@ -489,6 +625,9 @@ export default function TravelInSpace({
         ctx.imageSmoothingEnabled = false
         ctx.lineCap = "round"
         ctx.lineJoin = "round"
+        
+        // Enable alpha blending for proper transparency
+        ctx.globalCompositeOperation = "source-over"
 
         handleResize()
 
@@ -531,6 +670,7 @@ export default function TravelInSpace({
                     position: "absolute",
                     top: 0,
                     left: 0,
+                    background: "transparent",
                 }}
             />
         </div>
@@ -550,70 +690,69 @@ TravelInSpace.defaultProps = {
     innerRadius: 50,
     outerRadius: 300,
     backgroundColor: "#000000",
-    framerUniversity: "https://frameruni.link/cc",
+    colors: {
+        paletteCount: 1,
+        color1: "#FFFFFF",
+    },
 }
 
 addPropertyControls(TravelInSpace, {
     paused: {
         type: ControlType.Boolean,
-        title: "Paused",
-        hidden: () => true,
-        defaultValue: false,
+        title: "Preview",
+        defaultValue: true,
+        enabledTitle: "Yes",
+        disabledTitle: "No",
     },
     star: {
         type: ControlType.Object,
-        title: "Star",
+        title: "Stars",
         controls: {
             count: {
-                type: ControlType.Number,
+        type: ControlType.Number,
                 title: "Count",
-                min: 100,
-                max: 2000,
-                step: 100,
+        min: 10,
+        max: 400,
+        step: 10,
                 defaultValue: 150,
-            },
+    },
             speed: {
-                type: ControlType.Number,
-                title: "Speed",
-                min: 0.1,
-                max: 10,
-                step: 0.1,
-                defaultValue: 0.5,
-            },
+        type: ControlType.Number,
+        title: "Speed",
+        min: 0.1,
+        max: 5,
+        step: 0.1,
+        defaultValue: 0.5,
+    },
             thickness: {
-                type: ControlType.Number,
-                title: "Thickness",
-                min: 0.5,
-                max: 10,
-                step: 0.1,
-                defaultValue: 2,
-            },
+        type: ControlType.Number,
+        title: "Thickness",
+        min: 0.5,
+        max: 10,
+        step: 0.1,
+        defaultValue: 2,
+    },
             opacity: {
-                type: ControlType.Number,
-                title: "Opacity",
-                min: 0.1,
-                max: 1,
-                step: 0.1,
-                defaultValue: 0.8,
-            },
+        type: ControlType.Number,
+        title: "Opacity",
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.8,
+    },
             length: {
-                type: ControlType.Number,
-                title: "Length",
-                min: 1,
-                max: 300,
-                step: 1,
-                defaultValue: 8,
-            },
-            color: {
-                type: ControlType.Color,
-                title: "Color",
-                defaultValue: "#FFFFFF",
+        type: ControlType.Number,
+        title: "Length",
+        min: 1,
+        max: 30,
+        step: 5,
+        defaultValue: 8,
             },
         },
     },
     innerRadius: {
         type: ControlType.Number,
-        title: "Inner Radius",
+        title: "Radius in",
         min: 10,
         max: 500,
         step: 5,
@@ -622,7 +761,7 @@ addPropertyControls(TravelInSpace, {
     },
     outerRadius: {
         type: ControlType.Number,
-        title: "Outer Radius",
+        title: "Radius out",
         min: 500,
         max: 5000,
         step: 100,
@@ -633,7 +772,50 @@ addPropertyControls(TravelInSpace, {
         type: ControlType.Color,
         title: "Background",
         defaultValue: "#000000",
-        description: "More components at https://frameruni.link/cc",
+    },
+    colors: {
+        type: ControlType.Object,
+        title: "Colors",
+        description: "More components at [Framer University](https://frameruni.link/cc).",
+        controls: {
+            paletteCount: {
+                type: ControlType.Number,
+                title: "Palette Size",
+                min: 1,
+                max: 5,
+                step: 1,
+                defaultValue: 1,
+            },
+            color1: {
+                type: ControlType.Color,
+                title: "Color 1",
+                defaultValue: "#FFFFFF",
+            },
+            color2: {
+                type: ControlType.Color,
+                title: "Color 2",
+                defaultValue: "#FF6B6B",
+                hidden: (props: any) => (props?.paletteCount ?? 1) < 2,
+            },
+            color3: {
+                type: ControlType.Color,
+                title: "Color 3",
+                defaultValue: "#4ECDC4",
+                hidden: (props: any) => (props?.paletteCount ?? 1) < 3,
+            },
+            color4: {
+                type: ControlType.Color,
+                title: "Color 4",
+                defaultValue: "#45B7D1",
+                hidden: (props: any) => (props?.paletteCount ?? 1) < 4,
+            },
+            color5: {
+                type: ControlType.Color,
+                title: "Color 5",
+                defaultValue: "#96CEB4",
+                hidden: (props: any) => (props?.paletteCount ?? 1) < 5,
+            },
+        },
     },
 })
 
