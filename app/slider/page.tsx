@@ -1,5 +1,3 @@
-"use client"
-
 /**
  * GSAP Horizontal Slider Component
  *
@@ -11,7 +9,7 @@
  * - Center-focused navigation (active slide stays centered)
  * - Responsive design with inline CSS
  * - TypeScript support with full type safety
- *
+ * - Developed by @emanuelecodes for Adriano Reis
  * This component serves as a reference implementation for building similar
  * horizontal scrolling interfaces with GSAP and React.
  */
@@ -110,8 +108,10 @@ interface HorizontalLoopTimeline {
  */
 export default function Carousel({
     dragFactor = 0.5,
+    draggable = true,
 }: {
     dragFactor?: number
+    draggable?: boolean
 }) {
     // React refs for DOM elements
     const wrapperRef = useRef<HTMLDivElement>(null) // Reference to the wrapper container
@@ -597,7 +597,7 @@ export default function Carousel({
                     boxesRef.current,
                     {
                         paused: true,
-                        draggable: true,
+                        draggable: draggable, // Use the property control value
                         center: wrapperRef.current || true, // Pass the wrapper element for proper centering
                         onChange: (element: HTMLElement, index: number) => {
                             // Update React state when active slide changes
@@ -658,7 +658,7 @@ export default function Carousel({
 
             return () => clearTimeout(timer)
         },
-        { scope: wrapperRef, dependencies: [dragFactor] }
+        { scope: wrapperRef, dependencies: [dragFactor, draggable] }
     ) // Scope to wrapper element
 
     /**
@@ -924,13 +924,19 @@ export default function Carousel({
 }
 
 addPropertyControls(Carousel, {
+    draggable: {
+        type: ControlType.Boolean,
+        title: "Draggable",
+        defaultValue: true,
+    },
     dragFactor: {
         type: ControlType.Number,
-        title: "Resistance",
+        title: "Drag",
         min: 0,
         max: 1,
         step: 0.1,
         defaultValue: 0.5,
+        hidden:(props:any)=>!props.draggable
     },
 })
 
