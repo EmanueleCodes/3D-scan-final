@@ -109,9 +109,11 @@ interface HorizontalLoopTimeline {
 export default function Carousel({
     dragFactor = 0.5,
     draggable = true,
+    clickNavigation = true,
 }: {
     dragFactor?: number
     draggable?: boolean
+    clickNavigation?: boolean
 }) {
     // React refs for DOM elements
     const wrapperRef = useRef<HTMLDivElement>(null) // Reference to the wrapper container
@@ -617,23 +619,25 @@ export default function Carousel({
                 if (loop) {
                     loopRef.current = loop
 
-                    // Add click handlers to boxes
-                    boxesRef.current.forEach((box, i) => {
-                        if (box) {
-                            const clickHandler = () => {
-                                if (loop && loop.toIndex) {
-                                    loop.toIndex(i, {
-                                        duration: 0.8,
-                                        ease: "power1.inOut",
-                                    })
+                    // Add click handlers to boxes (only if clickNavigation is enabled)
+                    if (clickNavigation) {
+                        boxesRef.current.forEach((box, i) => {
+                            if (box) {
+                                const clickHandler = () => {
+                                    if (loop && loop.toIndex) {
+                                        loop.toIndex(i, {
+                                            duration: 0.8,
+                                            ease: "power1.inOut",
+                                        })
+                                    }
                                 }
-                            }
-                            box.addEventListener("click", clickHandler)
+                                box.addEventListener("click", clickHandler)
 
-                            // Store the handler for cleanup
-                            ;(box as any).__clickHandler = clickHandler
-                        }
-                    })
+                                // Store the handler for cleanup
+                                ;(box as any).__clickHandler = clickHandler
+                            }
+                        })
+                    }
 
                     // Return cleanup function - useGSAP will handle this automatically
                     return () => {
@@ -658,7 +662,7 @@ export default function Carousel({
 
             return () => clearTimeout(timer)
         },
-        { scope: wrapperRef, dependencies: [dragFactor, draggable] }
+        { scope: wrapperRef, dependencies: [dragFactor, draggable, clickNavigation] }
     ) // Scope to wrapper element
 
     /**
@@ -927,6 +931,11 @@ addPropertyControls(Carousel, {
     draggable: {
         type: ControlType.Boolean,
         title: "Draggable",
+        defaultValue: true,
+    },
+    clickNavigation: {
+        type: ControlType.Boolean,
+        title: "Click Navigation",
         defaultValue: true,
     },
     dragFactor: {
