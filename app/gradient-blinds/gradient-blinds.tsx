@@ -584,7 +584,7 @@ void main() {
             uColor7: { value: colorArr[7] },
             uColorCount: { value: colorCount },
         }
-        
+
         const program = new Program(gl, {
             vertex,
             fragment,
@@ -879,7 +879,7 @@ addPropertyControls(GradientBlinds, {
     shineDirection: {
         type: ControlType.Enum,
         title: "Direction",
-        options: ["left", "right"],
+        options: ["Left", "Right"],
         displaySegmentedControl: true,
         segmentedControlDirection: "vertical",
     },

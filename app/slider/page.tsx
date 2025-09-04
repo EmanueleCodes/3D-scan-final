@@ -110,12 +110,21 @@ export default function Carousel({
     dragFactor = 0.5,
     draggable = true,
     clickNavigation = true,
-    autoplay = { enabled: false, duration: 3 },
+    autoplay = { enabled: false, duration: 3, direction: "right", throwAware: "No follow" },
+    ui = { backgroundColor: "#000000", buttonVerticalAlign: "center", buttonHorizontalAlign: "center", buttonGap: 20, buttonInset: 20, padding: "0px" },
 }: {
     dragFactor?: number
     draggable?: boolean
     clickNavigation?: boolean
-    autoplay?: { enabled: boolean; duration: number }
+    autoplay?: { enabled: boolean; duration: number; direction: "left" | "right"; throwAware: "Follow" | "No follow" }
+    ui?: {
+        backgroundColor?: string
+        buttonVerticalAlign?: "top" | "center" | "bottom"
+        buttonHorizontalAlign?: "center" | "space-between"
+        buttonGap?: number
+        buttonInset?: number
+        padding?: string
+    }
 }) {
     // React refs for DOM elements
     const wrapperRef = useRef<HTMLDivElement>(null) // Reference to the wrapper container
@@ -126,19 +135,23 @@ export default function Carousel({
     // React state for component behavior
     const [showOverflow, setShowOverflow] = useState(false) // Toggle for showing overflow content
     const [activeElement, setActiveElement] = useState<HTMLElement | null>(null) // Currently active slide
+    
+    // Refs for tracking drag state without causing re-renders
+    const isDraggingRef = useRef(false) // Track if user is currently dragging
+    const isThrowingRef = useRef(false) // Track if throwing animation is active
+    const dragStartMouseXRef = useRef(0) // Track where mouse drag started to determine direction
+    const dragEndMouseXRef = useRef(0) // Track where mouse drag ended
+    const currentAutoplayDirectionRef = useRef<"left" | "right">(autoplay.direction) // Current autoplay direction
 
     /**
      * CSS Custom Properties for Theming
      *
-     * These variables define the color scheme and gradients used throughout
+     * These variables define the color scheme used throughout
      * the component. They can be easily modified to change the visual theme.
      */
     const cssVariables = {
         "--color-just-black": "#000000", // Main background color
         "--color-surface50": "#808080", // Border and accent color
-        "--gradient-macha": "linear-gradient(45deg, #4CAF50, #8BC34A)", // Green gradient
-        "--gradient-summer-fair": "linear-gradient(45deg, #FF9800, #FFC107)", // Orange gradient
-        "--gradient-orange-crush": "linear-gradient(45deg, #FF5722, #FF9800)", // Red-orange gradient
     }
 
     /**
@@ -508,8 +521,18 @@ export default function Carousel({
                     ratio = 1 / totalWidth
                     initChangeX = startProgress / -ratio - x
                     gsap.set(proxy, { x: startProgress / -ratio })
+                    
+                    // Set dragging state and stop autoplay
+                    isDraggingRef.current = true
+                    // Store actual mouse coordinates for direction detection
+                    dragStartMouseXRef.current = this.pointerX || this.startX || 0
+                    stopAutoplay()
                 },
-                onDrag: align,
+                onDrag: function() {
+                    align()
+                    // Track current mouse position for direction detection
+                    dragEndMouseXRef.current = this.pointerX || this.x || 0
+                },
                 onThrowUpdate: align,
                 overshootTolerance: 0,
                 inertia: true,
@@ -533,11 +556,39 @@ export default function Carousel({
                 },
                 onRelease() {
                     syncIndex()
-                    draggable.isThrowing && (indexIsDirty = true)
+                    isDraggingRef.current = false // User released, no longer dragging
+                    
+                    // Update autoplay direction based on drag direction if throwAware is enabled
+                    if (autoplay.throwAware === "Follow") {
+                        const mouseDistance = dragEndMouseXRef.current - dragStartMouseXRef.current
+                        // Use mouse movement to determine direction
+                        // Positive distance = dragged right (go left/previous)
+                        // Negative distance = dragged left (go right/next)
+                        currentAutoplayDirectionRef.current = mouseDistance > 0 ? "left" : "right"
+                        
+                        console.log("Throw-aware direction update:", {
+                            startMouseX: dragStartMouseXRef.current,
+                            endMouseX: dragEndMouseXRef.current,
+                            mouseDistance: mouseDistance,
+                            newDirection: currentAutoplayDirectionRef.current
+                        })
+                    }
+                    
+                    // Check if throwing animation will start
+                    if (draggable.isThrowing) {
+                        isThrowingRef.current = true
+                        indexIsDirty = true
+                    }
                 },
                 onThrowComplete: () => {
                     syncIndex()
+                    isThrowingRef.current = false // Throwing animation completed
                     wasPlaying && tl.play()
+                    
+                    // Restart autoplay after throwing completes
+                    if (autoplay.enabled) {
+                        setTimeout(startAutoplay, 1000) // Restart after 1 second delay
+                    }
                 },
             })[0]
             tl.draggable = draggable
@@ -647,6 +698,9 @@ export default function Carousel({
                         })
                     }
 
+                    // Initialize autoplay direction
+                    currentAutoplayDirectionRef.current = autoplay.direction
+                    
                     // Start autoplay if enabled
                     if (autoplay.enabled) {
                         startAutoplay()
@@ -688,6 +742,9 @@ export default function Carousel({
     const startAutoplay = () => {
         if (!autoplay.enabled || !loopRef.current || RenderTarget.current() === RenderTarget.canvas) return
         
+        // Don't start autoplay if user is dragging or throwing
+        if (isDraggingRef.current || isThrowingRef.current) return
+        
         // Clear any existing timer
         if (autoplayTimerRef.current) {
             clearInterval(autoplayTimerRef.current)
@@ -695,8 +752,14 @@ export default function Carousel({
         
         // Start new timer
         autoplayTimerRef.current = setInterval(() => {
-            if (loopRef.current && loopRef.current.next) {
-                loopRef.current.next({ duration: 0.8, ease: "power1.inOut" })
+            // Check again before advancing - user might have started dragging
+            if (loopRef.current && !isDraggingRef.current && !isThrowingRef.current) {
+                // Use current direction for autoplay
+                if (currentAutoplayDirectionRef.current === "right" && loopRef.current.next) {
+                    loopRef.current.next({ duration: 0.8, ease: "power1.inOut" })
+                } else if (currentAutoplayDirectionRef.current === "left" && loopRef.current.previous) {
+                    loopRef.current.previous({ duration: 0.8, ease: "power1.inOut" })
+                }
             }
         }, autoplay.duration * 1000) // Convert seconds to milliseconds
     }
@@ -762,22 +825,18 @@ export default function Carousel({
     /**
      * Generate Slide Elements
      *
-     * Creates 11 slide elements with alternating gradient borders.
-     * Each slide has a unique number and is assigned to a ref for GSAP manipulation.
+     * Creates 11 slide elements with different gray shades.
+     * Each slide is assigned to a ref for GSAP manipulation.
      *
      * Design pattern:
-     * - Cycle through 3 different gradient classes
+     * - Different gray shade for each slide
      * - Special width for slide 5 (index 4) to demonstrate variable sizing
      * - Each slide gets a ref for GSAP timeline integration
      */
     const boxes = Array.from({ length: 11 }, (_, i) => {
-        // Cycle through 3 gradient classes for visual variety
-        const gradientClass =
-            i % 3 === 0
-                ? "gradient-orange-crush"
-                : i % 3 === 1
-                  ? "gradient-summer-fair"
-                  : "gradient-macha"
+        // Generate different gray shades for each slide
+        const grayShade = Math.floor((i / 10) * 200) + 50 // Range from 50 to 250
+        const backgroundColor = `rgb(${grayShade}, ${grayShade}, ${grayShade})`
 
         return (
             <div
@@ -786,13 +845,14 @@ export default function Carousel({
                     // Store reference for GSAP timeline
                     if (el) boxesRef.current[i] = el
                 }}
-                className={`box ${gradientClass}`}
+                className="box"
                 style={{
                     padding: "0.5rem",
                     flexShrink: 0,
                     height: "80%",
                     width: i === 4 ? "350px" : "150px", // Special width for slide 5, otherwise fixed width
                     minWidth: "150px",
+                
                 }}
             >
                 <div
@@ -802,29 +862,13 @@ export default function Carousel({
                         alignItems: "center",
                         justifyContent: "center",
                         position: "relative" as const,
-                        fontSize: "21px",
                         cursor: "pointer",
                         width: "100%",
                         height: "100%",
-                        background:
-                            "linear-gradient(#000000, #000000) padding-box, var(--gradient) border-box",
-                        border: "3px solid transparent",
+                        backgroundColor: "#3D3D3D",
                         borderRadius: "10px",
                     }}
-                >
-                    <p
-                        style={{
-                            WebkitTextFillColor: "transparent",
-                            background: "var(--gradient)",
-                            WebkitBackgroundClip: "text",
-                            backgroundClip: "text",
-                            fontSize: "3rem",
-                            margin: 0,
-                        }}
-                    >
-                        {i + 1}
-                    </p>
-                </div>
+                />
             </div>
         )
     })
@@ -842,7 +886,7 @@ export default function Carousel({
         <div
             style={{
                 fontFamily: "system-ui",
-                background: cssVariables["--color-just-black"],
+                background: ui?.backgroundColor || "#000000",
                 color: "white",
                 textAlign: "center" as const,
                 display: "flex",
@@ -852,108 +896,135 @@ export default function Carousel({
                 height: "100%",
                 width: "100%",
                 margin: 0,
-                padding: 0,
+                padding: ui?.padding || "0px",
+                overflow:"visible"
             }}
         >
-            {/* Inline CSS for gradient theming and active states */}
+            {/* Inline CSS for active states */}
             <style>
                 {`
-          /* Apply gradient colors to each slide type */
-          .box.gradient-macha { --gradient: ${cssVariables["--gradient-macha"]}; }
-          .box.gradient-summer-fair { --gradient: ${cssVariables["--gradient-summer-fair"]}; }
-          .box.gradient-orange-crush { --gradient: ${cssVariables["--gradient-orange-crush"]}; }
+          /* Apply transition to all box inner elements */
+          .box .box__inner {
+            transition: transform 0.5s ease;
+          }
           
           /* Active slide scaling effect */
           .box.active .box__inner {
             transform: scale(1.1);
-            transition: transform 0.3s ease;
           }
         `}
             </style>
 
-            <div
+            {/* Navigation Buttons - Absolutely Positioned */}
+            {clickNavigation && (
+                <>
+                    {/* Previous Button */}
+                    <button
+                        style={{
+                            position: "absolute",
+                            top: ui.buttonVerticalAlign === "top" ? `${ui.buttonInset || 20}px` : 
+                                 ui.buttonVerticalAlign === "bottom" ? "auto" : "50%",
+                            bottom: ui.buttonVerticalAlign === "bottom" ? `${ui.buttonInset || 20}px` : "auto",
+                            left: ui.buttonHorizontalAlign === "space-between" ? `${ui.buttonInset || 20}px` : 
+                                  ui.buttonHorizontalAlign === "center" ? `calc(50% - ${ui.buttonGap || 20}px)` : "50%",
+                            right: "auto",
+                            transform: ui.buttonHorizontalAlign === "center" && ui.buttonVerticalAlign === "center" 
+                                ? "translateX(-100%) translateY(-50%)" 
+                                : ui.buttonHorizontalAlign === "center" 
+                                    ? "translateX(-100%)" 
+                                    : ui.buttonVerticalAlign === "center" 
+                                        ? "translateY(-50%)" 
+                                        : "none",
+                            padding: "0.5rem 1rem",
+                            backgroundColor: "transparent",
+                            color: "white",
+                            border: "2px solid #808080",
+                            borderRadius: "5px",
+                            cursor: "pointer",
+                            fontSize: "1rem",
+                      
+                            zIndex: 10,
+                        }}
+                        onClick={handlePrev}
+                        onMouseEnter={(e) =>
+                            (e.currentTarget.style.backgroundColor = "#333")
+                        }
+                        onMouseLeave={(e) =>
+                            (e.currentTarget.style.backgroundColor = "transparent")
+                        }
+                    >
+                        prev
+                    </button>
+
+                    {/* Next Button */}
+                    <button
+                        style={{
+                            position: "absolute",
+                            top: ui.buttonVerticalAlign === "top" ? `${ui.buttonInset || 20}px` : 
+                                 ui.buttonVerticalAlign === "bottom" ? "auto" : "50%",
+                            bottom: ui.buttonVerticalAlign === "bottom" ? `${ui.buttonInset || 20}px` : "auto",
+                            left: "auto",
+                            right: ui.buttonHorizontalAlign === "space-between" ? `${ui.buttonInset || 20}px` : 
+                                   ui.buttonHorizontalAlign === "center" ? `calc(50% - ${ui.buttonGap || 20}px)` : "50%",
+                            transform: ui.buttonHorizontalAlign === "center" && ui.buttonVerticalAlign === "center" 
+                                ? "translateX(100%) translateY(-50%)" 
+                                : ui.buttonHorizontalAlign === "center" 
+                                    ? "translateX(100%)" 
+                                    : ui.buttonVerticalAlign === "center" 
+                                        ? "translateY(-50%)" 
+                                        : "none",
+                            padding: "0.5rem 1rem",
+                            backgroundColor: "transparent",
+                            color: "white",
+                            border: "2px solid #808080",
+                            borderRadius: "5px",
+                            cursor: "pointer",
+                            fontSize: "1rem",
+                            zIndex: 10,
+                        }}
+                        onClick={handleNext}
+                        onMouseEnter={(e) =>
+                            (e.currentTarget.style.backgroundColor = "#333")
+                        }
+                        onMouseLeave={(e) =>
+                            (e.currentTarget.style.backgroundColor = "transparent")
+                        }
+                    >
+                        next
+                    </button>
+                </>
+            )}
+
+            {/* Toggle Overflow Button - Commented Out */}
+            {/* <button
                 style={{
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    flexWrap: "wrap" as const,
-                    marginBottom: "2rem",
-                    gap: "1rem",
+                    padding: "0.5rem 1rem",
+                    backgroundColor: "transparent",
+                    color: "white",
+                    border: "2px solid #808080",
+                    borderRadius: "5px",
+                    cursor: "pointer",
+                    fontSize: "1rem",
+                    transition: "all 0.3s ease",
                 }}
+                onClick={handleToggleOverflow}
+                onMouseEnter={(e) =>
+                    (e.currentTarget.style.backgroundColor = "#333")
+                }
+                onMouseLeave={(e) =>
+                    (e.currentTarget.style.backgroundColor = "transparent")
+                }
             >
-                <button
-                    style={{
-                        padding: "0.5rem 1rem",
-                        backgroundColor: "transparent",
-                        color: "white",
-                        border: "2px solid #808080",
-                        borderRadius: "5px",
-                        cursor: "pointer",
-                        fontSize: "1rem",
-                        transition: "all 0.3s ease",
-                    }}
-                    onClick={handlePrev}
-                    onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#333")
-                    }
-                    onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "transparent")
-                    }
-                >
-                    prev
-                </button>
-                <button
-                    style={{
-                        padding: "0.5rem 1rem",
-                        backgroundColor: "transparent",
-                        color: "white",
-                        border: "2px solid #808080",
-                        borderRadius: "5px",
-                        cursor: "pointer",
-                        fontSize: "1rem",
-                        transition: "all 0.3s ease",
-                    }}
-                    onClick={handleToggleOverflow}
-                    onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#333")
-                    }
-                    onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "transparent")
-                    }
-                >
-                    toggle overflow
-                </button>
-                <button
-                    style={{
-                        padding: "0.5rem 1rem",
-                        backgroundColor: "transparent",
-                        color: "white",
-                        border: "2px solid #808080",
-                        borderRadius: "5px",
-                        cursor: "pointer",
-                        fontSize: "1rem",
-                        transition: "all 0.3s ease",
-                    }}
-                    onClick={handleNext}
-                    onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#333")
-                    }
-                    onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "transparent")
-                    }
-                >
-                    next
-                </button>
-            </div>
+                toggle overflow
+            </button> */}
 
             <div
                 ref={wrapperRef}
                 style={{
-                    height: "300px",
-                    maxHeight: "50vh",
-                    width: "70%",
-                    borderLeft: "dashed 2px #808080",
-                    borderRight: "dashed 2px #808080",
+                    height: "100%",
+                    maxHeight: "100%",
+                    width: "100%",
+                    maxWidth: "100%",
                     position: "relative" as const,
                     display: "flex",
                     alignItems: "center",
@@ -1008,6 +1079,27 @@ addPropertyControls(Carousel, {
                 step: 0.5,
                 defaultValue: 3,
             },
+            direction: {
+                type: ControlType.Enum,
+                title: "Direction",
+                options: ["left", "right"],
+                
+                defaultValue: "right",
+                displaySegmentedControl: true,
+               
+                optionIcons: [
+                    "direction-left",
+                    "direction-right",
+                ],
+            },
+            throwAware: {
+                type: ControlType.Enum,
+                title: "On Throw",
+                options: ["Follow", "No follow"],
+                defaultValue: "No follow",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+            },
         },
     },
     dragFactor: {
@@ -1018,6 +1110,58 @@ addPropertyControls(Carousel, {
         step: 0.1,
         defaultValue: 0.5,
         hidden:(props:any)=>!props.draggable
+    },
+    ui: {
+        type: ControlType.Object,
+        title: "UI",
+        controls: {
+            backgroundColor: {
+                type: ControlType.Color,
+                title: "Background",
+                defaultValue: "#000000",
+            },
+            buttonVerticalAlign: {
+                type: ControlType.Enum,
+                title: "Button Vertical",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["Top", "Center", "Bottom"],
+                defaultValue: "center",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+            },
+            buttonHorizontalAlign: {
+                type: ControlType.Enum,
+                title: "Button Horizontal",
+                options: ["center", "space-between"],
+                optionTitles: ["Left", "Center", "Right"],
+                defaultValue: "center",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+            },
+            buttonGap: {
+                type: ControlType.Number,
+                title: "Button Gap",
+                min: 0,
+                max: 100,
+                step: 5,
+                defaultValue: 20,
+                hidden: (props: any) => props.ui?.buttonHorizontalAlign !== "center",
+            },
+            buttonInset: {
+                type: ControlType.Number,
+                title: "Button Inset",
+                min: -100,
+                max: 100,
+                step: 5,
+                defaultValue: 20,
+            },
+            padding: {
+                // @ts-ignore - ControlType.Padding exists but may not be in types
+                type: ControlType.Padding,
+                title: "Padding",
+                defaultValue: "0px",
+            },
+        },
     },
 })
 
