@@ -9,6 +9,7 @@ interface StarProps {
     length?: number
     color?: string // Legacy single color prop
     centerThinning?: number // How much stars thin when approaching center
+    centerShortening?: number // How much stars shorten when approaching center
 }
 
 interface ColorsProps {
@@ -47,6 +48,9 @@ interface Star {
     color: string // RGB color string for this specific star
     colorAlpha: number // Alpha value from the color token
     colorIndex: number // Index of the color from the palette
+    spawnX: number // Store spawn position for distance-based fade-in
+    spawnY: number // Store spawn position for distance-based fade-in
+    fadeInDistance: number // Distance to travel before fully faded in
 }
 
 // CSS variable token and color parsing (hex/rgba/var())
@@ -190,6 +194,7 @@ export default function TravelInSpace({
         length: 8,
         color: "#FFFFFF",
         centerThinning: 0.5,
+        centerShortening: 0.5,
     },
     innerRadius = 50,
     outerRadius = 300,
@@ -208,6 +213,7 @@ export default function TravelInSpace({
         length: starLength = 8,
         color: starColor = "#FFFFFF",
         centerThinning: centerThinning = 0.5,
+        centerShortening: centerShortening = 0.5,
     } = star
     
     // Prepare color palette
@@ -224,32 +230,21 @@ export default function TravelInSpace({
 
     // Calculate optimal spawn rate based on system parameters
     const getSpawnInterval = useCallback(() => {
-        // MAJOR ISSUE: This calculation assumes all stars travel the same distance!
-        // But stars actually spawn at different distances and have different 3D travel paths.
-        // This causes speed inconsistencies because:
-        // - Stars spawning closer to center have shorter travel distance → appear faster
-        // - Stars spawning further from center have longer travel distance → appear slower
-        // - Stars with different z-depths have different 3D travel distances
+        // Balanced spawning to match paused state without being too aggressive
         
-        // Calculate travel distance (from outer spawn radius to inner radius)
-        const travelDistance = outerRadius - innerRadius
-
-        // Calculate actual speed (we use starSpeed * 0.1 in our velocity calculations)
-        const actualSpeed = starSpeed * 0.1 * 60 // Convert to pixels per second (assuming 60fps)
-
-        // Calculate how long it takes for a star to travel from edge to center
-        const starLifetime = travelDistance / actualSpeed // in seconds
-
-        // To maintain steady state: spawn_rate = star_count / star_lifetime
-        const optimalSpawnRate = starCount / starLifetime // stars per second
-
+        // Base spawn rate - moderate speed to reach target
+        const baseSpawnRate = 30 // stars per second
+        
+        // Scale with star count - higher counts need faster spawning
+        const countMultiplier = Math.max(1, starCount / 200) // Less aggressive scaling
+        const adjustedSpawnRate = baseSpawnRate * countMultiplier
+        
         // Convert to spawn interval in milliseconds
-        const spawnInterval = 1000 / optimalSpawnRate
-
-        // Use a more aggressive spawn rate to ensure we reach target count quickly
-        // Cap the interval to prevent extremely fast spawning while maintaining responsiveness
-        return Math.max(16, Math.min(100, spawnInterval))
-    }, [starSpeed, starCount, outerRadius, innerRadius])
+        const spawnInterval = 1000 / adjustedSpawnRate
+        
+        // Balanced spawning - not too fast, not too slow
+        return Math.max(10, Math.min(50, spawnInterval))
+    }, [starCount])
 
     // Create a single star
     const createStar = useCallback(
@@ -289,9 +284,6 @@ export default function TravelInSpace({
             // Randomize base opacity for more natural variation
             const randomOpacity = starOpacity * (0.6 + Math.random() * 0.4)
 
-            // Use slower fade-in speed for more pronounced fade-in effect
-            const fadeInSpeed = 1 // Slower fade-in rate for more dramatic effect
-
             // Assign color from palette with equal distribution
             const colorIndex = Math.floor(Math.random() * colorPalette.length)
             const colorData = colorPalette[colorIndex]
@@ -303,6 +295,9 @@ export default function TravelInSpace({
             // Stars that spawn further out should be smaller initially
             const baseSize = starThickness * (0.5 + Math.random() * 1.5)
             const spawnSize = baseSize * spawnDistanceFactor
+
+            // Calculate fade-in distance based on star speed - faster stars need more distance to fade in
+            const fadeInDistance = Math.max(50, baseSpeed * 100) // Scale with speed, minimum 50px
 
             return {
                 x,
@@ -318,10 +313,13 @@ export default function TravelInSpace({
                 age: 0,
                 maxAge: Math.random() * 10 + 15,
                 fadeInProgress: 0,
-                fadeInSpeed: fadeInSpeed,
+                fadeInSpeed: 1, // Keep for compatibility but won't be used
                 color: colorData.color,
                 colorAlpha: colorData.alpha,
                 colorIndex: colorIndex,
+                spawnX: x, // Store spawn position
+                spawnY: y, // Store spawn position
+                fadeInDistance: fadeInDistance, // Distance to travel before fully faded in
             }
         },
         [starSpeed, starThickness, starOpacity, outerRadius, colorPalette]
@@ -337,17 +335,50 @@ export default function TravelInSpace({
             // Reset spawn timer to start spawning immediately
             lastSpawnTimeRef.current = 0
 
-            // Pre-spawn some stars to get started faster
+            // Check if we're in Canvas mode and preview is off
+            const isCanvas = RenderTarget.current() === RenderTarget.canvas
+            const isPaused = !paused && isCanvas
+
             const centerX = width / 2
             const centerY = height / 2
-            const initialStars = Math.min(starCount * 0.3, 50) // Start with 30% of target or max 50
 
-            for (let i = 0; i < initialStars; i++) {
-                const newStar = createStar(centerX, centerY)
-                starsRef.current.push(newStar)
+            if (isPaused) {
+                // If paused, create a full distributed starfield immediately
+                for (let i = 0; i < starCount; i++) {
+                    const newStar = createStar(centerX, centerY)
+                    
+                    // Simulate different travel distances for natural distribution
+                    const travelProgress = Math.random()
+                    const maxTravelDistance = Math.sqrt((centerX - newStar.x) ** 2 + (centerY - newStar.y) ** 2)
+                    const travelDistance = maxTravelDistance * travelProgress
+                    
+                    // Move star along its trajectory
+                    const directionX = newStar.vx / Math.sqrt(newStar.vx ** 2 + newStar.vy ** 2)
+                    const directionY = newStar.vy / Math.sqrt(newStar.vx ** 2 + newStar.vy ** 2)
+                    
+                    newStar.x = newStar.spawnX + directionX * travelDistance
+                    newStar.y = newStar.spawnY + directionY * travelDistance
+                    
+                    // Set fade-in based on distance traveled
+                    const distanceTraveled = Math.sqrt(
+                        (newStar.x - newStar.spawnX) ** 2 + (newStar.y - newStar.spawnY) ** 2
+                    )
+                    newStar.fadeInProgress = Math.min(1, distanceTraveled / newStar.fadeInDistance)
+                    newStar.age = travelProgress * newStar.maxAge
+                    
+                    starsRef.current.push(newStar)
+                }
+            } else {
+                // Normal initialization - pre-spawn some stars to get started
+                const initialStars = Math.min(starCount * 0.4, Math.max(30, starCount * 0.3)) // 30-40% of target, min 30
+
+                for (let i = 0; i < initialStars; i++) {
+                    const newStar = createStar(centerX, centerY)
+                    starsRef.current.push(newStar)
+                }
             }
         },
-        [starCount, createStar]
+        [starCount, createStar, paused]
     )
 
     // Update and render stars
@@ -425,9 +456,12 @@ export default function TravelInSpace({
                     continue
                 }
 
-                // Update fade-in progress based on time and star speed
+                // Update fade-in progress based on distance traveled from spawn point
                 if (star.fadeInProgress < 1) {
-                    star.fadeInProgress = Math.min(1, star.fadeInProgress + deltaTimeSeconds * star.fadeInSpeed)
+                    const distanceTraveled = Math.sqrt(
+                        (star.x - star.spawnX) ** 2 + (star.y - star.spawnY) ** 2
+                    )
+                    star.fadeInProgress = Math.min(1, distanceTraveled / star.fadeInDistance)
                 }
 
                 // OPTIMIZED opacity calculation using cached values
@@ -459,9 +493,11 @@ export default function TravelInSpace({
                         // Fast normalization using pre-calculated max distance
                         const normalizedAngularDistance = Math.min(1, angularDistanceFromCenter / maxAngularDistance)
                         
-                        // Apply perspective shortening
+                        // Apply perspective shortening and center shortening
                         const perspectiveFactor = 0.3 + (normalizedAngularDistance * 0.7)
-                        const streakLength = Math.max(2, starLength * perspectiveFactor)
+                        const centerShorteningFactor = Math.max(0.2, Math.min(1, distanceFromCenter / outerRadius))
+                        const shorteningFactor = 1 - centerShortening + (centerShorteningFactor * centerShortening)
+                        const streakLength = Math.max(2, starLength * perspectiveFactor * shorteningFactor)
 
                         // OPTIMIZED direction calculation
                         const directionLength = Math.sqrt(star.vx * star.vx + star.vy * star.vy)
@@ -515,8 +551,9 @@ export default function TravelInSpace({
                     currentTime - lastSpawnTimeRef.current
 
                 if (timeSinceLastSpawn > spawnInterval) {
-                    // Spawn up to 3 stars at once if we're significantly below target
-                    const starsToSpawn = Math.min(3, starsNeeded)
+                    // Spawn a moderate number of stars to reach target at a good pace
+                    const baseSpawnCount = Math.min(8, Math.max(2, Math.floor(starCount / 100))) // More balanced
+                    const starsToSpawn = Math.min(baseSpawnCount, starsNeeded)
 
                     for (let i = 0; i < starsToSpawn; i++) {
                         const newStar = createStar(centerX, centerY)
@@ -545,63 +582,63 @@ export default function TravelInSpace({
     // Animation loop
     const animate = useCallback(
         (currentTime: number) => {
-            // Only apply paused state in Canvas mode
-            const isCanvas = RenderTarget.current() === RenderTarget.canvas
-            if (!paused && isCanvas) {
-                // In Canvas mode when paused, ensure we have stars and render a static frame
-                const canvas = canvasRef.current
-                if (canvas) {
-                    const ctx = canvas.getContext("2d")
-                    if (ctx) {
-                        // Ensure we have enough stars for the paused view
-                        if (starsRef.current.length < starCount * 0.5) {
-                            // If we don't have enough stars, spawn some more
-                            const centerX = canvas.width / 2
-                            const centerY = canvas.height / 2
-                            const needed = Math.min(starCount, starCount - starsRef.current.length)
-                            for (let i = 0; i < needed; i++) {
-                                const newStar = createStar(centerX, centerY)
-                                // For paused mode, ensure stars are visible
-                                newStar.fadeInProgress = 1.0 // Fully faded in
-                                newStar.opacity = newStar.baseOpacity * newStar.colorAlpha // Set proper opacity
-                                starsRef.current.push(newStar)
-                            }
-                        }
-                        
-                        // Render the current state with no delta time to keep stars still
-                        updateAndRender(
-                            ctx,
-                            canvas.width,
-                            canvas.height,
-                            0, // No delta time to keep stars completely still
-                            currentTime
-                        )
-                    }
-                }
-                animationRef.current = requestAnimationFrame(animate)
-                return
-            }
-
             const canvas = canvasRef.current
             if (!canvas) return
 
             const ctx = canvas.getContext("2d")
             if (!ctx) return
 
-            const deltaTime = currentTime - lastTimeRef.current
-            lastTimeRef.current = currentTime
+            // Check if we're in Canvas mode and preview is off
+            const isCanvas = RenderTarget.current() === RenderTarget.canvas
+            const isPaused = !paused && isCanvas
 
-            updateAndRender(
-                ctx,
-                canvas.width,
-                canvas.height,
-                deltaTime,
-                currentTime
-            )
+            // If paused in Canvas mode, ensure we have stars and render them statically
+            if (isPaused) {
+                // Ensure we have stars to render
+                if (starsRef.current.length === 0) {
+                    const centerX = canvas.width / 2
+                    const centerY = canvas.height / 2
+                    
+                    // Create a distributed starfield for the paused state
+                    for (let i = 0; i < starCount; i++) {
+                        const newStar = createStar(centerX, centerY)
+                        
+                        // Simulate different travel distances for natural distribution
+                        const travelProgress = Math.random()
+                        const maxTravelDistance = Math.sqrt((centerX - newStar.x) ** 2 + (centerY - newStar.y) ** 2)
+                        const travelDistance = maxTravelDistance * travelProgress
+                        
+                        // Move star along its trajectory
+                        const directionX = newStar.vx / Math.sqrt(newStar.vx ** 2 + newStar.vy ** 2)
+                        const directionY = newStar.vy / Math.sqrt(newStar.vx ** 2 + newStar.vy ** 2)
+                        
+                        newStar.x = newStar.spawnX + directionX * travelDistance
+                        newStar.y = newStar.spawnY + directionY * travelDistance
+                        
+                        // Set fade-in based on distance traveled
+                        const distanceTraveled = Math.sqrt(
+                            (newStar.x - newStar.spawnX) ** 2 + (newStar.y - newStar.spawnY) ** 2
+                        )
+                        newStar.fadeInProgress = Math.min(1, distanceTraveled / newStar.fadeInDistance)
+                        newStar.age = travelProgress * newStar.maxAge
+                        
+                        starsRef.current.push(newStar)
+                    }
+                }
+                
+                // Render stars without updating them (deltaTime = 0)
+                updateAndRender(ctx, canvas.width, canvas.height, 0, currentTime)
+            } else {
+                // Normal animation when not paused
+                const deltaTime = currentTime - lastTimeRef.current
+                lastTimeRef.current = currentTime
+                updateAndRender(ctx, canvas.width, canvas.height, deltaTime, currentTime)
+            }
 
+            // Always continue the animation loop
             animationRef.current = requestAnimationFrame(animate)
         },
-        [paused, updateAndRender]
+        [paused, updateAndRender, starCount, createStar]
     )
 
     // Handle resize
@@ -663,6 +700,8 @@ export default function TravelInSpace({
         }
     }, [handleResize, animate])
 
+
+
     return (
         <div
             style={{
@@ -698,6 +737,7 @@ TravelInSpace.defaultProps = {
         length: 8,
         color: "#FFFFFF",
         centerThinning: 0.5,
+        centerShortening: 0.5,
     },
     innerRadius: 50,
     outerRadius: 300,
@@ -732,16 +772,16 @@ addPropertyControls(TravelInSpace, {
         type: ControlType.Number,
         title: "Speed",
         min: 0.1,
-        max: 5,
+        max: 10,
         step: 0.1,
         defaultValue: 0.5,
     },
             thickness: {
         type: ControlType.Number,
         title: "Thickness",
-        min: 0.5,
+        min: 1,
         max: 10,
-        step: 0.1,
+        step: 1,
         defaultValue: 2,
     },
             opacity: {
@@ -762,7 +802,15 @@ addPropertyControls(TravelInSpace, {
             },
             centerThinning: {
         type: ControlType.Number,
-        title: "Center Thinning",
+        title: "Thinning",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+            },
+            centerShortening: {
+        type: ControlType.Number,
+        title: "Shortening",
         min: 0,
         max: 1,
         step: 0.1,
