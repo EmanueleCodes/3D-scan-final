@@ -13,7 +13,7 @@ gsap.registerPlugin(Draggable, InertiaPlugin);
 interface LoopConfig {
   paused?: boolean;
   draggable?: boolean;
-  center?: boolean;
+  center?: boolean | HTMLElement | string;
   speed?: number;
   snap?: number | boolean;
   paddingRight?: string | number;
@@ -66,7 +66,7 @@ function createHorizontalLoop(items: HTMLElement[], config: LoopConfig): Horizon
   const pixelsPerSecond = (config.speed || 1) * 100;
   const snap = config.snap === false ? (v: number) => v : gsap.utils.snap(typeof config.snap === 'number' ? config.snap : 1);
   let timeOffset = 0;
-  const container = center === true ? items[0].parentNode : (center ? gsap.utils.toArray(center)[0] : null) || items[0].parentNode;
+  const container = center === true ? items[0].parentNode : (center ? (typeof center === 'string' ? gsap.utils.toArray(center)[0] : center) : null) || items[0].parentNode;
   let totalWidth: number;
 
   const getTotalWidth = () => items[length-1].offsetLeft + xPercents[length-1] / 100 * widths[length-1] - startX + spaceBefore[0] + items[length-1].offsetWidth * (gsap.getProperty(items[length-1], "scaleX") as number) + (parseFloat(String(config.paddingRight)) || 0);
@@ -92,7 +92,16 @@ function createHorizontalLoop(items: HTMLElement[], config: LoopConfig): Horizon
 
   const populateOffsets = () => {
     if (!container) return;
-    timeOffset = center ? tl.duration() * ((container as HTMLElement).offsetWidth / 2) / totalWidth : 0;
+    const containerWidth = (container as HTMLElement).offsetWidth;
+    timeOffset = center ? tl.duration() * (containerWidth / 2) / totalWidth : 0;
+    
+    console.log('Centering debug:', {
+      containerWidth,
+      totalWidth,
+      timeOffset,
+      center: !!center
+    });
+    
     center && times.forEach((t, i) => {
       times[i] = timeWrap(tl.labels["label" + i] + tl.duration() * widths[i] / 2 / totalWidth - timeOffset);
     });
@@ -244,6 +253,15 @@ function createHorizontalLoop(items: HTMLElement[], config: LoopConfig): Horizon
   lastIndex = curIndex;
   onChange && onChange(items[curIndex], curIndex);
   
+  // Debug initial position
+  console.log('Initial timeline state:', {
+    progress: tl.progress(),
+    time: tl.time(),
+    duration: tl.duration(),
+    currentIndex: tl.current(),
+    times: times.slice(0, 5) // First 5 times for debugging
+  });
+  
   // Store cleanup function for later use
   (tl as any).cleanup = () => window.removeEventListener("resize", onResize);
   
@@ -360,9 +378,9 @@ export default function SliderPage() {
       console.log('Initializing horizontal loop with', boxesRef.current.length, 'boxes');
       
       const loop = createHorizontalLoop(boxesRef.current, {
-      paused: true,
-      draggable: true,
-      center: true,
+        paused: true,
+        draggable: true,
+        center: wrapperRef.current || true, // Pass the wrapper element for proper centering
       onChange: (element: HTMLElement, index: number) => {
         setActiveElement(element);
         // Remove active class from all boxes
