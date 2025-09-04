@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from "react"
 import { useMotionValue, useSpring, animate } from "framer-motion"
-
 import {
     Scene,
     PerspectiveCamera,

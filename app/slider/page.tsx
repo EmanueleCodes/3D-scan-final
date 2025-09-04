@@ -110,15 +110,18 @@ export default function Carousel({
     dragFactor = 0.5,
     draggable = true,
     clickNavigation = true,
+    autoplay = { enabled: false, duration: 3 },
 }: {
     dragFactor?: number
     draggable?: boolean
     clickNavigation?: boolean
+    autoplay?: { enabled: boolean; duration: number }
 }) {
     // React refs for DOM elements
     const wrapperRef = useRef<HTMLDivElement>(null) // Reference to the wrapper container
     const boxesRef = useRef<HTMLDivElement[]>([]) // Array of slide element references
     const loopRef = useRef<HorizontalLoopTimeline | null>(null) // Reference to the GSAP timeline
+    const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null) // Reference to autoplay timer
 
     // React state for component behavior
     const [showOverflow, setShowOverflow] = useState(false) // Toggle for showing overflow content
@@ -624,11 +627,16 @@ export default function Carousel({
                         boxesRef.current.forEach((box, i) => {
                             if (box) {
                                 const clickHandler = () => {
+                                    stopAutoplay() // Stop autoplay when user clicks
                                     if (loop && loop.toIndex) {
                                         loop.toIndex(i, {
                                             duration: 0.8,
                                             ease: "power1.inOut",
                                         })
+                                    }
+                                    // Restart autoplay after user interaction
+                                    if (autoplay.enabled) {
+                                        setTimeout(startAutoplay, 1000) // Restart after 1 second delay
                                     }
                                 }
                                 box.addEventListener("click", clickHandler)
@@ -639,9 +647,16 @@ export default function Carousel({
                         })
                     }
 
+                    // Start autoplay if enabled
+                    if (autoplay.enabled) {
+                        startAutoplay()
+                    }
+
                     // Return cleanup function - useGSAP will handle this automatically
                     return () => {
                         clearTimeout(timer)
+                        stopAutoplay() // Stop autoplay on cleanup
+                        
                         // Custom cleanup for event listeners
                         boxesRef.current.forEach((box) => {
                             if (box && (box as any).__clickHandler) {
@@ -662,8 +677,36 @@ export default function Carousel({
 
             return () => clearTimeout(timer)
         },
-        { scope: wrapperRef, dependencies: [dragFactor, draggable, clickNavigation] }
+        { scope: wrapperRef, dependencies: [dragFactor, draggable, clickNavigation, autoplay] }
     ) // Scope to wrapper element
+
+    /**
+     * Autoplay Functions
+     *
+     * These functions handle the automatic progression of slides.
+     */
+    const startAutoplay = () => {
+        if (!autoplay.enabled || !loopRef.current || RenderTarget.current() === RenderTarget.canvas) return
+        
+        // Clear any existing timer
+        if (autoplayTimerRef.current) {
+            clearInterval(autoplayTimerRef.current)
+        }
+        
+        // Start new timer
+        autoplayTimerRef.current = setInterval(() => {
+            if (loopRef.current && loopRef.current.next) {
+                loopRef.current.next({ duration: 0.8, ease: "power1.inOut" })
+            }
+        }, autoplay.duration * 1000) // Convert seconds to milliseconds
+    }
+
+    const stopAutoplay = () => {
+        if (autoplayTimerRef.current) {
+            clearInterval(autoplayTimerRef.current)
+            autoplayTimerRef.current = null
+        }
+    }
 
     /**
      * Event Handlers for Navigation
@@ -679,8 +722,13 @@ export default function Carousel({
      * with a custom duration and easing function.
      */
     const handleNext = () => {
+        stopAutoplay() // Stop autoplay when user interacts
         if (loopRef.current && loopRef.current.next) {
             loopRef.current.next({ duration: 0.4, ease: "power1.inOut" })
+        }
+        // Restart autoplay after user interaction
+        if (autoplay.enabled) {
+            setTimeout(startAutoplay, 1000) // Restart after 1 second delay
         }
     }
 
@@ -691,8 +739,13 @@ export default function Carousel({
      * with a custom duration and easing function.
      */
     const handlePrev = () => {
+        stopAutoplay() // Stop autoplay when user interacts
         if (loopRef.current && loopRef.current.previous) {
             loopRef.current.previous({ duration: 0.4, ease: "power1.inOut" })
+        }
+        // Restart autoplay after user interaction
+        if (autoplay.enabled) {
+            setTimeout(startAutoplay, 1000) // Restart after 1 second delay
         }
     }
 
@@ -935,8 +988,27 @@ addPropertyControls(Carousel, {
     },
     clickNavigation: {
         type: ControlType.Boolean,
-        title: "Click Navigation",
+        title: "Click Nav",
         defaultValue: true,
+    },
+    autoplay: {
+        type: ControlType.Object,
+        title: "Autoplay",
+        controls: {
+            enabled: {
+                type: ControlType.Boolean,
+                title: "Enabled",
+                defaultValue: false,
+            },
+            duration: {
+                type: ControlType.Number,
+                title: "Duration",
+                min: 1,
+                max: 10,
+                step: 0.5,
+                defaultValue: 3,
+            },
+        },
     },
     dragFactor: {
         type: ControlType.Number,
