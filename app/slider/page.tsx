@@ -437,7 +437,7 @@ export default function Carousel({
             // Get gap value for timeline calculations
             const gap = (config as any).gap ?? 0
             
-            if (config.infinite !== false) {
+            if (config.infinite) {
                 // INFINITE MODE: Original complex loop structure
                 for (i = 0; i < length; i++) {
                     item = items[i]
@@ -755,6 +755,22 @@ export default function Carousel({
             tl.draggable = draggable
         }
 
+        // Center the first slide after initialization
+        // This ensures slide 1 appears centered rather than at the left edge
+        if (center && times.length > 0) {
+            // Use the existing toIndex method to navigate to slide 1 (index 0)
+            // This will handle all the centering calculations properly
+            console.log("Centering to slide 1...")
+            toIndex(0, { duration: 0, ease: "none" })
+            
+            console.log("Centered first slide:", {
+                currentIndex: tl.current(),
+                time: tl.time(),
+                progress: tl.progress()
+            })
+        }
+
+        // Update current index after centering
         tl.closestIndex(true)
         lastIndex = curIndex
         onChange && onChange(items[curIndex], curIndex)
