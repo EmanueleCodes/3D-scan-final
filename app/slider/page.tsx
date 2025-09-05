@@ -47,6 +47,7 @@ interface LoopConfig {
     paddingRight?: string | number
     reversed?: boolean
     repeat?: number
+    gap?: number
     onChange?: (element: HTMLElement, index: number) => void
 }
 
@@ -110,21 +111,58 @@ export default function Carousel({
     dragFactor = 0.5,
     draggable = true,
     clickNavigation = true,
-    autoplay = { enabled: false, duration: 3, direction: "right", throwAware: "No follow" },
-    ui = { backgroundColor: "#000000", buttonVerticalAlign: "center", buttonHorizontalAlign: "center", buttonGap: 20, buttonInset: 20, padding: "0px" },
+    variableWidths = true,
+    autoplay = {
+        enabled: false,
+        duration: 3,
+        direction: "right",
+        throwAware: "No follow",
+    },
+    ui = {
+        backgroundColor: "#000000",
+        padding: "0px",
+        borderRadius: "0px",
+        shadow: "0px 0px 0px rgba(0,0,0,0)",
+        gap: 20,
+    },
+    buttonsUI = {
+        verticalAlign: "center",
+        horizontalAlign: "center",
+        gap: 20,
+        insetX: 20,
+        insetY: 20,
+    },
+    leftControl = null,
+    rightControl = null,
+    buttonsNavigation = true,
 }: {
     dragFactor?: number
     draggable?: boolean
     clickNavigation?: boolean
-    autoplay?: { enabled: boolean; duration: number; direction: "left" | "right"; throwAware: "Follow" | "No follow" }
+    variableWidths?: boolean
+    autoplay?: {
+        enabled: boolean
+        duration: number
+        direction: "left" | "right"
+        throwAware: "Follow" | "No follow"
+    }
     ui?: {
         backgroundColor?: string
-        buttonVerticalAlign?: "top" | "center" | "bottom"
-        buttonHorizontalAlign?: "center" | "space-between"
-        buttonGap?: number
-        buttonInset?: number
         padding?: string
+        borderRadius?: string
+        shadow?: string
+        gap?: number
     }
+    buttonsUI?: {
+        verticalAlign?: "top" | "center" | "bottom"
+        horizontalAlign?: "center" | "space-between"
+        gap?: number
+        insetX?: number
+        insetY?: number
+    }
+    leftControl?: React.ReactNode
+    rightControl?: React.ReactNode
+    buttonsNavigation?: boolean
 }) {
     // React refs for DOM elements
     const wrapperRef = useRef<HTMLDivElement>(null) // Reference to the wrapper container
@@ -132,27 +170,24 @@ export default function Carousel({
     const loopRef = useRef<HorizontalLoopTimeline | null>(null) // Reference to the GSAP timeline
     const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null) // Reference to autoplay timer
 
+    // Stable box widths - generated once and reused to prevent animation issues
+    // CRITICAL: Box widths must remain stable across React re-renders to prevent
+    // GSAP animation calculations from breaking. Random widths calculated during
+    // render cause timeline position miscalculations and animation glitches.
+    const boxWidths = useRef<number[]>([])
+
     // React state for component behavior
     const [showOverflow, setShowOverflow] = useState(false) // Toggle for showing overflow content
     const [activeElement, setActiveElement] = useState<HTMLElement | null>(null) // Currently active slide
-    
+
     // Refs for tracking drag state without causing re-renders
     const isDraggingRef = useRef(false) // Track if user is currently dragging
     const isThrowingRef = useRef(false) // Track if throwing animation is active
     const dragStartMouseXRef = useRef(0) // Track where mouse drag started to determine direction
     const dragEndMouseXRef = useRef(0) // Track where mouse drag ended
-    const currentAutoplayDirectionRef = useRef<"left" | "right">(autoplay.direction) // Current autoplay direction
-
-    /**
-     * CSS Custom Properties for Theming
-     *
-     * These variables define the color scheme used throughout
-     * the component. They can be easily modified to change the visual theme.
-     */
-    const cssVariables = {
-        "--color-just-black": "#000000", // Main background color
-        "--color-surface50": "#808080", // Border and accent color
-    }
+    const currentAutoplayDirectionRef = useRef<"left" | "right">(
+        autoplay.direction
+    ) // Current autoplay direction
 
     /**
      * Creates a horizontal infinite loop animation using GSAP
@@ -173,7 +208,7 @@ export default function Carousel({
      */
     function createHorizontalLoop(
         items: HTMLElement[],
-        config: LoopConfig,
+        config: LoopConfig
     ): HorizontalLoopTimeline | null {
         // Early return if no items provided
         if (!items.length) return null
@@ -250,15 +285,20 @@ export default function Carousel({
          *
          * This includes the width of all slides plus any spacing and padding.
          * Used for determining the loop distance and centering calculations.
+         * For infinite loops, we need to include the gap that appears between
+         * the last slide and the first slide when wrapping around.
          */
-        const getTotalWidth = () =>
-            items[length - 1].offsetLeft +
-            (xPercents[length - 1] / 100) * widths[length - 1] -
-            startX +
-            spaceBefore[0] +
-            items[length - 1].offsetWidth *
-                (gsap.getProperty(items[length - 1], "scaleX") as number) +
-            (parseFloat(String(config.paddingRight)) || 0)
+        const getTotalWidth = () => {
+            // Calculate total width including CSS margins
+            const gap = (config as any).gap ?? 0
+            let total = 0
+            for (let i = 0; i < length; i++) {
+                total += widths[i]
+                // Add gap between all slides for consistent spacing in infinite loop
+                total += gap
+            }
+            return total + (parseFloat(String(config.paddingRight)) || 0)
+        }
 
         /**
          * Populate width and position data for all slides
@@ -289,6 +329,7 @@ export default function Carousel({
                 )
 
                 // Calculate space before this slide (for gaps between slides)
+                // This accounts for the margin-right gap applied to each slide
                 b2 = el.getBoundingClientRect()
                 spaceBefore[i] = b2.left - (i ? b1.right : b1.left)
                 b1 = b2 // Update reference for next iteration
@@ -385,14 +426,19 @@ export default function Carousel({
                 distanceToStart: number,
                 distanceToLoop: number
             tl.clear()
+            
+            // Get gap value for timeline calculations
+            const gap = (config as any).gap ?? 0
+            
             for (i = 0; i < length; i++) {
                 item = items[i]
                 curX = (xPercents[i] / 100) * widths[i]
-                distanceToStart =
-                    item.offsetLeft + curX - startX + spaceBefore[0]
-                distanceToLoop =
-                    distanceToStart +
-                    widths[i] * (gsap.getProperty(item, "scaleX") as number)
+                
+                // Calculate distance to start including gap
+                distanceToStart = item.offsetLeft + curX - startX
+                // Add gap to the loop distance for proper infinite loop spacing
+                distanceToLoop = distanceToStart + widths[i] * (gsap.getProperty(item, "scaleX") as number) + gap
+                
                 tl.to(
                     item,
                     {
@@ -521,14 +567,15 @@ export default function Carousel({
                     ratio = 1 / totalWidth
                     initChangeX = startProgress / -ratio - x
                     gsap.set(proxy, { x: startProgress / -ratio })
-                    
+
                     // Set dragging state and stop autoplay
                     isDraggingRef.current = true
                     // Store actual mouse coordinates for direction detection
-                    dragStartMouseXRef.current = this.pointerX || this.startX || 0
+                    dragStartMouseXRef.current =
+                        this.pointerX || this.startX || 0
                     stopAutoplay()
                 },
-                onDrag: function() {
+                onDrag: function () {
                     align()
                     // Track current mouse position for direction detection
                     dragEndMouseXRef.current = this.pointerX || this.x || 0
@@ -539,7 +586,7 @@ export default function Carousel({
                 /**
                  * max
                  */
-                maxDuration: 4 * (1.1-dragFactor),
+                maxDuration: 4 * (1.1 - dragFactor),
                 snap(value: number) {
                     if (Math.abs(startProgress / -ratio - this.x) < 10) {
                         return lastSnap + initChangeX
@@ -557,23 +604,26 @@ export default function Carousel({
                 onRelease() {
                     syncIndex()
                     isDraggingRef.current = false // User released, no longer dragging
-                    
+
                     // Update autoplay direction based on drag direction if throwAware is enabled
                     if (autoplay.throwAware === "Follow") {
-                        const mouseDistance = dragEndMouseXRef.current - dragStartMouseXRef.current
+                        const mouseDistance =
+                            dragEndMouseXRef.current -
+                            dragStartMouseXRef.current
                         // Use mouse movement to determine direction
                         // Positive distance = dragged right (go left/previous)
                         // Negative distance = dragged left (go right/next)
-                        currentAutoplayDirectionRef.current = mouseDistance > 0 ? "left" : "right"
-                        
+                        currentAutoplayDirectionRef.current =
+                            mouseDistance > 0 ? "left" : "right"
+
                         console.log("Throw-aware direction update:", {
                             startMouseX: dragStartMouseXRef.current,
                             endMouseX: dragEndMouseXRef.current,
                             mouseDistance: mouseDistance,
-                            newDirection: currentAutoplayDirectionRef.current
+                            newDirection: currentAutoplayDirectionRef.current,
                         })
                     }
-                    
+
                     // Check if throwing animation will start
                     if (draggable.isThrowing) {
                         isThrowingRef.current = true
@@ -584,10 +634,10 @@ export default function Carousel({
                     syncIndex()
                     isThrowingRef.current = false // Throwing animation completed
                     wasPlaying && tl.play()
-                    
+
                     // Restart autoplay after throwing completes
                     if (autoplay.enabled) {
-                        setTimeout(startAutoplay, 1000) // Restart after 1 second delay
+                        setTimeout(startAutoplay, 10) // Restart after 1 second delay
                     }
                 },
             })[0]
@@ -649,26 +699,27 @@ export default function Carousel({
                  * - center: wrapperRef.current - Use wrapper element for centering calculations
                  * - onChange: Callback fired when the active slide changes
                  */
-                const loop = createHorizontalLoop(
-                    boxesRef.current,
-                    {
-                        paused: true,
-                        draggable: draggable, // Use the property control value
-                        center: wrapperRef.current || true, // Pass the wrapper element for proper centering
-                        onChange: (element: HTMLElement, index: number) => {
-                            // Update React state when active slide changes
-                            setActiveElement(element)
+                const currentGap = ui?.gap
+                console.log("Current gap value:", currentGap)
+                
+                const loop = createHorizontalLoop(boxesRef.current, {
+                    paused: true,
+                    draggable: draggable, // Use the property control value
+                    center: wrapperRef.current || true, // Pass the wrapper element for proper centering
+                    gap: currentGap, // Pass the gap value for proper loop calculations
+                    onChange: (element: HTMLElement, index: number) => {
+                        // Update React state when active slide changes
+                        setActiveElement(element)
 
-                            // Remove active class from all slides
-                            boxesRef.current.forEach((box) => {
-                                if (box) box.classList.remove("active")
-                            })
+                        // Remove active class from all slides
+                        boxesRef.current.forEach((box) => {
+                            if (box) box.classList.remove("active")
+                        })
 
-                            // Add active class to the current slide
-                            element.classList.add("active")
-                        },
+                        // Add active class to the current slide
+                        element.classList.add("active")
                     },
-                )
+                })
 
                 if (loop) {
                     loopRef.current = loop
@@ -687,7 +738,7 @@ export default function Carousel({
                                     }
                                     // Restart autoplay after user interaction
                                     if (autoplay.enabled) {
-                                        setTimeout(startAutoplay, 1000) // Restart after 1 second delay
+                                        setTimeout(startAutoplay, 10) // Restart after 1 second delay
                                     }
                                 }
                                 box.addEventListener("click", clickHandler)
@@ -700,7 +751,7 @@ export default function Carousel({
 
                     // Initialize autoplay direction
                     currentAutoplayDirectionRef.current = autoplay.direction
-                    
+
                     // Start autoplay if enabled
                     if (autoplay.enabled) {
                         startAutoplay()
@@ -710,7 +761,7 @@ export default function Carousel({
                     return () => {
                         clearTimeout(timer)
                         stopAutoplay() // Stop autoplay on cleanup
-                        
+
                         // Custom cleanup for event listeners
                         boxesRef.current.forEach((box) => {
                             if (box && (box as any).__clickHandler) {
@@ -727,11 +778,14 @@ export default function Carousel({
                         }
                     }
                 }
-            }, 100) // 100ms delay
+            }, 10) // 100ms delay
 
             return () => clearTimeout(timer)
         },
-        { scope: wrapperRef, dependencies: [dragFactor, draggable, clickNavigation, autoplay] }
+        {
+            scope: wrapperRef,
+            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, ui?.gap, autoplay],
+        }
     ) // Scope to wrapper element
 
     /**
@@ -740,25 +794,46 @@ export default function Carousel({
      * These functions handle the automatic progression of slides.
      */
     const startAutoplay = () => {
-        if (!autoplay.enabled || !loopRef.current || RenderTarget.current() === RenderTarget.canvas) return
-        
+        if (
+            !autoplay.enabled ||
+            !loopRef.current ||
+            RenderTarget.current() === RenderTarget.canvas
+        )
+            return
+
         // Don't start autoplay if user is dragging or throwing
         if (isDraggingRef.current || isThrowingRef.current) return
-        
+
         // Clear any existing timer
         if (autoplayTimerRef.current) {
             clearInterval(autoplayTimerRef.current)
         }
-        
+
         // Start new timer
         autoplayTimerRef.current = setInterval(() => {
             // Check again before advancing - user might have started dragging
-            if (loopRef.current && !isDraggingRef.current && !isThrowingRef.current) {
+            if (
+                loopRef.current &&
+                !isDraggingRef.current &&
+                !isThrowingRef.current
+            ) {
                 // Use current direction for autoplay
-                if (currentAutoplayDirectionRef.current === "right" && loopRef.current.next) {
-                    loopRef.current.next({ duration: 0.8, ease: "power1.inOut" })
-                } else if (currentAutoplayDirectionRef.current === "left" && loopRef.current.previous) {
-                    loopRef.current.previous({ duration: 0.8, ease: "power1.inOut" })
+                if (
+                    currentAutoplayDirectionRef.current === "right" &&
+                    loopRef.current.next
+                ) {
+                    loopRef.current.next({
+                        duration: 0.8,
+                        ease: "power1.inOut",
+                    })
+                } else if (
+                    currentAutoplayDirectionRef.current === "left" &&
+                    loopRef.current.previous
+                ) {
+                    loopRef.current.previous({
+                        duration: 0.8,
+                        ease: "power1.inOut",
+                    })
                 }
             }
         }, autoplay.duration * 1000) // Convert seconds to milliseconds
@@ -791,7 +866,7 @@ export default function Carousel({
         }
         // Restart autoplay after user interaction
         if (autoplay.enabled) {
-            setTimeout(startAutoplay, 1000) // Restart after 1 second delay
+            setTimeout(startAutoplay, 10) // Restart after 1 second delay
         }
     }
 
@@ -808,7 +883,7 @@ export default function Carousel({
         }
         // Restart autoplay after user interaction
         if (autoplay.enabled) {
-            setTimeout(startAutoplay, 1000) // Restart after 1 second delay
+            setTimeout(startAutoplay, 10) // Restart after 1 second delay
         }
     }
 
@@ -825,14 +900,32 @@ export default function Carousel({
     /**
      * Generate Slide Elements
      *
-     * Creates 11 slide elements with different gray shades.
+     * Creates 11 slide elements with different gray shades and variable widths.
      * Each slide is assigned to a ref for GSAP manipulation.
      *
      * Design pattern:
      * - Different gray shade for each slide
-     * - Special width for slide 5 (index 4) to demonstrate variable sizing
+     * - Variable widths generated once and stored in ref for stability
      * - Each slide gets a ref for GSAP timeline integration
      */
+    
+    // Generate stable widths once on first render or when variableWidths changes
+    const lastVariableWidthsRef = useRef(variableWidths)
+    if (boxWidths.current.length === 0 || lastVariableWidthsRef.current !== variableWidths) {
+        lastVariableWidthsRef.current = variableWidths
+        boxWidths.current = Array.from({ length: 11 }, (_, i) => {
+            if (variableWidths) {
+                // Variable widths: special width for slide 5, random for others
+                if (i === 4) return 350 // Special width for slide 5
+                return Math.floor(Math.random() * (350 - 150 + 1)) + 150 // Random width between 150px and 350px
+            } else {
+                // Fixed widths: special width for slide 5, uniform for others
+                return i === 4 ? 350 : 150
+            }
+        })
+        console.log("Generated stable box widths:", boxWidths.current)
+    }
+
     const boxes = Array.from({ length: 11 }, (_, i) => {
         // Generate different gray shades for each slide
         const grayShade = Math.floor((i / 10) * 200) + 50 // Range from 50 to 250
@@ -847,12 +940,11 @@ export default function Carousel({
                 }}
                 className="box"
                 style={{
-                    padding: "0.5rem",
                     flexShrink: 0,
                     height: "80%",
-                    width: i === 4 ? "350px" : "150px", // Special width for slide 5, otherwise fixed width
+                    width: `${boxWidths.current[i]}px`, // Use stable width from ref
                     minWidth: "150px",
-                
+                    marginRight: `${ui?.gap || 0}px`, // Add gap to all slides for consistent infinite loop spacing
                 }}
             >
                 <div
@@ -865,10 +957,20 @@ export default function Carousel({
                         cursor: "pointer",
                         width: "100%",
                         height: "100%",
-                        backgroundColor: "#3D3D3D",
+                        backgroundColor: "rgba(0,0,0,0.1)",
+                        border: "1px solid rgba(0,0,0,0.2)",
                         borderRadius: "10px",
+                        fontSize: "36px",
+                        fontWeight: "medium",
+                    
+                        color: "#3D3D3D",
+                        textAlign: "center",
+                        lineHeight: "1",
+                        padding: "0.5rem",
                     }}
-                />
+                >
+                    <p>{i + 1}</p>
+                </div>
             </div>
         )
     })
@@ -887,6 +989,9 @@ export default function Carousel({
             style={{
                 fontFamily: "system-ui",
                 background: ui?.backgroundColor || "#000000",
+                padding: ui?.padding || "0px",
+                borderRadius: ui?.borderRadius || "0px",
+                boxShadow: ui?.shadow || "0px 0px 0px rgba(0,0,0,0)",
                 color: "white",
                 textAlign: "center" as const,
                 display: "flex",
@@ -896,8 +1001,7 @@ export default function Carousel({
                 height: "100%",
                 width: "100%",
                 margin: 0,
-                padding: ui?.padding || "0px",
-                overflow:"visible"
+                overflow: "visible",
             }}
         >
             {/* Inline CSS for active states */}
@@ -916,105 +1020,129 @@ export default function Carousel({
             </style>
 
             {/* Navigation Buttons - Absolutely Positioned */}
-            {clickNavigation && (
+            {buttonsNavigation && (
                 <>
                     {/* Previous Button */}
-                    <button
-                        style={{
-                            position: "absolute",
-                            top: ui.buttonVerticalAlign === "top" ? `${ui.buttonInset || 20}px` : 
-                                 ui.buttonVerticalAlign === "bottom" ? "auto" : "50%",
-                            bottom: ui.buttonVerticalAlign === "bottom" ? `${ui.buttonInset || 20}px` : "auto",
-                            left: ui.buttonHorizontalAlign === "space-between" ? `${ui.buttonInset || 20}px` : 
-                                  ui.buttonHorizontalAlign === "center" ? `calc(50% - ${ui.buttonGap || 20}px)` : "50%",
-                            right: "auto",
-                            transform: ui.buttonHorizontalAlign === "center" && ui.buttonVerticalAlign === "center" 
-                                ? "translateX(-100%) translateY(-50%)" 
-                                : ui.buttonHorizontalAlign === "center" 
-                                    ? "translateX(-100%)" 
-                                    : ui.buttonVerticalAlign === "center" 
-                                        ? "translateY(-50%)" 
-                                        : "none",
-                            padding: "0.5rem 1rem",
-                            backgroundColor: "transparent",
-                            color: "white",
-                            border: "2px solid #808080",
-                            borderRadius: "5px",
-                            cursor: "pointer",
-                            fontSize: "1rem",
-                      
-                            zIndex: 10,
-                        }}
-                        onClick={handlePrev}
-                        onMouseEnter={(e) =>
-                            (e.currentTarget.style.backgroundColor = "#333")
-                        }
-                        onMouseLeave={(e) =>
-                            (e.currentTarget.style.backgroundColor = "transparent")
-                        }
-                    >
-                        prev
-                    </button>
+                    {leftControl && (
+                        <div
+                            style={{
+                                position: "absolute",
+                                top:
+                                    buttonsUI.verticalAlign === "top"
+                                        ? `${buttonsUI.insetY || 20}px`
+                                        : buttonsUI.verticalAlign === "bottom"
+                                          ? "auto"
+                                          : "50%",
+                                bottom:
+                                    buttonsUI.verticalAlign === "bottom"
+                                        ? `${buttonsUI.insetY || 20}px`
+                                        : "auto",
+                                left:
+                                    buttonsUI.horizontalAlign ===
+                                    "space-between"
+                                        ? `${buttonsUI.insetX || 20}px`
+                                        : buttonsUI.horizontalAlign === "center"
+                                          ? `calc(50% - ${buttonsUI.gap || 20}px)`
+                                          : "50%",
+                                right: "auto",
+                                transform:
+                                    buttonsUI.horizontalAlign === "center" &&
+                                    buttonsUI.verticalAlign === "center"
+                                        ? "translateX(-100%) translateY(-50%)"
+                                        : buttonsUI.horizontalAlign === "center"
+                                          ? "translateX(-100%)"
+                                          : buttonsUI.verticalAlign === "center"
+                                            ? "translateY(-50%)"
+                                            : "none",
+                                zIndex: 10,
+                                cursor: "pointer",
+                            }}
+                            onClick={handlePrev}
+                        >
+                            {leftControl}
+                        </div>
+                    )}
 
                     {/* Next Button */}
-                    <button
-                        style={{
-                            position: "absolute",
-                            top: ui.buttonVerticalAlign === "top" ? `${ui.buttonInset || 20}px` : 
-                                 ui.buttonVerticalAlign === "bottom" ? "auto" : "50%",
-                            bottom: ui.buttonVerticalAlign === "bottom" ? `${ui.buttonInset || 20}px` : "auto",
-                            left: "auto",
-                            right: ui.buttonHorizontalAlign === "space-between" ? `${ui.buttonInset || 20}px` : 
-                                   ui.buttonHorizontalAlign === "center" ? `calc(50% - ${ui.buttonGap || 20}px)` : "50%",
-                            transform: ui.buttonHorizontalAlign === "center" && ui.buttonVerticalAlign === "center" 
-                                ? "translateX(100%) translateY(-50%)" 
-                                : ui.buttonHorizontalAlign === "center" 
-                                    ? "translateX(100%)" 
-                                    : ui.buttonVerticalAlign === "center" 
-                                        ? "translateY(-50%)" 
-                                        : "none",
-                            padding: "0.5rem 1rem",
-                            backgroundColor: "transparent",
-                            color: "white",
-                            border: "2px solid #808080",
-                            borderRadius: "5px",
-                            cursor: "pointer",
-                            fontSize: "1rem",
-                            zIndex: 10,
-                        }}
-                        onClick={handleNext}
-                        onMouseEnter={(e) =>
-                            (e.currentTarget.style.backgroundColor = "#333")
-                        }
-                        onMouseLeave={(e) =>
-                            (e.currentTarget.style.backgroundColor = "transparent")
-                        }
-                    >
-                        next
-                    </button>
+                    {rightControl && (
+                        <div
+                            style={{
+                                position: "absolute",
+                                top:
+                                    buttonsUI.verticalAlign === "top"
+                                        ? `${buttonsUI.insetY || 20}px`
+                                        : buttonsUI.verticalAlign === "bottom"
+                                          ? "auto"
+                                          : "50%",
+                                bottom:
+                                    buttonsUI.verticalAlign === "bottom"
+                                        ? `${buttonsUI.insetY || 20}px`
+                                        : "auto",
+                                left: "auto",
+                                right:
+                                    buttonsUI.horizontalAlign ===
+                                    "space-between"
+                                        ? `${buttonsUI.insetX || 20}px`
+                                        : buttonsUI.horizontalAlign === "center"
+                                          ? `calc(50% - ${buttonsUI.gap || 20}px)`
+                                          : "50%",
+                                transform:
+                                    buttonsUI.horizontalAlign === "center" &&
+                                    buttonsUI.verticalAlign === "center"
+                                        ? "translateX(100%) translateY(-50%)"
+                                        : buttonsUI.horizontalAlign === "center"
+                                          ? "translateX(100%)"
+                                          : buttonsUI.verticalAlign === "center"
+                                            ? "translateY(-50%)"
+                                            : "none",
+                                zIndex: 10,
+                                cursor: "pointer",
+                            }}
+                            onClick={handleNext}
+                        >
+                            {rightControl}
+                        </div>
+                    )}
                 </>
             )}
 
+            {/* Gap Debug Info */}
+            <div
+                style={{
+                    position: "absolute",
+                    top: "10px",
+                    left: "10px",
+                    backgroundColor: "rgba(0,0,0,0.7)",
+                    color: "white",
+                    padding: "5px 10px",
+                    borderRadius: "5px",
+                    fontSize: "12px",
+                    zIndex: 1000,
+                }}
+            >
+                Gap: {ui?.gap ?? 20}px
+            </div>
+
             {/* Toggle Overflow Button - Commented Out */}
             {/* <button
-                style={{
-                    padding: "0.5rem 1rem",
-                    backgroundColor: "transparent",
-                    color: "white",
-                    border: "2px solid #808080",
-                    borderRadius: "5px",
-                    cursor: "pointer",
-                    fontSize: "1rem",
-                    transition: "all 0.3s ease",
-                }}
+                    style={{
+                        padding: "0.5rem 1rem",
+                        backgroundColor: "transparent",
+                        color: "white",
+                        border: "2px solid #808080",
+                        borderRadius: "5px",
+                        cursor: "pointer",
+                        fontSize: "1rem",
+                        transition: "all 0.3s ease",
+                    }}
                 onClick={handleToggleOverflow}
-                onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = "#333")
-                }
-                onMouseLeave={(e) =>
-                    (e.currentTarget.style.backgroundColor = "transparent")
-                }
-            >
+                    onMouseEnter={(e) =>
+                        (e.currentTarget.style.backgroundColor = "#333")
+                    }
+                    onMouseLeave={(e) =>
+                        (e.currentTarget.style.backgroundColor = "transparent")
+                    }
+                >
                 toggle overflow
             </button> */}
 
@@ -1042,6 +1170,7 @@ export default function Carousel({
                         alignItems: "center",
                         flexDirection: "row" as const,
                         flexWrap: "nowrap" as const,
+                        // Gap is handled by margin-right on each slide for consistent infinite loop spacing
                     }}
                 >
                     {boxes}
@@ -1057,9 +1186,23 @@ addPropertyControls(Carousel, {
         title: "Draggable",
         defaultValue: true,
     },
+    dragFactor: {
+        type: ControlType.Number,
+        title: "Drag",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+        hidden: (props: any) => !props.draggable,
+    },
     clickNavigation: {
         type: ControlType.Boolean,
         title: "Click Nav",
+        defaultValue: true,
+    },
+    variableWidths: {
+        type: ControlType.Boolean,
+        title: "Variable Widths",
         defaultValue: true,
     },
     autoplay: {
@@ -1083,14 +1226,11 @@ addPropertyControls(Carousel, {
                 type: ControlType.Enum,
                 title: "Direction",
                 options: ["left", "right"],
-                
+
                 defaultValue: "right",
                 displaySegmentedControl: true,
-               
-                optionIcons: [
-                    "direction-left",
-                    "direction-right",
-                ],
+
+                optionIcons: ["direction-left", "direction-right"],
             },
             throwAware: {
                 type: ControlType.Enum,
@@ -1102,15 +1242,6 @@ addPropertyControls(Carousel, {
             },
         },
     },
-    dragFactor: {
-        type: ControlType.Number,
-        title: "Drag",
-        min: 0,
-        max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
-        hidden:(props:any)=>!props.draggable
-    },
     ui: {
         type: ControlType.Object,
         title: "UI",
@@ -1120,46 +1251,100 @@ addPropertyControls(Carousel, {
                 title: "Background",
                 defaultValue: "#000000",
             },
-            buttonVerticalAlign: {
+            padding: {
+                // @ts-ignore - ControlType.Padding exists but may not be in types
+                type: ControlType.Padding,
+                title: "Padding",
+                defaultValue: "0px",
+            },
+            borderRadius: {
+                // @ts-ignore - ControlType.BorderRadius exists but may not be in types
+                type: ControlType.BorderRadius,
+                title: "Border Radius",
+                defaultValue: "0px",
+            },
+            shadow: {
+                // @ts-ignore - ControlType.Shadow exists but may not be in types
+                type: ControlType.BoxShadow,
+                title: "Shadow",
+                defaultValue: "0px 0px 0px rgba(0,0,0,0)",
+            },
+            gap: {
+                type: ControlType.Number,
+                title: "Slide Gap",
+                min: 0,
+                max: 100,
+                step: 5,
+                defaultValue: 20,
+            },
+        },
+    },
+
+    buttonsNavigation: {
+        type: ControlType.Boolean,
+        title: "Buttons Nav",
+        defaultValue: true,
+    },
+    leftControl: {
+        // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
+        type: ControlType.ComponentInstance,
+        title: "Left Control",
+        hidden: (props: any) => !props.buttonsNavigation,
+    },
+    rightControl: {
+        // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
+        type: ControlType.ComponentInstance,
+        title: "Right Control",
+        hidden: (props: any) => !props.buttonsNavigation,
+    },
+    buttonsUI: {
+        type: ControlType.Object,
+        title: "Buttons UI",
+        hidden: (props: any) => !props.buttonsNavigation,
+        controls: {
+            verticalAlign: {
                 type: ControlType.Enum,
-                title: "Button Vertical",
+                title: "Vertical Align",
                 options: ["top", "center", "bottom"],
                 optionTitles: ["Top", "Center", "Bottom"],
                 defaultValue: "center",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
             },
-            buttonHorizontalAlign: {
+            horizontalAlign: {
                 type: ControlType.Enum,
-                title: "Button Horizontal",
+                title: "Horizontal Align",
                 options: ["center", "space-between"],
-                optionTitles: ["Left", "Center", "Right"],
+                optionTitles: ["Center", "Space Between"],
                 defaultValue: "center",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
             },
-            buttonGap: {
+            gap: {
                 type: ControlType.Number,
-                title: "Button Gap",
+                title: "Gap",
                 min: 0,
                 max: 100,
                 step: 5,
                 defaultValue: 20,
-                hidden: (props: any) => props.ui?.buttonHorizontalAlign !== "center",
+                hidden: (props: any) =>
+                    props.buttonsUI?.horizontalAlign !== "center",
             },
-            buttonInset: {
+            insetX: {
                 type: ControlType.Number,
-                title: "Button Inset",
+                title: "X Inset",
                 min: -100,
                 max: 100,
                 step: 5,
                 defaultValue: 20,
             },
-            padding: {
-                // @ts-ignore - ControlType.Padding exists but may not be in types
-                type: ControlType.Padding,
-                title: "Padding",
-                defaultValue: "0px",
+            insetY: {
+                type: ControlType.Number,
+                title: "Y Inset",
+                min: -100,
+                max: 100,
+                step: 5,
+                defaultValue: 20,
             },
         },
     },
