@@ -48,6 +48,7 @@ interface LoopConfig {
     reversed?: boolean
     repeat?: number
     gap?: number
+    infinite?: boolean
     onChange?: (element: HTMLElement, index: number) => void
 }
 
@@ -112,6 +113,7 @@ export default function Carousel({
     draggable = true,
     clickNavigation = true,
     variableWidths = true,
+    infinite = true,
     autoplay = {
         enabled: false,
         duration: 3,
@@ -140,6 +142,7 @@ export default function Carousel({
     draggable?: boolean
     clickNavigation?: boolean
     variableWidths?: boolean
+    infinite?: boolean
     autoplay?: {
         enabled: boolean
         duration: number
@@ -240,8 +243,13 @@ export default function Carousel({
             paused: config.paused, // Start paused so we can control it manually
             defaults: { ease: "none" }, // No easing for smooth continuous scrolling
             onReverseComplete: () => {
-                // Handle reverse completion for seamless looping
-                tl.totalTime(tl.rawTime() + tl.duration() * 100)
+                // Handle reverse completion for seamless looping (only in infinite mode)
+                if (config.infinite !== false) {
+                    tl.totalTime(tl.rawTime() + tl.duration() * 100)
+                } else {
+                    // In finite mode, just ensure we're at the beginning
+                    tl.time(0)
+                }
             },
         }) as unknown as HorizontalLoopTimeline
 
@@ -404,9 +412,8 @@ export default function Carousel({
             while (i--) {
                 d = Math.abs(values[i] - value)
 
-                // Handle wrapping - if distance is more than half the wrap value,
-                // check the other direction around the circle
-                if (d > wrap / 2) {
+                // Handle wrapping only in infinite mode
+                if (config.infinite !== false && d > wrap / 2) {
                     d = wrap - d
                 }
 
@@ -430,47 +437,79 @@ export default function Carousel({
             // Get gap value for timeline calculations
             const gap = (config as any).gap ?? 0
             
-            for (i = 0; i < length; i++) {
-                item = items[i]
-                curX = (xPercents[i] / 100) * widths[i]
-                
-                // Calculate distance to start including gap
-                distanceToStart = item.offsetLeft + curX - startX
-                // Add gap to the loop distance for proper infinite loop spacing
-                distanceToLoop = distanceToStart + widths[i] * (gsap.getProperty(item, "scaleX") as number) + gap
-                
-                tl.to(
-                    item,
-                    {
-                        xPercent: snap(
-                            ((curX - distanceToLoop) / widths[i]) * 100
-                        ),
-                        duration: distanceToLoop / pixelsPerSecond,
-                    },
-                    0
-                )
-                    .fromTo(
+            if (config.infinite !== false) {
+                // INFINITE MODE: Original complex loop structure
+                for (i = 0; i < length; i++) {
+                    item = items[i]
+                    curX = (xPercents[i] / 100) * widths[i]
+                    
+                    // Calculate distance to start including gap
+                    distanceToStart = item.offsetLeft + curX - startX
+                    // Add gap to the loop distance for proper infinite loop spacing
+                    distanceToLoop = distanceToStart + widths[i] * (gsap.getProperty(item, "scaleX") as number) + gap
+                    
+                    tl.to(
                         item,
                         {
                             xPercent: snap(
-                                ((curX - distanceToLoop + totalWidth) /
-                                    widths[i]) *
-                                    100
+                                ((curX - distanceToLoop) / widths[i]) * 100
                             ),
+                            duration: distanceToLoop / pixelsPerSecond,
                         },
+                        0
+                    )
+                        .fromTo(
+                            item,
+                            {
+                                xPercent: snap(
+                                    ((curX - distanceToLoop + totalWidth) /
+                                        widths[i]) *
+                                        100
+                                ),
+                            },
+                            {
+                                xPercent: xPercents[i],
+                                duration:
+                                    (curX - distanceToLoop + totalWidth - curX) /
+                                    pixelsPerSecond,
+                                immediateRender: false,
+                            },
+                            distanceToLoop / pixelsPerSecond
+                        )
+                        .add("label" + i, distanceToStart / pixelsPerSecond)
+                    times[i] = distanceToStart / pixelsPerSecond
+                }
+                timeWrap = gsap.utils.wrap(0, tl.duration())
+            } else {
+                // FINITE MODE: Use same positioning logic as infinite but without loop-back
+                for (i = 0; i < length; i++) {
+                    item = items[i]
+                    curX = (xPercents[i] / 100) * widths[i]
+                    
+                    // Calculate distance to start including gap (same as infinite mode)
+                    distanceToStart = item.offsetLeft + curX - startX
+                    // Add gap to the distance for proper spacing
+                    distanceToLoop = distanceToStart + widths[i] * (gsap.getProperty(item, "scaleX") as number) + gap
+                    
+                    // Only the main animation that moves slides out of view (no loop-back)
+                    tl.to(
+                        item,
                         {
-                            xPercent: xPercents[i],
-                            duration:
-                                (curX - distanceToLoop + totalWidth - curX) /
-                                pixelsPerSecond,
-                            immediateRender: false,
+                            xPercent: snap(
+                                ((curX - distanceToLoop) / widths[i]) * 100
+                            ),
+                            duration: distanceToLoop / pixelsPerSecond,
                         },
-                        distanceToLoop / pixelsPerSecond
+                        0
                     )
                     .add("label" + i, distanceToStart / pixelsPerSecond)
-                times[i] = distanceToStart / pixelsPerSecond
+                    
+                    times[i] = distanceToStart / pixelsPerSecond
+                }
+                
+                // No wrapping in finite mode - clamp to bounds
+                timeWrap = (time: number) => Math.max(0, Math.min(time, tl.duration()))
             }
-            timeWrap = gsap.utils.wrap(0, tl.duration())
         }
 
         const refresh = (deep: boolean) => {
@@ -496,22 +535,50 @@ export default function Carousel({
         window.addEventListener("resize", onResize)
 
         function toIndex(index: number, vars: gsap.TweenVars = {}) {
-            Math.abs(index - curIndex) > length / 2 &&
-                (index += index > curIndex ? -length : length)
-            const newIndex = gsap.utils.wrap(0, length, index)
-            let time = times[newIndex]
-            if (time > tl.time() !== index > curIndex && index !== curIndex) {
-                time += tl.duration() * (index > curIndex ? 1 : -1)
+            if (config.infinite !== false) {
+                // INFINITE MODE: Original logic with wrapping
+                Math.abs(index - curIndex) > length / 2 &&
+                    (index += index > curIndex ? -length : length)
+                const newIndex = gsap.utils.wrap(0, length, index)
+                let time = times[newIndex]
+                if (time > tl.time() !== index > curIndex && index !== curIndex) {
+                    time += tl.duration() * (index > curIndex ? 1 : -1)
+                }
+                if (time < 0 || time > tl.duration()) {
+                    vars.modifiers = { time: timeWrap }
+                }
+                curIndex = newIndex
+                vars.overwrite = true
+                gsap.killTweensOf(proxy)
+                return vars.duration === 0
+                    ? tl.time(timeWrap(time))
+                    : tl.tweenTo(time, vars)
+            } else {
+                // FINITE MODE: Simple linear navigation with strict boundaries
+                const clampedIndex = Math.max(0, Math.min(length - 1, index))
+                
+                // If trying to go beyond boundaries, don't animate at all
+                if (index < 0 || index >= length) {
+                    console.log(`Finite mode: Cannot navigate to index ${index}, staying at ${curIndex}`)
+                    return tl
+                }
+                
+                const newIndex = clampedIndex
+                const time = times[newIndex] // Direct time mapping, no complex calculations
+                
+                // Ensure time is within valid bounds
+                const clampedTime = Math.max(0, Math.min(tl.duration(), time))
+                
+                curIndex = newIndex
+                vars.overwrite = true
+                gsap.killTweensOf(proxy)
+                
+                console.log(`Finite mode: Navigating to slide ${newIndex + 1} at time ${clampedTime}`)
+                
+                return vars.duration === 0
+                    ? tl.time(clampedTime)
+                    : tl.tweenTo(clampedTime, vars)
             }
-            if (time < 0 || time > tl.duration()) {
-                vars.modifiers = { time: timeWrap }
-            }
-            curIndex = newIndex
-            vars.overwrite = true
-            gsap.killTweensOf(proxy)
-            return vars.duration === 0
-                ? tl.time(timeWrap(time))
-                : tl.tweenTo(time, vars)
         }
 
         tl.toIndex = (index: number, vars?: gsap.TweenVars) =>
@@ -525,14 +592,38 @@ export default function Carousel({
             return index
         }
         tl.current = () => (indexIsDirty ? tl.closestIndex(true) : curIndex)
-        tl.next = (vars?: gsap.TweenVars) => toIndex(tl.current() + 1, vars)
-        tl.previous = (vars?: gsap.TweenVars) => toIndex(tl.current() - 1, vars)
+        tl.next = (vars?: gsap.TweenVars) => {
+            const currentIndex = tl.current()
+            if (config.infinite === false && currentIndex >= length - 1) {
+                // In finite mode, don't go past the last slide
+                console.log(`Finite mode: Already at last slide (${currentIndex + 1}), cannot go next`)
+                return tl
+            }
+            return toIndex(currentIndex + 1, vars)
+        }
+        tl.previous = (vars?: gsap.TweenVars) => {
+            const currentIndex = tl.current()
+            if (config.infinite === false && currentIndex <= 0) {
+                // In finite mode, don't go before the first slide
+                console.log(`Finite mode: Already at first slide (${currentIndex + 1}), cannot go previous`)
+                return tl
+            }
+            return toIndex(currentIndex - 1, vars)
+        }
         tl.times = times
-        tl.progress(1, true).progress(0, true)
-
-        if (config.reversed) {
-            ;(tl.vars as any).onReverseComplete?.()
-            tl.reverse()
+        
+        if (config.infinite !== false) {
+            // Infinite mode: use original initialization
+            tl.progress(1, true).progress(0, true)
+            
+            if (config.reversed) {
+                ;(tl.vars as any).onReverseComplete?.()
+                tl.reverse()
+            }
+        } else {
+            // Finite mode: start at the beginning (slide 1)
+            tl.progress(0, true)
+            curIndex = 0
         }
 
         if (config.draggable && typeof Draggable === "function") {
@@ -546,11 +637,14 @@ export default function Carousel({
                 wasPlaying: boolean
 
             const align = () => {
-                tl.progress(
-                    wrap(
-                        startProgress + (draggable.startX - draggable.x) * ratio
-                    )
-                )
+                const newProgress = startProgress + (draggable.startX - draggable.x) * ratio
+                if (config.infinite !== false) {
+                    // Infinite mode: use wrapping
+                    tl.progress(wrap(newProgress))
+                } else {
+                    // Finite mode: clamp to bounds
+                    tl.progress(Math.max(0, Math.min(1, newProgress)))
+                }
             }
             const syncIndex = () => tl.closestIndex(true)
 
@@ -591,15 +685,32 @@ export default function Carousel({
                     if (Math.abs(startProgress / -ratio - this.x) < 10) {
                         return lastSnap + initChangeX
                     }
-                    const time = -(value * ratio) * tl.duration()
-                    const wrappedTime = timeWrap(time)
-                    const snapTime =
-                        times[getClosest(times, wrappedTime, tl.duration())]
-                    let dif = snapTime - wrappedTime
-                    Math.abs(dif) > tl.duration() / 2 &&
-                        (dif += dif < 0 ? tl.duration() : -tl.duration())
-                    lastSnap = (time + dif) / tl.duration() / -ratio
-                    return lastSnap
+                    
+                    if (config.infinite !== false) {
+                        // INFINITE MODE: Original snap logic with wrapping
+                        const time = -(value * ratio) * tl.duration()
+                        const wrappedTime = timeWrap(time)
+                        const snapTime =
+                            times[getClosest(times, wrappedTime, tl.duration())]
+                        let dif = snapTime - wrappedTime
+                        Math.abs(dif) > tl.duration() / 2 &&
+                            (dif += dif < 0 ? tl.duration() : -tl.duration())
+                        lastSnap = (time + dif) / tl.duration() / -ratio
+                        return lastSnap
+                    } else {
+                        // FINITE MODE: Simple boundary-respecting snap
+                        const progress = -(value * ratio)
+                        const clampedProgress = Math.max(0, Math.min(1, progress))
+                        const time = clampedProgress * tl.duration()
+                        const snapTime = times[getClosest(times, time, tl.duration())]
+                        
+                        // Ensure we don't snap beyond boundaries
+                        const clampedSnapTime = Math.max(times[0], Math.min(times[length - 1], snapTime))
+                        lastSnap = -clampedSnapTime / tl.duration() / ratio
+                        
+                        console.log(`Finite mode snap: progress=${clampedProgress}, snapTime=${clampedSnapTime}, index=${times.indexOf(clampedSnapTime)}`)
+                        return lastSnap
+                    }
                 },
                 onRelease() {
                     syncIndex()
@@ -650,11 +761,13 @@ export default function Carousel({
 
         // Debug initial position
         console.log("Initial timeline state:", {
+            mode: config.infinite !== false ? "infinite" : "finite",
             progress: tl.progress(),
             time: tl.time(),
             duration: tl.duration(),
             currentIndex: tl.current(),
             times: times.slice(0, 5), // First 5 times for debugging
+            length,
         })
 
         // Store cleanup function for later use
@@ -707,6 +820,7 @@ export default function Carousel({
                     draggable: draggable, // Use the property control value
                     center: wrapperRef.current || true, // Pass the wrapper element for proper centering
                     gap: currentGap, // Pass the gap value for proper loop calculations
+                    infinite: infinite, // Pass the infinite mode setting
                     onChange: (element: HTMLElement, index: number) => {
                         // Update React state when active slide changes
                         setActiveElement(element)
@@ -784,7 +898,7 @@ export default function Carousel({
         },
         {
             scope: wrapperRef,
-            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, ui?.gap, autoplay],
+            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, infinite, ui?.gap, autoplay],
         }
     ) // Scope to wrapper element
 
@@ -817,23 +931,33 @@ export default function Carousel({
                 !isDraggingRef.current &&
                 !isThrowingRef.current
             ) {
+                const currentIndex = loopRef.current.current()
+                
                 // Use current direction for autoplay
-                if (
-                    currentAutoplayDirectionRef.current === "right" &&
-                    loopRef.current.next
-                ) {
-                    loopRef.current.next({
-                        duration: 0.8,
-                        ease: "power1.inOut",
-                    })
-                } else if (
-                    currentAutoplayDirectionRef.current === "left" &&
-                    loopRef.current.previous
-                ) {
-                    loopRef.current.previous({
-                        duration: 0.8,
-                        ease: "power1.inOut",
-                    })
+                if (currentAutoplayDirectionRef.current === "right") {
+                    if (!infinite && currentIndex >= 10) { // 10 is the last index (11 slides, 0-10)
+                        // In finite mode, stop autoplay when reaching the end
+                        console.log("Finite mode: Reached last slide, stopping autoplay")
+                        stopAutoplay()
+                        return
+                    } else if (loopRef.current.next) {
+                        loopRef.current.next({
+                            duration: 0.8,
+                            ease: "power1.inOut",
+                        })
+                    }
+                } else if (currentAutoplayDirectionRef.current === "left") {
+                    if (!infinite && currentIndex <= 0) {
+                        // In finite mode, stop autoplay when reaching the start
+                        console.log("Finite mode: Reached first slide, stopping autoplay")
+                        stopAutoplay()
+                        return
+                    } else if (loopRef.current.previous) {
+                        loopRef.current.previous({
+                            duration: 0.8,
+                            ease: "power1.inOut",
+                        })
+                    }
                 }
             }
         }, autoplay.duration * 1000) // Convert seconds to milliseconds
@@ -858,10 +982,12 @@ export default function Carousel({
      *
      * Uses the timeline's next() method to smoothly animate to the next slide
      * with a custom duration and easing function.
+     * In finite mode, respects the boundary at the last slide.
      */
     const handleNext = () => {
         stopAutoplay() // Stop autoplay when user interacts
         if (loopRef.current && loopRef.current.next) {
+            // The next() method now handles finite mode boundaries internally
             loopRef.current.next({ duration: 0.4, ease: "power1.inOut" })
         }
         // Restart autoplay after user interaction
@@ -875,10 +1001,12 @@ export default function Carousel({
      *
      * Uses the timeline's previous() method to smoothly animate to the previous slide
      * with a custom duration and easing function.
+     * In finite mode, respects the boundary at the first slide.
      */
     const handlePrev = () => {
         stopAutoplay() // Stop autoplay when user interacts
         if (loopRef.current && loopRef.current.previous) {
+            // The previous() method now handles finite mode boundaries internally
             loopRef.current.previous({ duration: 0.4, ease: "power1.inOut" })
         }
         // Restart autoplay after user interaction
@@ -1120,7 +1248,7 @@ export default function Carousel({
                     zIndex: 1000,
                 }}
             >
-                Gap: {ui?.gap ?? 20}px
+                Mode: {infinite ? "Infinite" : "Finite"} | Gap: {ui?.gap ?? 20}px
             </div>
 
             {/* Toggle Overflow Button - Commented Out */}
@@ -1203,6 +1331,11 @@ addPropertyControls(Carousel, {
     variableWidths: {
         type: ControlType.Boolean,
         title: "Variable Widths",
+        defaultValue: true,
+    },
+    infinite: {
+        type: ControlType.Boolean,
+        title: "Infinite Loop",
         defaultValue: true,
     },
     autoplay: {
