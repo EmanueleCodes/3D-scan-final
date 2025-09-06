@@ -552,7 +552,8 @@ export default function Carousel({
                 draggable: any,
                 lastSnap: number,
                 initChangeX: number,
-                wasPlaying: boolean
+                wasPlaying: boolean,
+                isDragActive = false
 
             const align = () => {
                 const newProgress = startProgress + (draggable.startX - draggable.x) * ratio
@@ -561,8 +562,49 @@ export default function Carousel({
             }
             const syncIndex = () => tl.closestIndex(true)
 
+            // Check if mouse is inside carousel area
+            const isMouseInsideCarousel = (clientX: number, clientY: number) => {
+                if (!container) return false
+                const rect = (container as HTMLElement).getBoundingClientRect()
+                return (
+                    clientX >= rect.left &&
+                    clientX <= rect.right &&
+                    clientY >= rect.top &&
+                    clientY <= rect.bottom
+                )
+            }
+
+            // Global mouse event handlers
+            const handleGlobalMouseDown = (e: MouseEvent) => {
+                // Only start drag if mouse is inside carousel
+                if (isMouseInsideCarousel(e.clientX, e.clientY) && !isDragActive) {
+                    isDragActive = true
+                    draggable.startDrag(e)
+                }
+            }
+
+            const handleGlobalMouseUp = (e: MouseEvent) => {
+                // Always handle mouse up, even if outside carousel
+                if (isDragActive) {
+                    isDragActive = false
+                    draggable.endDrag(e)
+                }
+            }
+
+            const handleGlobalMouseMove = (e: MouseEvent) => {
+                // Only handle mouse move if drag is active
+                if (isDragActive) {
+                    draggable.updateDrag(e)
+                }
+            }
+
+            // Add global event listeners
+            document.addEventListener('mousedown', handleGlobalMouseDown)
+            document.addEventListener('mouseup', handleGlobalMouseUp)
+            document.addEventListener('mousemove', handleGlobalMouseMove)
+
             draggable = Draggable.create(proxy, {
-                trigger: items[0].parentNode as Element,
+                trigger: null, // Disable GSAP's built-in trigger system
                 type: "x",
                 onPressInit() {
                     const x = this.x
@@ -651,6 +693,13 @@ export default function Carousel({
                 },
             })[0]
             tl.draggable = draggable
+
+            // Store cleanup function for global event listeners
+            ;(tl as any).cleanupGlobalDrag = () => {
+                document.removeEventListener('mousedown', handleGlobalMouseDown)
+                document.removeEventListener('mouseup', handleGlobalMouseUp)
+                document.removeEventListener('mousemove', handleGlobalMouseMove)
+            }
         }
 
         // Center the first slide after initialization
@@ -685,8 +734,13 @@ export default function Carousel({
         })
 
         // Store cleanup function for later use
-        ;(tl as any).cleanup = () =>
+        ;(tl as any).cleanup = () => {
             window.removeEventListener("resize", onResize)
+            // Clean up global drag event listeners if they exist
+            if ((tl as any).cleanupGlobalDrag) {
+                ;(tl as any).cleanupGlobalDrag()
+            }
+        }
 
         return tl
     }
