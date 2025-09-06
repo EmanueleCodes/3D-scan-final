@@ -135,6 +135,25 @@ export default function Carousel({
     leftControl = null,
     rightControl = null,
     buttonsNavigation = true,
+    slidesUI = {
+        central: "Same style",
+        allSlides: {
+            backgroundColor: "rgba(0,0,0,0.1)",
+            border: "1px solid rgba(0,0,0,0.2)",
+            radius: "10px",
+            shadow: "0px 0px 0px rgba(0,0,0,0)",
+            scale: 1,
+            opacity: 1,
+        },
+        centralSlide: {
+            backgroundColor: "rgba(0,0,0,0.1)",
+            border: "1px solid rgba(0,0,0,0.2)",
+            radius: "10px",
+            shadow: "0px 0px 0px rgba(0,0,0,0)",
+            scale: 1.1,
+            opacity: 1,
+        },
+    },
 }: {
     dragFactor?: number
     draggable?: boolean
@@ -163,6 +182,25 @@ export default function Carousel({
     leftControl?: React.ReactNode
     rightControl?: React.ReactNode
     buttonsNavigation?: boolean
+    slidesUI?: {
+        central: "Same style" | "Customize style"
+        allSlides: {
+            backgroundColor?: string
+            border?: string | { width?: string; style?: string; color?: string }
+            radius?: string
+            shadow?: string
+            scale?: number
+            opacity?: number
+        }
+        centralSlide: {
+            backgroundColor?: string
+            border?: string | { width?: string; style?: string; color?: string }
+            radius?: string
+            shadow?: string
+            scale?: number
+            opacity?: number
+        }
+    }
 }) {
     // React refs for DOM elements
     const wrapperRef = useRef<HTMLDivElement>(null) // Reference to the wrapper container
@@ -865,7 +903,7 @@ export default function Carousel({
         },
         {
             scope: wrapperRef,
-            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, ui?.gap, autoplay],
+            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, ui?.gap, autoplay, slidesUI],
         }
     ) // Scope to wrapper element
 
@@ -1040,12 +1078,18 @@ export default function Carousel({
                         cursor: "pointer",
                         width: "100%",
                         height: "100%",
-                        backgroundColor: "rgba(0,0,0,0.1)",
-                        border: "1px solid rgba(0,0,0,0.2)",
-                        borderRadius: "10px",
+                        backgroundColor: slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)",
+                        border: typeof slidesUI.allSlides.border === 'string' 
+                            ? slidesUI.allSlides.border 
+                            : slidesUI.allSlides.border 
+                                ? `${slidesUI.allSlides.border.width || '1px'} ${slidesUI.allSlides.border.style || 'solid'} ${slidesUI.allSlides.border.color || 'rgba(0,0,0,0.2)'}`
+                                : "1px solid rgba(0,0,0,0.2)",
+                        borderRadius: slidesUI.allSlides.radius || "10px",
+                        boxShadow: slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)",
+                        transform: `scale(${slidesUI.allSlides.scale || 1})`,
+                        opacity: slidesUI.allSlides.opacity || 1,
                         fontSize: "36px",
                         fontWeight: "medium",
-                    
                         color: "#3D3D3D",
                         textAlign: "center",
                         lineHeight: "1",
@@ -1092,12 +1136,28 @@ export default function Carousel({
                 {`
           /* Apply transition to all box inner elements */
           .box .box__inner {
-            transition: transform 0.5s ease;
+            transition: transform 0.5s ease, opacity 0.5s ease, box-shadow 0.5s ease;
           }
           
-          /* Active slide scaling effect */
+          /* Active slide styling - use dynamic values */
           .box.active .box__inner {
-            transform: scale(1.1);
+            transform: scale(${slidesUI.central === "Customize style" ? slidesUI.centralSlide.scale || 1.1 : slidesUI.allSlides.scale || 1.1}) !important;
+            opacity: ${slidesUI.central === "Customize style" ? slidesUI.centralSlide.opacity || 1 : slidesUI.allSlides.opacity || 1} !important;
+            box-shadow: ${slidesUI.central === "Customize style" ? slidesUI.centralSlide.shadow || "0px 0px 0px rgba(0,0,0,0)" : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0)"} !important;
+            background-color: ${slidesUI.central === "Customize style" ? slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)" : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"} !important;
+            border: ${slidesUI.central === "Customize style" 
+                ? (typeof slidesUI.centralSlide.border === 'string' 
+                    ? slidesUI.centralSlide.border 
+                    : slidesUI.centralSlide.border 
+                        ? `${slidesUI.centralSlide.border.width || '1px'} ${slidesUI.centralSlide.border.style || 'solid'} ${slidesUI.centralSlide.border.color || 'rgba(0,0,0,0.2)'}`
+                        : "1px solid rgba(0,0,0,0.2)")
+                : (typeof slidesUI.allSlides.border === 'string' 
+                    ? slidesUI.allSlides.border 
+                    : slidesUI.allSlides.border 
+                        ? `${slidesUI.allSlides.border.width || '1px'} ${slidesUI.allSlides.border.style || 'solid'} ${slidesUI.allSlides.border.color || 'rgba(0,0,0,0.2)'}`
+                        : "1px solid rgba(0,0,0,0.2)")
+            } !important;
+            border-radius: ${slidesUI.central === "Customize style" ? slidesUI.centralSlide.radius || "10px" : slidesUI.allSlides.radius || "10px"} !important;
           }
         `}
             </style>
@@ -1359,6 +1419,112 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
+            },
+        },
+    },
+    slidesUI: {
+        type: ControlType.Object,
+        title: "Slides UI",
+        controls: {
+            central: {
+                type: ControlType.Enum,
+                title: "Central",
+                options: ["Same style", "Customize style"],
+                optionTitles: ["Same style", "Customize style"],
+                defaultValue: "Same style",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+            },
+            allSlides: {
+                type: ControlType.Object,
+                title: "All Slides",
+                controls: {
+                    backgroundColor: {
+                        type: ControlType.Color,
+                        title: "Background",
+                        defaultValue: "rgba(0,0,0,0.1)",
+                    },
+                    border: {
+                        // @ts-ignore - ControlType.Border exists but may not be in types
+                        type: ControlType.Border,
+                        title: "Border",
+                        defaultValue: "1px solid rgba(0,0,0,0.2)",
+                    },
+                    radius: {
+                        // @ts-ignore - ControlType.BorderRadius exists but may not be in types
+                        type: ControlType.BorderRadius,
+                        title: "Radius",
+                        defaultValue: "10px",
+                    },
+                    shadow: {
+                        // @ts-ignore - ControlType.BoxShadow exists but may not be in types
+                        type: ControlType.BoxShadow,
+                        title: "Shadow",
+                        defaultValue: "0px 0px 0px rgba(0,0,0,0)",
+                    },
+                    scale: {
+                        type: ControlType.Number,
+                        title: "Scale",
+                        min: 0.1,
+                        max: 2,
+                        step: 0.1,
+                        defaultValue: 1,
+                    },
+                    opacity: {
+                        type: ControlType.Number,
+                        title: "Opacity",
+                        min: 0,
+                        max: 1,
+                        step: 0.1,
+                        defaultValue: 1,
+                    },
+                },
+            },
+            centralSlide: {
+                type: ControlType.Object,
+                title: "Central Slide",
+                hidden: (props: any) => props.slidesUI?.central !== "Customize style",
+                controls: {
+                    backgroundColor: {
+                        type: ControlType.Color,
+                        title: "Background",
+                        defaultValue: "rgba(0,0,0,0.1)",
+                    },
+                    border: {
+                        // @ts-ignore - ControlType.Border exists but may not be in types
+                        type: ControlType.Border,
+                        title: "Border",
+                        defaultValue: "1px solid rgba(0,0,0,0.2)",
+                    },
+                    radius: {
+                        // @ts-ignore - ControlType.BorderRadius exists but may not be in types
+                        type: ControlType.BorderRadius,
+                        title: "Radius",
+                        defaultValue: "10px",
+                    },
+                    shadow: {
+                        // @ts-ignore - ControlType.BoxShadow exists but may not be in types
+                        type: ControlType.BoxShadow,
+                        title: "Shadow",
+                        defaultValue: "0px 0px 0px rgba(0,0,0,0)",
+                    },
+                    scale: {
+                        type: ControlType.Number,
+                        title: "Scale",
+                        min: 0.1,
+                        max: 2,
+                        step: 0.1,
+                        defaultValue: 1.1,
+                    },
+                    opacity: {
+                        type: ControlType.Number,
+                        title: "Opacity",
+                        min: 0,
+                        max: 1,
+                        step: 0.1,
+                        defaultValue: 1,
+                    },
+                },
             },
         },
     },
