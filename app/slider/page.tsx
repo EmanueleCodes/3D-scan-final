@@ -288,10 +288,14 @@ export default function Carousel({
         // CRITICAL: Don't calculate dimensions if container has no size yet
         // This prevents the flash of small slides during initial render
         if (!containerWidth || !containerHeight || containerWidth === 0 || containerHeight === 0) {
-            console.log("Container not ready, using fallback dimensions")
+            console.log("Container not ready, using fallback dimensions for canvas/preview")
+            // Use reasonable fallback dimensions that work well in canvas
+            const fallbackWidth = 400
+            const fallbackHeight = 300
+            
             return {
-                width: 300, // Use a reasonable fallback
-                height: 200,
+                width: fallbackWidth,
+                height: fallbackHeight,
                 objectFit: "cover" as const,
             }
         }
@@ -411,16 +415,14 @@ export default function Carousel({
                     requestedHeight: fixedHeight,
                     containerWidth: safeContainerWidth,
                     containerHeight: safeContainerHeight,
-                    maxWidth: safeContainerWidth * 0.9,
-                    maxHeight: safeContainerHeight * 0.9,
-                    finalWidth: Math.min(fixedWidth, safeContainerWidth * 0.9),
-                    finalHeight: Math.min(fixedHeight, safeContainerHeight * 0.9)
+                    finalWidth: fixedWidth,
+                    finalHeight: fixedHeight
                 })
                 
-                // Ensure fixed dimensions don't exceed container bounds
+                // Use exact dimensions from property controls
                 return {
-                    width: Math.min(fixedWidth, safeContainerWidth * 0.9),
-                    height: Math.min(fixedHeight, safeContainerHeight * 0.9),
+                    width: fixedWidth,
+                    height: fixedHeight,
                     objectFit: "cover" as const,
                 }
             
@@ -1667,11 +1669,17 @@ export default function Carousel({
         const containerWidth = containerDimensions.current.width
         const containerHeight = containerDimensions.current.height
         
-        // If container not ready, use fallback
+        // If container not ready, use fallback for canvas/preview mode
         if (!containerWidth || !containerHeight) {
-            boxWidths.current = Array.from({ length: finalCount }, () => 300)
-            boxHeights.current = Array.from({ length: finalCount }, () => 200)
-            return { finalCount, validContent }
+            console.log("Container not ready, using fallback dimensions for canvas/preview")
+            // Use reasonable fallback dimensions that work well in canvas
+            const fallbackWidth = 400
+            const fallbackHeight = 300
+            // Ensure we have at least 6 slides for canvas mode to show the carousel properly
+            const canvasFinalCount = Math.max(finalCount, 6)
+            boxWidths.current = Array.from({ length: canvasFinalCount }, () => fallbackWidth)
+            boxHeights.current = Array.from({ length: canvasFinalCount }, () => fallbackHeight)
+            return { finalCount: canvasFinalCount, validContent }
         }
         
         // Calculate width and height once and use for all slides
@@ -1679,7 +1687,7 @@ export default function Carousel({
         const slideWidth = Math.max(dimensions.width, 50)
         const slideHeight = Math.max(dimensions.height, 50)
         
-        // For fill modes, use the specified dimensions instead of calculated ones
+        // For fill modes and fixed dimensions, use the specified dimensions instead of calculated ones
         let finalWidth = slideWidth
         let finalHeight = slideHeight
         if (slidesUI.slideSizing?.mode === "fill-height") {
@@ -1688,6 +1696,9 @@ export default function Carousel({
         } else if (slidesUI.slideSizing?.mode === "fill-width") {
             finalWidth = containerWidth // Will be overridden by CSS to 100%
             finalHeight = slidesUI.slideSizing?.fixedHeight || 300
+        } else if (slidesUI.slideSizing?.mode === "fixed-dimensions") {
+            finalWidth = slidesUI.slideSizing?.fixedWidth || 300
+            finalHeight = slidesUI.slideSizing?.fixedHeight || 200
         }
         
         // Generate same width and height for all slides - simpler and more stable
@@ -1709,9 +1720,9 @@ export default function Carousel({
 
     // DYNAMIC FIX: Recalculate slides when container size changes
     const slideData = useMemo(() => {
-        if (!containerReady) return { finalCount: 3, validContent: content }
+        // Always generate slides, even in canvas mode when container isn't ready
         return generateSlideWidths()
-    }, [containerReady, generateSlideWidths, content.length, containerDimensions.current.width, ui?.gap]) // Include container width and gap
+    }, [generateSlideWidths, content.length, containerDimensions.current.width, ui?.gap]) // Include container width and gap
     
     // Debug: Log the actual boxWidths being used (only when container is ready)
     if (containerReady && slideData.finalCount > 0) {
@@ -1760,7 +1771,9 @@ export default function Carousel({
                         : slidesUI.slideSizing?.mode === "fill-width" 
                             ? `${slidesUI.slideSizing?.fixedHeight || 300}px` // Fill width mode: use specified height
                         : slidesUI.slideSizing?.mode === "aspect-ratio"
-                            ? `${boxHeights.current[i] || 200}px` // Aspect ratio mode: use calculated height
+                            ? `${boxHeights.current[i] || 300}px` // Aspect ratio mode: use calculated height
+                        : slidesUI.slideSizing?.mode === "fixed-dimensions"
+                            ? `${slidesUI.slideSizing?.fixedHeight || 200}px` // Fixed dimensions mode: use exact height
                             : "85%", // Other modes: use 85%
                     // Dynamic width based on mode
                     width: slidesUI.slideSizing?.mode === "fill-width"
@@ -1768,8 +1781,10 @@ export default function Carousel({
                         : slidesUI.slideSizing?.mode === "fill-height"
                             ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Fill height mode: use specified width
                         : slidesUI.slideSizing?.mode === "aspect-ratio"
-                            ? `${boxWidths.current[i] || 250}px` // Aspect ratio mode: use calculated width
-                            : `${boxWidths.current[i] || 250}px`, // Other modes: use calculated width
+                            ? `${boxWidths.current[i] || 400}px` // Aspect ratio mode: use calculated width
+                        : slidesUI.slideSizing?.mode === "fixed-dimensions"
+                            ? `${slidesUI.slideSizing?.fixedWidth || 300}px` // Fixed dimensions mode: use exact width
+                            : `${boxWidths.current[i] || 400}px`, // Other modes: use calculated width
                     minWidth: slidesUI.slideSizing?.mode === "fill-height" 
                         ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Use specified width as minimum
                         : "100px", // Other modes: use 100px minimum
@@ -1844,7 +1859,7 @@ export default function Carousel({
                 background: ui?.backgroundColor || "#000000",
                 padding: ui?.padding || "0px",
                 borderRadius: ui?.borderRadius || "0px",
-                boxShadow: ui?.shadow || "0px 0px 0px rgba(0,0,0,0)",
+                boxShadow: ui?.shadow,
                 color: "white",
                 textAlign: "center" as const,
                 display: "flex",
