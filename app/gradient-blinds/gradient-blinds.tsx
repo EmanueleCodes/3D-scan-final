@@ -32,8 +32,8 @@ interface GradientBlindsProps {
         color6?: string
         color7?: string
         color8?: string
+        bgColor?: string
     }
-    bgColor?: string
 }
 
 const MAX_COLORS = 8
@@ -122,7 +122,6 @@ const hexToRGB = (hex: string): [number, number, number] => {
     return [r, g, b]
 }
 const prepStops = (stops?: string[], paletteCount?: number) => {
-    
     // Ensure we have valid colors and handle edge cases
     let base: string[]
 
@@ -144,11 +143,8 @@ const prepStops = (stops?: string[], paletteCount?: number) => {
                 return `#${toHex(rgba.r)}${toHex(rgba.g)}${toHex(rgba.b)}`
             })
             .slice(0, MAX_COLORS)
-
-    
     } else {
         base = ["#FF9FFC", "#5227FF"]
-        
     }
 
     // Ensure we have at least 2 colors
@@ -198,14 +194,14 @@ export default function GradientBlinds({
         paletteCount: 2,
         color1: "#FF9FFC",
         color2: "#5227FF",
+        bgColor: "#000000",
     },
-    bgColor = "#000000",
 }: GradientBlindsProps) {
     const mouseDampening = spotlight?.mouseDampening || 0.3
-    
+
     // Convert amount (1-100) to blindMinWidth (500-10px) - inverted mapping
-    const blindMinWidth = 500 - (amount - 1) * (500 - 10) / (100 - 1)
-    
+    const blindMinWidth = 500 - ((amount - 1) * (500 - 10)) / (100 - 1)
+
     const containerRef = useRef<HTMLDivElement | null>(null)
     const rafRef = useRef<number | null>(null)
     const programRef = useRef<typeof Program | null>(null)
@@ -236,8 +232,6 @@ export default function GradientBlinds({
         window.addEventListener("resize", checkMobile)
         return () => window.removeEventListener("resize", checkMobile)
     }, [])
-
-
 
     // Update uniforms when properties change (especially important for Canvas mode)
     useEffect(() => {
@@ -297,10 +291,10 @@ export default function GradientBlinds({
             const container = containerRef.current
             const containerWidth = Math.max(container.clientWidth, 2)
             const containerHeight = Math.max(container.clientHeight, 2)
-            
+
             // Calculate dimensions using "cover" behavior - canvas overflows container while maintaining 1:1 aspect ratio
             const containerAspect = containerWidth / containerHeight
-            
+
             let width, height
             if (containerAspect > 1) {
                 // Container is wider than tall - use width as base (canvas will be taller than container)
@@ -313,16 +307,13 @@ export default function GradientBlinds({
             }
 
             // Recalculate blind count - always recalculate when amount changes
-            const calculatedBlindCount = blindMinWidth && blindMinWidth > 0 
-                ? Math.max(1, Math.floor(width / blindMinWidth))
-                : 16
-            
+            const calculatedBlindCount =
+                blindMinWidth && blindMinWidth > 0
+                    ? Math.max(1, Math.floor(width / blindMinWidth))
+                    : 16
+
             uniforms.uBlindCount.value = calculatedBlindCount
-            
-
         }
-
-
     }, [
         angle,
         noise,
@@ -339,11 +330,11 @@ export default function GradientBlinds({
         if (!container) return
 
         const renderer = new Renderer({
-            dpr:
-                dpr ? dpr * 3 : // Multiply normalized value (0.1-1) by 3 to get range 0.3-3
-                (typeof window !== "undefined"
-                    ? window.devicePixelRatio || 1
-                    : 1),
+            dpr: dpr
+                ? dpr * 3 // Multiply normalized value (0.1-1) by 3 to get range 0.3-3
+                : typeof window !== "undefined"
+                  ? window.devicePixelRatio || 1
+                  : 1,
             alpha: true,
             antialias: true,
             background: null, // Ensure no background color is set
@@ -352,15 +343,18 @@ export default function GradientBlinds({
         rendererRef.current = renderer
         const gl = renderer.gl
         const canvas = gl.canvas as HTMLCanvasElement
-        
+
         // Initialize mouse target to center to prevent spotlight animation from bottom-left
         const initialCenterX = gl.drawingBufferWidth / 2
         const initialCenterY = gl.drawingBufferHeight / 2
         mouseTargetRef.current = [initialCenterX, initialCenterY]
-        
+
         // In Preview or Canvas mode, ensure mouseTargetRef stays at center (simulating "last known mouse position")
         if (isPreviewMode || RenderTarget.current() === RenderTarget.canvas) {
-            const mode = RenderTarget.current() === RenderTarget.canvas ? "Canvas" : "Preview"
+            const mode =
+                RenderTarget.current() === RenderTarget.canvas
+                    ? "Canvas"
+                    : "Preview"
         }
 
         // Ensure WebGL context is transparent
@@ -602,10 +596,10 @@ void main() {
             // Use clientWidth/clientHeight for more reliable sizing in Framer Canvas
             const containerWidth = Math.max(container.clientWidth, 2)
             const containerHeight = Math.max(container.clientHeight, 2)
-            
+
             // Calculate dimensions using "cover" behavior - canvas overflows container while maintaining 1:1 aspect ratio
             const containerAspect = containerWidth / containerHeight
-            
+
             let width, height
             if (containerAspect > 1) {
                 // Container is wider than tall - use width as base (canvas will be taller than container)
@@ -616,13 +610,13 @@ void main() {
                 height = containerHeight
                 width = containerHeight // 1:1 aspect ratio
             }
-            
+
             // Set canvas size to the calculated dimensions (will overflow container)
             canvas.style.width = `${width}px`
             canvas.style.height = `${height}px`
-            
+
             renderer.setSize(width, height)
-            
+
             uniforms.iResolution.value = [
                 gl.drawingBufferWidth,
                 gl.drawingBufferHeight,
@@ -630,19 +624,23 @@ void main() {
             ]
 
             // Calculate blind count dynamically (always recalculate)
-            const calculatedBlindCount = blindMinWidth && blindMinWidth > 0 
-                ? Math.max(1, Math.floor(width / blindMinWidth))
-                : 16 // fallback default
+            const calculatedBlindCount =
+                blindMinWidth && blindMinWidth > 0
+                    ? Math.max(1, Math.floor(width / blindMinWidth))
+                    : 16 // fallback default
             uniforms.uBlindCount.value = calculatedBlindCount
 
-                            // In Preview or Canvas mode, always keep mouse position centered
-                if (RenderTarget.current() === RenderTarget.preview || RenderTarget.current() === RenderTarget.canvas) {
-                    const cx = gl.drawingBufferWidth / 2
-                    const cy = gl.drawingBufferHeight / 2
-                    
-                    uniforms.iMouse.value = [cx, cy]
-                    mouseTargetRef.current = [cx, cy] // Keep mouseTargetRef at center in Canvas mode
-                } else if (firstResizeRef.current) {
+            // In Preview or Canvas mode, always keep mouse position centered
+            if (
+                RenderTarget.current() === RenderTarget.preview ||
+                RenderTarget.current() === RenderTarget.canvas
+            ) {
+                const cx = gl.drawingBufferWidth / 2
+                const cy = gl.drawingBufferHeight / 2
+
+                uniforms.iMouse.value = [cx, cy]
+                mouseTargetRef.current = [cx, cy] // Keep mouseTargetRef at center in Canvas mode
+            } else if (firstResizeRef.current) {
                 firstResizeRef.current = false
                 const cx = gl.drawingBufferWidth / 2
                 const cy = gl.drawingBufferHeight / 2
@@ -666,14 +664,19 @@ void main() {
             if (RenderTarget.current() === RenderTarget.canvas || isMobile) {
                 return
             }
-            
+
             const rect = canvas.getBoundingClientRect()
             const scale = (renderer as unknown as { dpr?: number }).dpr || 1
             const x = (e.clientX - rect.left) * scale
             const y = (rect.height - (e.clientY - rect.top)) * scale
-            
+
             // Ensure we never set invalid coordinates
-            if (x >= 0 && y >= 0 && x <= gl.drawingBufferWidth && y <= gl.drawingBufferHeight) {
+            if (
+                x >= 0 &&
+                y >= 0 &&
+                x <= gl.drawingBufferWidth &&
+                y <= gl.drawingBufferHeight
+            ) {
                 mouseTargetRef.current = [x, y]
                 if (mouseDampening <= 0) {
                     uniforms.iMouse.value = [x, y]
@@ -685,24 +688,30 @@ void main() {
         const loop = (t: number) => {
             rafRef.current = requestAnimationFrame(loop)
             uniforms.iTime.value = t * 0.001
-            
+
             // In Preview or Canvas mode, handle mouse position appropriately
-            if (RenderTarget.current() === RenderTarget.preview || RenderTarget.current() === RenderTarget.canvas) {
+            if (
+                RenderTarget.current() === RenderTarget.preview ||
+                RenderTarget.current() === RenderTarget.canvas
+            ) {
                 const cx = gl.drawingBufferWidth / 2
                 const cy = gl.drawingBufferHeight / 2
                 const currentMouse = uniforms.iMouse.value
                 const isCanvas = RenderTarget.current() === RenderTarget.canvas
-                
-                                    if (isCanvas) {
-                        // In Canvas mode, ALWAYS force center position (no cursor interaction)
+
+                if (isCanvas) {
+                    // In Canvas mode, ALWAYS force center position (no cursor interaction)
+                    uniforms.iMouse.value = [cx, cy]
+                    mouseTargetRef.current = [cx, cy]
+                } else {
+                    // In Preview mode, only force center if mouse hasn't been moved yet (to prevent [0,0] flash)
+                    if (
+                        (currentMouse[0] === 0 && currentMouse[1] === 0) ||
+                        mouseDampening <= 0
+                    ) {
                         uniforms.iMouse.value = [cx, cy]
                         mouseTargetRef.current = [cx, cy]
-                    } else {
-                        // In Preview mode, only force center if mouse hasn't been moved yet (to prevent [0,0] flash)
-                        if ((currentMouse[0] === 0 && currentMouse[1] === 0) || mouseDampening <= 0) {
-                            uniforms.iMouse.value = [cx, cy]
-                            mouseTargetRef.current = [cx, cy]
-                        } else if (mouseDampening > 0) {
+                    } else if (mouseDampening > 0) {
                         // Allow normal mouse dampening when mouse has been moved
                         if (!lastTimeRef.current) lastTimeRef.current = t
                         const dt = (t - lastTimeRef.current) / 1000
@@ -710,7 +719,7 @@ void main() {
                         const tau = Math.max(1e-4, mouseDampening)
                         let factor = 1 - Math.exp(-dt / tau)
                         if (factor > 1) factor = 1
-                        
+
                         const target = mouseTargetRef.current
                         const cur = uniforms.iMouse.value
                         cur[0] += (target[0] - cur[0]) * factor
@@ -724,7 +733,7 @@ void main() {
                 const tau = Math.max(1e-4, mouseDampening)
                 let factor = 1 - Math.exp(-dt / tau)
                 if (factor > 1) factor = 1
-                
+
                 const target = mouseTargetRef.current
                 const cur = uniforms.iMouse.value
                 cur[0] += (target[0] - cur[0]) * factor
@@ -783,7 +792,6 @@ void main() {
         distortAmount,
         shineDirection,
         colors,
-        bgColor,
         isMobile,
     ])
 
@@ -794,7 +802,7 @@ void main() {
                 height: "100%",
                 overflow: "hidden",
                 position: "relative",
-                background: bgColor || "#000000",
+                background: colors?.bgColor || "#000000",
             }}
         >
             {/* WebGL canvas container */}
@@ -826,8 +834,8 @@ GradientBlinds.defaultProps = {
         paletteCount: 2,
         color1: "#FF9FFC",
         color2: "#5227FF",
+        bgColor: "#000000",
     },
-    bgColor: "#000000",
 }
 
 addPropertyControls(GradientBlinds, {
@@ -874,22 +882,24 @@ addPropertyControls(GradientBlinds, {
         min: 0,
         max: 1,
         step: 0.1,
-        defaultValue:0.5,
+        defaultValue: 0.5,
     },
     shineDirection: {
         type: ControlType.Enum,
         title: "Direction",
-        options: ["Left", "Right"],
+        options: ["left", "right"],
+        optionTitles: ["Left", "Right"],
         displaySegmentedControl: true,
         segmentedControlDirection: "vertical",
     },
     mirrorGradient: {
         type: ControlType.Enum,
         title: "Gradient",
-        options: ["No mirror", "Mirror"],
+        options: ["no mirror", "mirror"],
+        optionTitles: ["No mirror", "Mirror"],
         displaySegmentedControl: true,
         segmentedControlDirection: "vertical",
-        defaultValue: "No mirror",
+        defaultValue: "no mirror",
     },
     spotlight: {
         type: ControlType.Object,
@@ -938,7 +948,7 @@ addPropertyControls(GradientBlinds, {
         type: ControlType.Object,
         title: "Colors",
         description:
-        "More components at [Framer University](https://frameruni.link/cc).",
+            "More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             paletteCount: {
                 type: ControlType.Number,
@@ -947,12 +957,6 @@ addPropertyControls(GradientBlinds, {
                 max: 8,
                 step: 1,
                 defaultValue: 2,
-            },
-            bgColor: {
-                type: ControlType.Color,
-                title: "Background",
-                defaultValue: "#000000",
-                // Supports Framer color tokens and opacity (e.g., var(--token-bg, #000000) or rgba(0,0,0,0.5))
             },
             color1: {
                 type: ControlType.Color,
@@ -1001,8 +1005,13 @@ addPropertyControls(GradientBlinds, {
                 defaultValue: "#FF9FFC",
                 hidden: (props: any) => (props?.paletteCount ?? 2) < 8,
             },
+            bgColor: {
+                type: ControlType.Color,
+                title: "Background",
+                defaultValue: "#000000",
+            },
         },
     },
 })
 
-GradientBlinds.displayName = "Gradient Blinds"
+GradientBlinds.displayName = "Gradient Blinds DEV"

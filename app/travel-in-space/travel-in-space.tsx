@@ -227,6 +227,8 @@ export default function TravelInSpace({
         width: 0,
         height: 0,
     })
+    const isVisibleRef = useRef<boolean>(true)
+    const containerRef = useRef<HTMLDivElement>(null)
 
     // Calculate optimal spawn rate based on system parameters
     const getSpawnInterval = useCallback(() => {
@@ -443,10 +445,6 @@ export default function TravelInSpace({
                 // For perspective-compensated movement, check world-space distance from center
                 const worldDistanceFromCenter = Math.sqrt(dx * dx + dy * dy)
                 const shouldRemove =
-                    screenX < -100 ||
-                    screenX > width + 100 ||
-                    screenY < -100 ||
-                    screenY > height + 100 ||
                     star.z < 50 ||
                     star.age > star.maxAge ||
                     worldDistanceFromCenter < innerRadius * 0.8 // Remove when close to center in world space
@@ -592,6 +590,12 @@ export default function TravelInSpace({
             const isCanvas = RenderTarget.current() === RenderTarget.canvas
             const isPaused = !paused && isCanvas
 
+            // Skip animation if not visible on screen (performance optimization)
+            if (!isVisibleRef.current) {
+                animationRef.current = requestAnimationFrame(animate)
+                return
+            }
+
             // If paused in Canvas mode, ensure we have stars and render them statically
             if (isPaused) {
                 // Ensure we have stars to render
@@ -664,7 +668,8 @@ export default function TravelInSpace({
 
     useEffect(() => {
         const canvas = canvasRef.current
-        if (!canvas) return
+        const container = containerRef.current
+        if (!canvas || !container) return
 
         const ctx = canvas.getContext("2d")
         if (!ctx) return
@@ -678,6 +683,20 @@ export default function TravelInSpace({
         ctx.globalCompositeOperation = "source-over"
 
         handleResize()
+
+        // Set up Intersection Observer for visibility optimization
+        const intersectionObserver = new IntersectionObserver(
+            (entries) => {
+                const entry = entries[0]
+                isVisibleRef.current = entry.isIntersecting
+            },
+            {
+                rootMargin: "100px", // 100px margin for smooth transitions
+                threshold: 0, // Trigger as soon as any part is visible
+            }
+        )
+
+        intersectionObserver.observe(container)
 
         // Start animation
         animationRef.current = requestAnimationFrame(animate)
@@ -697,6 +716,7 @@ export default function TravelInSpace({
                 cancelAnimationFrame(animationRef.current)
             }
             resizeObserver.disconnect()
+            intersectionObserver.disconnect()
         }
     }, [handleResize, animate])
 
@@ -704,6 +724,7 @@ export default function TravelInSpace({
 
     return (
         <div
+            ref={containerRef}
             style={{
                 width: "100%",
                 height: "100%",

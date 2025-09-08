@@ -96,6 +96,7 @@ interface HorizontalLoopTimeline {
  *
  * Key features:
  * - Dynamic slides based on content array
+ * - Flexible slide sizing (fill-width, aspect-ratio, fixed-dimensions, fill)
  * - Drag-to-scroll with momentum
  * - Click navigation (prev/next buttons)
  * - Direct slide selection by clicking
@@ -111,7 +112,6 @@ export default function Carousel({
     dragFactor = 0.5,
     draggable = true,
     clickNavigation = true,
-    variableWidths = true,
     content = [],
     autoplay = {
         enabled: false,
@@ -167,7 +167,6 @@ export default function Carousel({
     dragFactor?: number
     draggable?: boolean
     clickNavigation?: boolean
-    variableWidths?: boolean
     content?: React.ReactNode[]
     autoplay?: {
         enabled: boolean
@@ -1005,7 +1004,7 @@ export default function Carousel({
         },
         {
             scope: wrapperRef,
-            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, content, ui?.gap, autoplay, slidesUI],
+            dependencies: [dragFactor, draggable, clickNavigation, content, ui?.gap, autoplay, slidesUI],
         }
     ) // Scope to wrapper element
 
@@ -1143,13 +1142,7 @@ export default function Carousel({
         
         // Calculate slide width based on sizing mode
         const dimensions = calculateSlideDimensions(containerWidth, 400) // Use 400 as default height
-        let averageSlideWidth = dimensions.width
-        
-        // Override with variable widths logic if enabled
-        if (variableWidths) {
-            // For variable widths, use average of random range
-            averageSlideWidth = (150 + 350) / 2 // Average of 150-350 range
-        }
+        const averageSlideWidth = dimensions.width
         
         const effectiveSlideWidth = averageSlideWidth + gap
         const slidesNeeded = Math.ceil(containerWidth / effectiveSlideWidth)
@@ -1173,33 +1166,27 @@ export default function Carousel({
         return finalCount
     }
 
-    // Generate stable widths once on first render or when variableWidths or content changes
-    const lastVariableWidthsRef = useRef(variableWidths)
+    // Generate stable widths once on first render or when content or sizing changes
     const lastContentLengthRef = useRef(content.length)
     const lastContainerWidthRef = useRef(0)
+    const lastSlideSizingRef = useRef(slidesUI.slideSizing)
     
     const requiredSlides = calculateRequiredSlides()
     const containerWidth = wrapperRef.current?.clientWidth || 600
     
     if (boxWidths.current.length === 0 || 
-        lastVariableWidthsRef.current !== variableWidths || 
         lastContentLengthRef.current !== content.length ||
+        lastSlideSizingRef.current !== slidesUI.slideSizing ||
         Math.abs(lastContainerWidthRef.current - containerWidth) > 50) { // Recalculate if container size changed significantly
         
-        lastVariableWidthsRef.current = variableWidths
         lastContentLengthRef.current = content.length
+        lastSlideSizingRef.current = slidesUI.slideSizing
         lastContainerWidthRef.current = containerWidth
         
         boxWidths.current = Array.from({ length: requiredSlides }, (_, i) => {
-            if (variableWidths) {
-                // Variable widths: special width for slide 5, random for others
-                if (i === 4) return 350 // Special width for slide 5
-                return Math.floor(Math.random() * (350 - 150 + 1)) + 150 // Random width between 150px and 350px
-            } else {
-                // Use sizing mode for consistent widths
-                const dimensions = calculateSlideDimensions(containerWidth, 400)
-                return dimensions.width
-            }
+            // Use sizing mode for consistent widths
+            const dimensions = calculateSlideDimensions(containerWidth, 400)
+            return dimensions.width
         })
         console.log("Generated stable box widths:", boxWidths.current)
     }
@@ -1510,11 +1497,6 @@ addPropertyControls(Carousel, {
     clickNavigation: {
         type: ControlType.Boolean,
         title: "Click Nav",
-        defaultValue: true,
-    },
-    variableWidths: {
-        type: ControlType.Boolean,
-        title: "Variable Widths",
         defaultValue: true,
     },
     content: {
