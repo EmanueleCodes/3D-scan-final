@@ -230,6 +230,7 @@ export default function Carousel({
     // GSAP animation calculations from breaking. Random widths calculated during
     // render cause timeline position miscalculations and animation glitches.
     const boxWidths = useRef<number[]>([])
+    const boxHeights = useRef<number[]>([])
     const containerDimensions = useRef({ width: 0, height: 0 })
     const lastValidContent = useRef<React.ReactNode[]>([]) // Track last valid content
 
@@ -305,7 +306,7 @@ export default function Carousel({
             case "fill-width":
                 // For fill-width, slides should truly fill the available width
                 // Calculate how many slides can reasonably fit, then make each slide fill proportionally
-                const gap = Math.max(ui?.gap || 20, 0)
+                const gap = Math.max(ui?.gap ?? 20, 0)
                 
                 // Determine optimal number of visible slides based on container width
                 let slidesToShow = 1
@@ -363,9 +364,9 @@ export default function Carousel({
                     }
                 }
                 
-                // NEW LOGIC: Fill the smaller dimension, calculate the other based on aspect ratio
-                // Determine which dimension is smaller (width or height)
-                const containerAspectRatio = safeContainerWidth / safeContainerHeight
+                // NEW LOGIC: Fill the smaller dimension to 100%, calculate the other based on aspect ratio
+                // Use full container dimensions (not safe dimensions with minimums)
+                const containerAspectRatio = containerWidth / containerHeight
                 const slideAspectRatio = ratio
                 
                 let aspectSlideWidth: number
@@ -373,13 +374,13 @@ export default function Carousel({
                 
                 if (containerAspectRatio > slideAspectRatio) {
                     // Container is wider than slide aspect ratio
-                    // Fill height, calculate width based on aspect ratio
-                    aspectSlideHeight = safeContainerHeight * 0.85 // Fill 85% of container height
+                    // Fill height to 100%, calculate width based on aspect ratio
+                    aspectSlideHeight = containerHeight // Fill 100% of container height
                     aspectSlideWidth = aspectSlideHeight * slideAspectRatio
                 } else {
-                    // Container is taller than slide aspect ratio
-                    // Fill width, calculate height based on aspect ratio
-                    aspectSlideWidth = safeContainerWidth * 0.85 // Fill 85% of container width
+                    // Container is taller than slide aspect ratio  
+                    // Fill width to 100%, calculate height based on aspect ratio
+                    aspectSlideWidth = containerWidth // Fill 100% of container width
                     aspectSlideHeight = aspectSlideWidth / slideAspectRatio
                 }
                 
@@ -1145,7 +1146,7 @@ export default function Carousel({
                  * - center: wrapperRef.current - Use wrapper element for centering calculations
                  * - onChange: Callback fired when the active slide changes
                  */
-                const currentGap = Math.max(ui?.gap || 20, 0)
+                const currentGap = Math.max(ui?.gap ?? 20, 0)
                 
                 // DEBUG: Log the slides being passed to GSAP
                 console.log("DEBUG: NEW APPROACH - Creating loop with static slides:", {
@@ -1599,7 +1600,7 @@ export default function Carousel({
         
         // DYNAMIC APPROACH: Calculate slides needed to fill container
         const containerWidth = containerDimensions.current.width
-        const gap = Math.max(ui?.gap || 20, 0)
+        const gap = Math.max(ui?.gap ?? 20, 0)
         
         if (containerWidth > 0) {
             // Calculate how many slides we need to fill the container
@@ -1652,7 +1653,7 @@ export default function Carousel({
         } else {
             // Fallback: use minimum slides if container width not available
             const finalCount = actualSlideCount * 2
-            return { finalCount, actualSlideCount, validContent }
+        return { finalCount, actualSlideCount, validContent }
         }
     }, [content, ui?.gap])
 
@@ -1669,29 +1670,37 @@ export default function Carousel({
         // If container not ready, use fallback
         if (!containerWidth || !containerHeight) {
             boxWidths.current = Array.from({ length: finalCount }, () => 300)
+            boxHeights.current = Array.from({ length: finalCount }, () => 200)
             return { finalCount, validContent }
         }
         
-        // Calculate width once and use for all slides
+        // Calculate width and height once and use for all slides
         const dimensions = calculateSlideDimensions(containerWidth, containerHeight, validContent)
         const slideWidth = Math.max(dimensions.width, 50)
+        const slideHeight = Math.max(dimensions.height, 50)
         
         // For fill modes, use the specified dimensions instead of calculated ones
         let finalWidth = slideWidth
+        let finalHeight = slideHeight
         if (slidesUI.slideSizing?.mode === "fill-height") {
             finalWidth = slidesUI.slideSizing?.fixedWidth || 200
+            finalHeight = containerHeight // Will be overridden by CSS to 100%
         } else if (slidesUI.slideSizing?.mode === "fill-width") {
             finalWidth = containerWidth // Will be overridden by CSS to 100%
+            finalHeight = slidesUI.slideSizing?.fixedHeight || 300
         }
         
-        // Generate same width for all slides - simpler and more stable
+        // Generate same width and height for all slides - simpler and more stable
         boxWidths.current = Array.from({ length: finalCount }, () => finalWidth)
+        boxHeights.current = Array.from({ length: finalCount }, () => finalHeight)
         
         console.log("Simplified slide generation:", {
             contentCount: validContent.length,
             totalSlides: finalCount,
             slideWidth,
+            slideHeight,
             finalWidth,
+            finalHeight,
             mode: slidesUI.slideSizing?.mode
         })
         
@@ -1750,18 +1759,22 @@ export default function Carousel({
                         ? "100%" // Fill height mode: use full height
                         : slidesUI.slideSizing?.mode === "fill-width" 
                             ? `${slidesUI.slideSizing?.fixedHeight || 300}px` // Fill width mode: use specified height
+                        : slidesUI.slideSizing?.mode === "aspect-ratio"
+                            ? `${boxHeights.current[i] || 200}px` // Aspect ratio mode: use calculated height
                             : "85%", // Other modes: use 85%
                     // Dynamic width based on mode
                     width: slidesUI.slideSizing?.mode === "fill-width"
                         ? "100%" // Fill width mode: use full width
                         : slidesUI.slideSizing?.mode === "fill-height"
                             ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Fill height mode: use specified width
+                        : slidesUI.slideSizing?.mode === "aspect-ratio"
+                            ? `${boxWidths.current[i] || 250}px` // Aspect ratio mode: use calculated width
                             : `${boxWidths.current[i] || 250}px`, // Other modes: use calculated width
                     minWidth: slidesUI.slideSizing?.mode === "fill-height" 
                         ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Use specified width as minimum
                         : "100px", // Other modes: use 100px minimum
                     maxWidth: "none", // Remove max-width constraint for fill-width mode
-                    marginRight: `${Math.max(ui?.gap || 20, 0)}px`, // Ensure gap is non-negative
+                    marginRight: `${Math.max(ui?.gap ?? 20, 0)}px`, // Ensure gap is non-negative
                     display: "flex", // Ensure slide container is flex
                     flexDirection: "column" as const,
                     position: "relative" as const,
@@ -1827,7 +1840,7 @@ export default function Carousel({
     return (
         <div
             style={{
-                fontFamily: "system-ui",
+               
                 background: ui?.backgroundColor || "#000000",
                 padding: ui?.padding || "0px",
                 borderRadius: ui?.borderRadius || "0px",
@@ -1841,8 +1854,7 @@ export default function Carousel({
                 height: "100%",
                 width: "100%",
                 margin: 0,
-                overflow: "visible",
-                border:"1px solid blue",
+                overflow: "visible"
             }}
         >
             {/* Inline CSS for active states */}
@@ -1886,20 +1898,20 @@ export default function Carousel({
                                 position: "absolute",
                                 top:
                                     buttonsUI.verticalAlign === "top"
-                                        ? `${buttonsUI.insetY || 20}px`
+                                        ? `${buttonsUI.insetY ?? 20}px`
                                         : buttonsUI.verticalAlign === "bottom"
                                           ? "auto"
                                           : "50%",
                                 bottom:
                                     buttonsUI.verticalAlign === "bottom"
-                                        ? `${buttonsUI.insetY || 20}px`
+                                        ? `${buttonsUI.insetY ?? 20}px`
                                         : "auto",
                                 left:
                                     buttonsUI.horizontalAlign ===
                                     "space-between"
-                                        ? `${buttonsUI.insetX || 20}px`
+                                        ? `${buttonsUI.insetX ?? 20}px`
                                         : buttonsUI.horizontalAlign === "center"
-                                          ? `calc(50% - ${buttonsUI.gap || 20}px)`
+                                          ? `calc(50% - ${buttonsUI.gap ?? 20}px)`
                                           : "50%",
                                 right: "auto",
                                 transform:
@@ -1927,21 +1939,21 @@ export default function Carousel({
                                 position: "absolute",
                                 top:
                                     buttonsUI.verticalAlign === "top"
-                                        ? `${buttonsUI.insetY || 20}px`
+                                        ? `${buttonsUI.insetY ?? 20}px`
                                         : buttonsUI.verticalAlign === "bottom"
                                           ? "auto"
                                           : "50%",
                                 bottom:
                                     buttonsUI.verticalAlign === "bottom"
-                                        ? `${buttonsUI.insetY || 20}px`
+                                        ? `${buttonsUI.insetY ?? 20}px`
                                         : "auto",
                                 left: "auto",
                                 right:
                                     buttonsUI.horizontalAlign ===
                                     "space-between"
-                                        ? `${buttonsUI.insetX || 20}px`
+                                        ? `${buttonsUI.insetX ?? 20}px`
                                         : buttonsUI.horizontalAlign === "center"
-                                          ? `calc(50% - ${buttonsUI.gap || 20}px)`
+                                          ? `calc(50% - ${buttonsUI.gap ?? 20}px)`
                                           : "50%",
                                 transform:
                                     buttonsUI.horizontalAlign === "center" &&
@@ -2058,6 +2070,7 @@ addPropertyControls(Carousel, {
                 max: 10,
                 step: 0.5,
                 defaultValue: 3,
+                hidden: (props: any) => !props.enabled,
             },
             direction: {
                 type: ControlType.Enum,
@@ -2066,7 +2079,7 @@ addPropertyControls(Carousel, {
 
                 defaultValue: "right",
                 displaySegmentedControl: true,
-
+                hidden: (props: any) => !props.enabled,
                 optionIcons: ["direction-left", "direction-right"],
             },
             throwAware: {
@@ -2076,6 +2089,7 @@ addPropertyControls(Carousel, {
                 defaultValue: "No follow",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
+                hidden: (props: any) => !props.enabled,
             },
         },
     },
@@ -2144,7 +2158,7 @@ addPropertyControls(Carousel, {
                     },
                     aspectRatio: {
                         type: ControlType.Enum,
-                        title: "Aspect Ratio",
+                        title: "Ratio",
                         options: ["16:9", "4:3", "1:1", "3:2", "21:9", "custom"],
                         optionTitles: ["16:9", "4:3", "1:1", "3:2", "21:9", "Custom"],
                         defaultValue: "16:9",
@@ -2166,7 +2180,7 @@ addPropertyControls(Carousel, {
                         max: 800,
                         step: 10,
                         defaultValue: 300,
-                        hidden: (props: any) => props?.mode !== "fixed-dimensions" || props?.mode !== "fill-height",
+                        hidden: (props: any) => props?.mode !== "fixed-dimensions" && props?.mode !== "fill-height",
                     },
                     fixedHeight: {
                         type: ControlType.Number,
@@ -2175,7 +2189,7 @@ addPropertyControls(Carousel, {
                         max: 600,
                         step: 10,
                         defaultValue: 200,
-                        hidden: (props: any) => props?.mode !== "fixed-dimensions" || props?.mode !== "fill-width",
+                        hidden: (props: any) => props?.mode !== "fixed-dimensions" && props?.mode !== "fill-width",
                     },
                 },
             },
@@ -2297,7 +2311,7 @@ addPropertyControls(Carousel, {
         controls: {
             verticalAlign: {
                 type: ControlType.Enum,
-                title: "Vertical Align",
+                title: "Vertical",
                 options: ["top", "center", "bottom"],
                 optionTitles: ["Top", "Center", "Bottom"],
                 defaultValue: "center",
@@ -2306,7 +2320,7 @@ addPropertyControls(Carousel, {
             },
             horizontalAlign: {
                 type: ControlType.Enum,
-                title: "Horizontal Align",
+                title: "Horizontal",
                 options: ["center", "space-between"],
                 optionTitles: ["Center", "Space Between"],
                 defaultValue: "center",
@@ -2321,7 +2335,7 @@ addPropertyControls(Carousel, {
                 step: 5,
                 defaultValue: 20,
                 hidden: (props: any) =>
-                    props.buttonsUI?.horizontalAlign !== "center",
+                    props.horizontalAlign !== "center",
             },
             insetX: {
                 type: ControlType.Number,
@@ -2330,6 +2344,7 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
+                hidden: (props: any) => props.horizontalAlign === "center",
             },
             insetY: {
                 type: ControlType.Number,
@@ -2338,6 +2353,7 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
+                hidden: (props: any) => props.verticalAlign === "center",
             },
         },
     },
