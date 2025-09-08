@@ -14,7 +14,7 @@
  * horizontal scrolling interfaces with GSAP and React.
  */
 
-import React, { useRef, useState } from "react"
+import React, { useRef, useState, useCallback, useEffect } from "react"
 import { gsap } from "gsap"
 import { useGSAP } from "@gsap/react"
 import { Draggable } from "gsap/Draggable"
@@ -224,12 +224,16 @@ export default function Carousel({
     const boxesRef = useRef<HTMLDivElement[]>([]) // Array of slide element references
     const loopRef = useRef<HorizontalLoopTimeline | null>(null) // Reference to the GSAP timeline
     const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null) // Reference to autoplay timer
+    const resizeObserverRef = useRef<ResizeObserver | null>(null) // Reference to ResizeObserver
+    const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null) // Debounce timeout for resize
 
     // Stable box widths - generated once and reused to prevent animation issues
     // CRITICAL: Box widths must remain stable across React re-renders to prevent
     // GSAP animation calculations from breaking. Random widths calculated during
     // render cause timeline position miscalculations and animation glitches.
     const boxWidths = useRef<number[]>([])
+    const containerDimensions = useRef({ width: 0, height: 0 })
+    const lastValidContent = useRef<React.ReactNode[]>([]) // Track last valid content
 
     // React state for component behavior
     const [showOverflow, setShowOverflow] = useState(false) // Toggle for showing overflow content
@@ -248,39 +252,85 @@ export default function Carousel({
      * Make a component responsive by cloning it with updated styles
      * 
      * This function takes a React component and makes it fill the available space
-     * while preserving its internal styling and functionality.
+     * while preserving its internal styling and functionality with proper type safety.
      */
-    const makeComponentResponsive = (component: React.ReactNode, key: string | number) => {
+    const makeComponentResponsive = useCallback((component: React.ReactNode, key: string | number) => {
+        // Handle non-React elements safely
         if (!React.isValidElement(component)) {
             return component
         }
 
+        try {
+            // Safely extract existing styles
+            const existingStyle = (component.props && typeof component.props === 'object' && 'style' in component.props) 
+                ? component.props.style as React.CSSProperties || {} 
+                : {}
+
         // Clone the component with responsive styles
-        return React.cloneElement(component, {
+            return React.cloneElement(component as React.ReactElement, {
             key,
             style: {
-                ...(component.props as any).style,
+                    ...existingStyle,
                 width: "100%",
                 height: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
             },
-        } as any)
-    }
+            })
+        } catch (error) {
+            console.warn('Failed to make component responsive:', error)
+            return component
+        }
+    }, [])
 
     /**
-     * Calculate slide dimensions based on sizing mode
+     * Calculate slide dimensions based on sizing mode with proper validation and responsive behavior
      */
-    const calculateSlideDimensions = (containerWidth: number, containerHeight: number) => {
+    const calculateSlideDimensions = useCallback((containerWidth: number, containerHeight: number, validContent?: React.ReactNode[]) => {
+        // Validate input dimensions
+        const safeContainerWidth = Math.max(containerWidth || 300, 100) // Minimum 100px width
+        const safeContainerHeight = Math.max(containerHeight || 200, 100) // Minimum 100px height
+        
         const mode = slidesUI.slideSizing?.mode || "fill-width"
         
         switch (mode) {
             case "fill-width":
+                // For fill-width, slides should truly fill the available width
+                // Calculate how many slides can reasonably fit, then make each slide fill proportionally
+                const gap = Math.max(ui?.gap || 20, 0)
+                
+                // Determine optimal number of visible slides based on container width
+                let slidesToShow = 1
+                if (safeContainerWidth >= 400) slidesToShow = 2
+                if (safeContainerWidth >= 800) slidesToShow = 3
+                if (safeContainerWidth >= 1200) slidesToShow = 4
+                
+                // Calculate available width after accounting for gaps
+                const totalGapWidth = gap * (slidesToShow - 1)
+                const availableWidth = safeContainerWidth - totalGapWidth
+                const slideWidth = availableWidth / slidesToShow
+                
+                // Ensure minimum viable slide width
+                const minSlideWidth = 200
+                const finalSlideWidth = Math.max(slideWidth, minSlideWidth)
+                
+                // If slides would be too small, reduce the number of slides
+                if (slideWidth < minSlideWidth && slidesToShow > 1) {
+                    slidesToShow = Math.max(1, Math.floor(safeContainerWidth / (minSlideWidth + gap)))
+                    const adjustedTotalGapWidth = gap * (slidesToShow - 1)
+                    const adjustedAvailableWidth = safeContainerWidth - adjustedTotalGapWidth
+                    const adjustedSlideWidth = adjustedAvailableWidth / slidesToShow
+                    return {
+                        width: adjustedSlideWidth,
+                        // Ignore aspect ratio in fill-width mode: base height on container only
+                        height: safeContainerHeight * 0.85,
+                        objectFit: "cover" as const,
+                    }
+                }
+                
                 return {
-                    width: containerWidth,
-                    height: containerHeight * 0.8, // 80% of container height
-                    objectFit: "cover" as any,
+                    width: finalSlideWidth,
+                    // Ignore aspect ratio in fill-width mode: base height on container only
+                    height: safeContainerHeight * 0.85,
+                    objectFit: "cover" as const,
                 }
             
             case "aspect-ratio":
@@ -293,40 +343,55 @@ export default function Carousel({
                 else if (aspectRatio === "21:9") ratio = 21/9
                 else if (aspectRatio === "custom") {
                     const customRatio = slidesUI.slideSizing?.customAspectRatio || "16:9"
-                    const [w, h] = customRatio.split(":").map(Number)
-                    ratio = w / h
+                    try {
+                        const [w, h] = customRatio.split(":").map(Number)
+                        if (w > 0 && h > 0) {
+                            ratio = w / h
+                        }
+                    } catch {
+                        ratio = 16/9 // Fallback to default if custom ratio is invalid
+                    }
                 }
                 
-                const slideWidth = 200 // Fixed width for aspect ratio mode
+                // Calculate responsive width based on container size
+                const maxAspectSlideWidth = safeContainerWidth * 0.8 // Max 80% of container
+                const minAspectSlideWidth = Math.min(200, safeContainerWidth * 0.4) // Min 40% or 200px
+                const aspectSlideWidth = Math.max(minAspectSlideWidth, Math.min(maxAspectSlideWidth, 300))
+                
                 return {
-                    width: slideWidth,
-                    height: slideWidth / ratio,
-                    objectFit: "cover" as any,
+                    width: aspectSlideWidth,
+                    height: aspectSlideWidth / ratio,
+                    objectFit: "cover" as const,
                 }
             
             case "fixed-dimensions":
+                const fixedWidth = slidesUI.slideSizing?.fixedWidth || 300
+                const fixedHeight = slidesUI.slideSizing?.fixedHeight || 200
+                
+                // Ensure fixed dimensions don't exceed container bounds
                 return {
-                    width: slidesUI.slideSizing?.fixedWidth || 300,
-                    height: slidesUI.slideSizing?.fixedHeight || 200,
-                    objectFit: "cover" as any,
+                    width: Math.min(fixedWidth, safeContainerWidth * 0.9),
+                    height: Math.min(fixedHeight, safeContainerHeight * 0.9),
+                    objectFit: "cover" as const,
                 }
             
             case "fill":
                 const fillMode = slidesUI.slideSizing?.fillMode || "fill"
                 return {
-                    width: containerWidth * 0.8,
-                    height: containerHeight * 0.8,
-                    objectFit: fillMode as any,
+                    width: safeContainerWidth, // 85% to allow for proper spacing
+                    height: safeContainerHeight, // 85% to maintain proportions
+                    objectFit: fillMode as "fill" | "contain" | "cover",
                 }
             
             default:
+                // Fallback with responsive sizing
                 return {
-                    width: 200,
-                    height: 150,
-                    objectFit: "cover" as any,
+                    width: Math.min(250, safeContainerWidth * 0.6),
+                    height: Math.min(180, safeContainerHeight * 0.6),
+                    objectFit: "cover" as const,
                 }
         }
-    }
+    }, [slidesUI.slideSizing])
 
     /**
      * Creates a horizontal infinite loop animation using GSAP
@@ -454,17 +519,29 @@ export default function Carousel({
             let b2: DOMRect
 
             items.forEach((el, i) => {
-                // Get the actual width of each slide
-                widths[i] = parseFloat(
-                    gsap.getProperty(el, "width", "px") as string
-                )
+                try {
+                    // Get the actual width of each slide with fallback
+                    const gsapWidth = gsap.getProperty(el, "width", "px") as string
+                    const computedWidth = parseFloat(gsapWidth)
+                    
+                    // Use computed style as fallback if GSAP can't measure
+                    if (isNaN(computedWidth) || computedWidth <= 0) {
+                        const computedStyle = window.getComputedStyle(el)
+                        const fallbackWidth = parseFloat(computedStyle.width)
+                        widths[i] = isNaN(fallbackWidth) ? 250 : fallbackWidth // 250px as last resort
+                        console.warn(`GSAP width measurement failed for slide ${i}, using fallback:`, widths[i])
+                    } else {
+                        widths[i] = computedWidth
+                    }
 
                 // Calculate X position as percentage of width for responsive positioning
+                    const gsapX = gsap.getProperty(el, "x", "px") as string
+                    const gsapXPercent = gsap.getProperty(el, "xPercent") as number
+                    const xValue = parseFloat(gsapX) || 0
+                    const xPercentValue = gsapXPercent || 0
+                    
                 xPercents[i] = snap(
-                    (parseFloat(gsap.getProperty(el, "x", "px") as string) /
-                        widths[i]) *
-                        100 +
-                        (gsap.getProperty(el, "xPercent") as number)
+                        (xValue / Math.max(widths[i], 1)) * 100 + xPercentValue
                 )
 
                 // Calculate space before this slide (for gaps between slides)
@@ -472,12 +549,23 @@ export default function Carousel({
                 b2 = el.getBoundingClientRect()
                 spaceBefore[i] = b2.left - (i ? b1.right : b1.left)
                 b1 = b2 // Update reference for next iteration
+                } catch (error) {
+                    console.error(`Error measuring slide ${i}:`, error)
+                    // Fallback values
+                    widths[i] = 250
+                    xPercents[i] = 0
+                    spaceBefore[i] = 0
+                }
             })
 
             // Apply xPercent positioning to all slides for responsive behavior
+            try {
             gsap.set(items, {
                 xPercent: (i: number) => xPercents[i],
             })
+            } catch (error) {
+                console.error('Error setting xPercent positioning:', error)
+            }
 
             // Update total width calculation
             totalWidth = getTotalWidth()
@@ -498,7 +586,7 @@ export default function Carousel({
             const containerWidth = (container as HTMLElement).offsetWidth
 
             // Calculate time offset for centering
-            // This determines how much to shift the timeline so the active slide is centered
+            // Shift by half the container width in timeline units so that each slide's CENTER aligns with container center.
             timeOffset = center
                 ? (tl.duration() * (containerWidth / 2)) / totalWidth
                 : 0
@@ -507,11 +595,12 @@ export default function Carousel({
             console.log("Centering debug:", {
                 containerWidth,
                 totalWidth,
+                averageWidth: totalWidth / length,
                 timeOffset,
                 center: !!center,
             })
 
-            // Apply centering offset to each slide's timeline position
+            // Apply centering offset to each slide's timeline position (use slide centers)
             center &&
                 times.forEach((t, i) => {
                     times[i] = timeWrap(
@@ -902,12 +991,24 @@ export default function Carousel({
             // Small delay to ensure DOM is fully rendered before initializing
             // This prevents issues with element measurements during initial render
             const timer = setTimeout(() => {
-                if (boxesRef.current.length === 0) return
+                // Validate that we have slides and container
+                if (boxesRef.current.length === 0 || !wrapperRef.current) {
+                    console.warn("Cannot initialize carousel: missing slides or container")
+                    return
+                }
+
+                // Ensure container has dimensions
+                const containerRect = wrapperRef.current.getBoundingClientRect()
+                if (containerRect.width === 0 || containerRect.height === 0) {
+                    console.warn("Cannot initialize carousel: container has no dimensions")
+                    return
+                }
 
                 console.log(
                     "Initializing horizontal loop with",
                     boxesRef.current.length,
-                    "boxes"
+                    "boxes, container:",
+                    Math.round(containerRect.width) + "×" + Math.round(containerRect.height)
                 )
 
                 /**
@@ -919,15 +1020,17 @@ export default function Carousel({
                  * - center: wrapperRef.current - Use wrapper element for centering calculations
                  * - onChange: Callback fired when the active slide changes
                  */
-                const currentGap = ui?.gap
+                const currentGap = Math.max(ui?.gap || 20, 0)
                 console.log("Current gap value:", currentGap)
                 
+                try {
                 const loop = createHorizontalLoop(boxesRef.current, {
                     paused: true,
                     draggable: draggable, // Use the property control value
                     center: wrapperRef.current || true, // Pass the wrapper element for proper centering
                     gap: currentGap, // Pass the gap value for proper loop calculations
                     onChange: (element: HTMLElement, index: number) => {
+                            try {
                         // Update React state when active slide changes
                         setActiveElement(element)
 
@@ -937,7 +1040,10 @@ export default function Carousel({
                         })
 
                         // Add active class to the current slide
-                        element.classList.add("active")
+                                if (element) element.classList.add("active")
+                            } catch (error) {
+                                console.error("Error in onChange callback:", error)
+                            }
                     },
                 })
 
@@ -949,6 +1055,7 @@ export default function Carousel({
                         boxesRef.current.forEach((box, i) => {
                             if (box) {
                                 const clickHandler = () => {
+                                        try {
                                     stopAutoplay() // Stop autoplay when user clicks
                                     if (loop && loop.toIndex) {
                                         loop.toIndex(i, {
@@ -958,7 +1065,10 @@ export default function Carousel({
                                     }
                                     // Restart autoplay after user interaction
                                     if (autoplay.enabled) {
-                                        setTimeout(startAutoplay, 10) // Restart after 1 second delay
+                                                setTimeout(startAutoplay, 10) // Restart after delay
+                                            }
+                                        } catch (error) {
+                                            console.error("Error in click handler:", error)
                                     }
                                 }
                                 box.addEventListener("click", clickHandler)
@@ -985,20 +1095,36 @@ export default function Carousel({
                         // Custom cleanup for event listeners
                         boxesRef.current.forEach((box) => {
                             if (box && (box as any).__clickHandler) {
+                                    try {
                                 box.removeEventListener(
                                     "click",
                                     (box as any).__clickHandler
                                 )
+                                    } catch (error) {
+                                        console.warn("Error removing click handler:", error)
+                                    }
                             }
                         })
 
                         // Call the timeline's cleanup function
                         if ((loop as any).cleanup) {
+                                try {
                             ;(loop as any).cleanup()
+                                } catch (error) {
+                                    console.warn("Error in timeline cleanup:", error)
+                                }
+                            }
                         }
                     }
+                } catch (error) {
+                    console.error("Error creating horizontal loop:", error)
+                    // Return basic cleanup even if loop creation failed
+                    return () => {
+                        clearTimeout(timer)
+                        stopAutoplay()
+                    }
                 }
-            }, 10) // 100ms delay
+            }, 50) // Increased delay for better reliability
 
             return () => clearTimeout(timer)
         },
@@ -1014,6 +1140,7 @@ export default function Carousel({
      * These functions handle the automatic progression of slides.
      */
     const startAutoplay = () => {
+        try {
         if (
             !autoplay.enabled ||
             !loopRef.current ||
@@ -1029,16 +1156,18 @@ export default function Carousel({
             clearInterval(autoplayTimerRef.current)
         }
 
+            // Validate autoplay duration
+            const duration = Math.max(autoplay.duration || 3, 0.5) // Minimum 0.5 seconds
+
         // Start new timer
         autoplayTimerRef.current = setInterval(() => {
+                try {
             // Check again before advancing - user might have started dragging
             if (
                 loopRef.current &&
                 !isDraggingRef.current &&
                 !isThrowingRef.current
             ) {
-                const currentIndex = loopRef.current.current()
-                
                 // Use current direction for autoplay
                 if (currentAutoplayDirectionRef.current === "right") {
                     if (loopRef.current.next) {
@@ -1056,13 +1185,24 @@ export default function Carousel({
                     }
                 }
             }
-        }, autoplay.duration * 1000) // Convert seconds to milliseconds
+                } catch (error) {
+                    console.error("Error in autoplay advancement:", error)
+                    stopAutoplay() // Stop autoplay if there's an error
+                }
+            }, duration * 1000) // Convert seconds to milliseconds
+        } catch (error) {
+            console.error("Error starting autoplay:", error)
+        }
     }
 
     const stopAutoplay = () => {
+        try {
         if (autoplayTimerRef.current) {
             clearInterval(autoplayTimerRef.current)
             autoplayTimerRef.current = null
+            }
+        } catch (error) {
+            console.error("Error stopping autoplay:", error)
         }
     }
 
@@ -1081,13 +1221,17 @@ export default function Carousel({
      * Seamlessly wraps around to the beginning in infinite mode.
      */
     const handleNext = () => {
+        try {
         stopAutoplay() // Stop autoplay when user interacts
         if (loopRef.current && loopRef.current.next) {
             loopRef.current.next({ duration: 0.4, ease: "power1.inOut" })
         }
         // Restart autoplay after user interaction
         if (autoplay.enabled) {
-            setTimeout(startAutoplay, 10) // Restart after 1 second delay
+                setTimeout(startAutoplay, 10) // Restart after delay
+            }
+        } catch (error) {
+            console.error("Error navigating to next slide:", error)
         }
     }
 
@@ -1099,13 +1243,17 @@ export default function Carousel({
      * Seamlessly wraps around to the end in infinite mode.
      */
     const handlePrev = () => {
+        try {
         stopAutoplay() // Stop autoplay when user interacts
         if (loopRef.current && loopRef.current.previous) {
             loopRef.current.previous({ duration: 0.4, ease: "power1.inOut" })
         }
         // Restart autoplay after user interaction
         if (autoplay.enabled) {
-            setTimeout(startAutoplay, 10) // Restart after 1 second delay
+                setTimeout(startAutoplay, 10) // Restart after delay
+            }
+        } catch (error) {
+            console.error("Error navigating to previous slide:", error)
         }
     }
 
@@ -1131,80 +1279,183 @@ export default function Carousel({
      * - Each slide gets a ref for GSAP timeline integration
      */
     
-    // Calculate how many slides we actually need to fill the container
-    const calculateRequiredSlides = () => {
-        // Use content length, fallback to 5 if empty
-        const actualSlideCount = content.length > 0 ? content.length : 5
-        if (actualSlideCount === 0) return 5 // Minimum for infinite loop
+    /**
+     * ResizeObserver callback with debouncing for performance
+     */
+    const handleResize = useCallback((entries: ResizeObserverEntry[]) => {
+        if (resizeTimeoutRef.current) {
+            clearTimeout(resizeTimeoutRef.current)
+        }
         
-        const containerWidth = wrapperRef.current?.clientWidth || 600
-        const gap = ui?.gap || 20
+        resizeTimeoutRef.current = setTimeout(() => {
+            const entry = entries[0]
+            if (entry) {
+                const { width, height } = entry.contentRect
+                const prevWidth = containerDimensions.current.width
+                const prevHeight = containerDimensions.current.height
+                
+                // Only update if there's a significant change (prevents excessive recalculations)
+                if (Math.abs(width - prevWidth) > 10 || Math.abs(height - prevHeight) > 10) {
+                    containerDimensions.current = { width, height }
+                    
+                    // Trigger slide width recalculation
+                    boxWidths.current = []
+                    
+                    console.log('Container resized:', { width, height, prevWidth, prevHeight })
+                }
+            }
+        }, 100) // 100ms debounce
+    }, [])
+
+    /**
+     * Setup ResizeObserver for container width detection
+     */
+    useEffect(() => {
+        if (!wrapperRef.current) return
         
-        // Calculate slide width based on sizing mode
-        const dimensions = calculateSlideDimensions(containerWidth, 400) // Use 400 as default height
-        const averageSlideWidth = dimensions.width
+        // Initialize ResizeObserver
+        resizeObserverRef.current = new ResizeObserver(handleResize)
+        resizeObserverRef.current.observe(wrapperRef.current)
         
-        const effectiveSlideWidth = averageSlideWidth + gap
-        const slidesNeeded = Math.ceil(containerWidth / effectiveSlideWidth)
+        // Get initial dimensions
+        const rect = wrapperRef.current.getBoundingClientRect()
+        containerDimensions.current = { width: rect.width, height: rect.height }
         
-        // Ensure we have enough for seamless infinite loop
-        // Rule: At least 3x the actual slide count, or enough to fill container, minimum 5
-        const minForLoop = Math.max(actualSlideCount * 3, 5)
-        const finalCount = Math.max(slidesNeeded + 2, minForLoop) // +2 for smooth transitions
+        return () => {
+            if (resizeObserverRef.current) {
+                resizeObserverRef.current.disconnect()
+            }
+            if (resizeTimeoutRef.current) {
+                clearTimeout(resizeTimeoutRef.current)
+            }
+        }
+    }, [])
+
+    /**
+     * Calculate how many slides we actually need with proper validation and limits
+     */
+    const calculateRequiredSlides = useCallback(() => {
+        // Validate content array
+        const validContent = Array.isArray(content) ? content.filter(item => item != null) : []
+        const actualSlideCount = validContent.length > 0 ? validContent.length : 3 // Minimum 3 for infinite loop
+        
+        // Use container dimensions with fallbacks
+        const containerWidth = Math.max(containerDimensions.current.width || 300, 200) // Min 200px
+        const containerHeight = Math.max(containerDimensions.current.height || 200, 150) // Min 150px
+        const gap = Math.max(ui?.gap || 20, 0) // Ensure gap is non-negative
+        
+        // Calculate slide width based on sizing mode with validation
+        const dimensions = calculateSlideDimensions(containerWidth, containerHeight, validContent)
+        const slideWidth = Math.max(dimensions.width, 50) // Minimum 50px slide width
+        
+        const effectiveSlideWidth = slideWidth + gap
+        const slidesVisible = Math.max(Math.ceil(containerWidth / effectiveSlideWidth), 1)
+        
+        // Calculate required slides for infinite loop with reasonable limits
+        // For infinite loop: need enough slides to fill container + buffer for smooth transitions
+        const bufferSlides = Math.min(6, actualSlideCount * 2) // More buffer for better infinite loop
+        const minSlidesForLoop = Math.max(slidesVisible + bufferSlides, 8) // Minimum 8 for smooth infinite loop
+        
+        // Ensure we have at least 3x the actual content for proper infinite loop
+        const minContentMultiple = Math.max(actualSlideCount * 3, 9) // Min 9 total slides for better coverage
+        
+        // Final count with upper limit to prevent performance issues
+        const calculatedCount = Math.max(minSlidesForLoop, minContentMultiple)
+        let finalCount = Math.min(calculatedCount, 50) // Max 50 slides to prevent performance issues
+
+        // Parity rule: if content count is even, ensure generated slides are even
+        if (actualSlideCount % 2 === 0 && finalCount % 2 === 1) {
+            // Prefer bumping up when possible, otherwise step down
+            finalCount = finalCount < 50 ? finalCount + 1 : finalCount - 1
+        }
         
         console.log("Slide calculation:", {
             contentLength: content.length,
+            validContentLength: validContent.length,
             actualSlideCount,
             containerWidth,
-            averageSlideWidth,
+            containerHeight,
+            slideWidth,
             effectiveSlideWidth,
-            slidesNeeded,
-            minForLoop,
-            finalCount
+            slidesVisible,
+            bufferSlides,
+            minSlidesForLoop,
+            minContentMultiple,
+            finalCount,
+            gap
         })
         
-        return finalCount
-    }
+        return { finalCount, actualSlideCount, validContent }
+    }, [content, ui?.gap, calculateSlideDimensions])
 
-    // Generate stable widths once on first render or when content or sizing changes
-    const lastContentLengthRef = useRef(content.length)
-    const lastContainerWidthRef = useRef(0)
-    const lastSlideSizingRef = useRef(slidesUI.slideSizing)
-    
-    const requiredSlides = calculateRequiredSlides()
-    const containerWidth = wrapperRef.current?.clientWidth || 600
-    
-    if (boxWidths.current.length === 0 || 
-        lastContentLengthRef.current !== content.length ||
-        lastSlideSizingRef.current !== slidesUI.slideSizing ||
-        Math.abs(lastContainerWidthRef.current - containerWidth) > 50) { // Recalculate if container size changed significantly
-        
-        lastContentLengthRef.current = content.length
-        lastSlideSizingRef.current = slidesUI.slideSizing
-        lastContainerWidthRef.current = containerWidth
-        
-        boxWidths.current = Array.from({ length: requiredSlides }, (_, i) => {
-            // Use sizing mode for consistent widths
-            const dimensions = calculateSlideDimensions(containerWidth, 400)
-            return dimensions.width
-        })
-        console.log("Generated stable box widths:", boxWidths.current)
-    }
+    /**
+     * Generate stable slide widths with proper validation and error handling
+     */
+    const generateSlideWidths = useCallback(() => {
+        try {
+            const { finalCount, validContent } = calculateRequiredSlides()
+            
+            // Use current container dimensions
+            const containerWidth = Math.max(containerDimensions.current.width || 300, 200)
+            const containerHeight = Math.max(containerDimensions.current.height || 200, 150)
+            
+            // Generate widths based on content and sizing mode
+            const newWidths = Array.from({ length: finalCount }, (_, i) => {
+                // Calculate index in the actual content array
+                const contentIndex = validContent.length > 0 ? i % validContent.length : 0
+                
+                // Get dimensions for this slide
+                const dimensions = calculateSlideDimensions(containerWidth, containerHeight, validContent)
+                
+                // Ensure minimum width
+                return Math.max(dimensions.width, 50)
+            })
+            
+            boxWidths.current = newWidths
+            console.log("Generated stable box widths:", {
+                count: finalCount,
+                widths: newWidths.slice(0, 5), // First 5 for debugging
+                containerWidth,
+                containerHeight,
+                sizingMode: slidesUI.slideSizing?.mode || "fill-width",
+                gap: ui?.gap || 20,
+                totalWidthUsed: newWidths[0] * Math.min(finalCount, 4) + (ui?.gap || 20) * 3
+            })
+            
+            return { finalCount, validContent }
+        } catch (error) {
+            console.error('Error generating slide widths:', error)
+            // Fallback to safe defaults
+            const fallbackCount = Math.max(content.length * 2, 6)
+            boxWidths.current = Array.from({ length: fallbackCount }, () => 250)
+            return { finalCount: fallbackCount, validContent: content }
+        }
+    }, [calculateRequiredSlides, content, calculateSlideDimensions])
 
-    const boxes = Array.from({ length: requiredSlides }, (_, i) => {
-        // Use content length, fallback to 5 if empty
-        const actualSlideCount = content.length > 0 ? content.length : 5
-        // Cycle through the actual slide count for content
-        const contentIndex = i % actualSlideCount
-        
-        // Get content for this slide (if available)
-        const slideContent = content.length > 0 && content[contentIndex] 
-            ? makeComponentResponsive(content[contentIndex], `slide-${i}`)
-            : null
+    // Generate slide data with validation
+    const slideData = generateSlideWidths()
 
-        // Generate different gray shades for each slide based on content index
+    const boxes = Array.from({ length: slideData.finalCount }, (_, i) => {
+        const { validContent, finalCount } = slideData
+        const actualSlideCount = Math.max(validContent.length, 1)
+        
+        // Cycle through the actual slide count for content with safety checks
+        const contentIndex = actualSlideCount > 0 ? i % actualSlideCount : 0
+        
+        // Get content for this slide with error handling
+        let slideContent: React.ReactNode = null
+        try {
+            if (validContent.length > 0 && validContent[contentIndex]) {
+                slideContent = makeComponentResponsive(validContent[contentIndex], `slide-${i}`)
+            }
+        } catch (error) {
+            console.warn(`Error processing slide content at index ${contentIndex}:`, error)
+            slideContent = null
+        }
+
+        // Generate different gray shades for each slide based on content index with validation
         const grayShade = actualSlideCount > 1 
-            ? Math.floor((contentIndex / (actualSlideCount - 1)) * 200) + 50 // Range from 50 to 250
+            ? Math.floor((contentIndex / Math.max(actualSlideCount - 1, 1)) * 150) + 75 // Range from 75 to 225
             : 150 // Single color for single slide
         const backgroundColor = `rgb(${grayShade}, ${grayShade}, ${grayShade})`
 
@@ -1218,10 +1469,13 @@ export default function Carousel({
                 className="box"
                 style={{
                     flexShrink: 0,
-                    height: "80%",
-                    width: `${boxWidths.current[i]}px`, // Use stable width from ref
-                    minWidth: "150px",
-                    marginRight: `${ui?.gap || 0}px`, // Add gap to all slides for consistent infinite loop spacing
+                    height: "85%", // Increased from 80% for better proportions
+                    width: `${boxWidths.current[i] || 250}px`, // Use stable width with fallback
+                    minWidth: "100px", // Reduced minimum for better responsiveness
+                    maxWidth: "none", // Remove max-width constraint for fill-width mode
+                    marginRight: `${Math.max(ui?.gap || 20, 0)}px`, // Ensure gap is non-negative
+                    display: "flex", // Ensure slide container is flex
+                    flexDirection: "column" as const,
                 }}
             >
                 <div
@@ -1231,9 +1485,11 @@ export default function Carousel({
                         alignItems: "center",
                         justifyContent: "center",
                         position: "relative" as const,
-                        cursor: "pointer",
+                        cursor: clickNavigation ? "pointer" : "default",
                         width: "100%",
                         height: "100%",
+                        // Ensure no CSS aspect ratio interferes when mode is not "aspect-ratio"
+                        aspectRatio: slidesUI.slideSizing?.mode === "aspect-ratio" ? undefined : "auto",
                         backgroundColor: slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)",
                         border: typeof slidesUI.allSlides.border === 'string' 
                             ? slidesUI.allSlides.border 
@@ -1242,17 +1498,29 @@ export default function Carousel({
                                 : "1px solid rgba(0,0,0,0.2)",
                         borderRadius: slidesUI.allSlides.radius || "10px",
                         boxShadow: slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)",
-                        transform: `scale(${slidesUI.allSlides.scale || 1})`,
-                        opacity: slidesUI.allSlides.opacity || 1,
-                        fontSize: "36px",
+                        transform: `scale(${Math.max(slidesUI.allSlides.scale || 1, 0.1)})`, // Ensure scale is positive
+                        opacity: Math.max(Math.min(slidesUI.allSlides.opacity || 1, 1), 0), // Clamp opacity between 0 and 1
+                        fontSize: "clamp(16px, 4vw, 36px)", // Responsive font size
                         fontWeight: "medium",
                         color: "#3D3D3D",
                         textAlign: "center",
-                        lineHeight: "1",
-                        padding: "0px", // Remove padding to let content fill the space
+                        lineHeight: "1.2",
+                        padding: "8px", // Small padding for better content spacing
+                        overflow: "hidden", // Prevent content overflow
                     }}
                 >
-                    {slideContent || <p>{contentIndex + 1}</p>}
+                    {slideContent || (
+                        <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "inherit",
+                            fontWeight: "inherit",
+                            color: "inherit"
+                        }}>
+                            <p style={{ margin: 0 }}>{contentIndex + 1}</p>
+                        </div>
+                    )}
                 </div>
             </div>
         )
@@ -1417,9 +1685,11 @@ export default function Carousel({
                     borderRadius: "5px",
                     fontSize: "12px",
                     zIndex: 1000,
+                    maxWidth: "300px",
+                    wordWrap: "break-word",
                 }}
             >
-                Mode: Infinite | Content: {content.length} | Generated: {requiredSlides} | Sizing: {slidesUI.slideSizing?.mode || "fill-width"} | Gap: {ui?.gap ?? 20}px
+                Mode: Infinite | Content: {slideData.validContent.length} | Generated: {slideData.finalCount} | Sizing: {slidesUI.slideSizing?.mode || "fill-width"} | Gap: {ui?.gap ?? 20}px | Container: {Math.round(containerDimensions.current.width)}×{Math.round(containerDimensions.current.height)}
             </div>
 
             {/* Toggle Overflow Button - Commented Out */}
