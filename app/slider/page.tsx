@@ -144,7 +144,6 @@ export default function Carousel({
             customAspectRatio: "16:9",
             fixedWidth: 300,
             fixedHeight: 200,
-            fillMode: "fill",
         },
         allSlides: {
             backgroundColor: "rgba(0,0,0,0.1)",
@@ -194,12 +193,11 @@ export default function Carousel({
     slidesUI?: {
         central: "Same style" | "Customize style"
         slideSizing?: {
-            mode: "fill" | "aspect-ratio" | "fixed-dimensions" | "fill-width"
+            mode: "fill" | "fill-width" | "fill-height" | "aspect-ratio" | "fixed-dimensions"
             aspectRatio?: "16:9" | "4:3" | "1:1" | "3:2" | "21:9" | "custom"
             customAspectRatio?: string
             fixedWidth?: number
             fixedHeight?: number
-            fillMode?: "fill" | "contain" | "cover"
         }
         allSlides: {
             backgroundColor?: string
@@ -365,14 +363,40 @@ export default function Carousel({
                     }
                 }
                 
-                // Calculate responsive width based on container size
-                const maxAspectSlideWidth = safeContainerWidth * 0.8 // Max 80% of container
-                const minAspectSlideWidth = Math.min(200, safeContainerWidth * 0.4) // Min 40% or 200px
-                const aspectSlideWidth = Math.max(minAspectSlideWidth, Math.min(maxAspectSlideWidth, 300))
+                // NEW LOGIC: Fill the smaller dimension, calculate the other based on aspect ratio
+                // Determine which dimension is smaller (width or height)
+                const containerAspectRatio = safeContainerWidth / safeContainerHeight
+                const slideAspectRatio = ratio
+                
+                let aspectSlideWidth: number
+                let aspectSlideHeight: number
+                
+                if (containerAspectRatio > slideAspectRatio) {
+                    // Container is wider than slide aspect ratio
+                    // Fill height, calculate width based on aspect ratio
+                    aspectSlideHeight = safeContainerHeight * 0.85 // Fill 85% of container height
+                    aspectSlideWidth = aspectSlideHeight * slideAspectRatio
+                } else {
+                    // Container is taller than slide aspect ratio
+                    // Fill width, calculate height based on aspect ratio
+                    aspectSlideWidth = safeContainerWidth * 0.85 // Fill 85% of container width
+                    aspectSlideHeight = aspectSlideWidth / slideAspectRatio
+                }
+                
+                // Ensure minimum dimensions
+                const minDimension = 100
+                if (aspectSlideWidth < minDimension) {
+                    aspectSlideWidth = minDimension
+                    aspectSlideHeight = aspectSlideWidth / slideAspectRatio
+                }
+                if (aspectSlideHeight < minDimension) {
+                    aspectSlideHeight = minDimension
+                    aspectSlideWidth = aspectSlideHeight * slideAspectRatio
+                }
                 
                 return {
                     width: aspectSlideWidth,
-                    height: aspectSlideWidth / ratio,
+                    height: aspectSlideHeight,
                     objectFit: "cover" as const,
                 }
             
@@ -400,11 +424,26 @@ export default function Carousel({
                 }
             
             case "fill":
-                const fillMode = slidesUI.slideSizing?.fillMode || "fill"
                 return {
-                    width: safeContainerWidth, // 85% to allow for proper spacing
-                    height: safeContainerHeight, // 85% to maintain proportions
-                    objectFit: fillMode as "fill" | "contain" | "cover",
+                    width: containerWidth, // 100% of actual container width (not safe)
+                    height: containerHeight, // 100% of actual container height (not safe)
+                    objectFit: "fill" as const,
+                }
+            
+            case "fill-width":
+                const fillWidth = slidesUI.slideSizing?.fixedHeight || 300
+                return {
+                    width: containerWidth, // 100% of actual container width (not safe)
+                    height: fillWidth, // Use specified height
+                    objectFit: "cover" as const,
+                }
+            
+            case "fill-height":
+                const fillHeight = slidesUI.slideSizing?.fixedWidth || 200
+                return {
+                    width: fillHeight, // Use specified width
+                    height: containerHeight, // 100% of actual container height (not safe)
+                    objectFit: "cover" as const,
                 }
             
             default:
@@ -1568,14 +1607,31 @@ export default function Carousel({
             const minSlides = actualSlideCount * 2 // Minimum for infinite loop
             
             // Calculate slide width (use first slide width if available, otherwise estimate)
-            const estimatedSlideWidth = boxWidths.current[0] || 300
+            // For very short slides, we need a better estimation strategy
+            let estimatedSlideWidth = boxWidths.current[0] || 300
+            
+            // If we have very short slides, ensure minimum width for proper filling
+            if (estimatedSlideWidth < 100) {
+                // For very short slides, estimate based on container and content count
+                const minSlideWidth = Math.max(150, containerWidth / 8) // At least 150px or 1/8 of container
+                estimatedSlideWidth = Math.max(estimatedSlideWidth, minSlideWidth)
+            }
+            
             const slideWidthWithGap = estimatedSlideWidth + gap
             
             // Calculate how many slides we need to fill the container with some overflow
             const slidesNeeded = Math.ceil((containerWidth * 1.5) / slideWidthWithGap) // 1.5x for smooth scrolling
             
-            // Use the larger of minimum slides or calculated slides needed
-            const finalCount = Math.max(minSlides, slidesNeeded)
+            // CRITICAL FIX: Ensure finalCount is always a multiple of actualSlideCount
+            // This ensures proper content cycling and infinite loop behavior
+            const rawFinalCount = Math.max(minSlides, slidesNeeded)
+            const finalCount = Math.ceil(rawFinalCount / actualSlideCount) * actualSlideCount
+            
+            // SAFETY CHECK: Ensure we have enough slides for very wide containers
+            // For very wide containers, we might need more than 1.5x to ensure smooth scrolling
+            const minSlidesForWideContainer = Math.ceil(containerWidth / slideWidthWithGap) + actualSlideCount
+            const finalCountWithSafety = Math.max(finalCount, minSlidesForWideContainer)
+            const finalFinalCount = Math.ceil(finalCountWithSafety / actualSlideCount) * actualSlideCount
             
             console.log("Dynamic slide calculation:", {
                 containerWidth,
@@ -1583,10 +1639,16 @@ export default function Carousel({
                 slideWidthWithGap,
                 slidesNeeded,
                 minSlides,
-                finalCount
+                rawFinalCount,
+                actualSlideCount,
+                finalCount,
+                minSlidesForWideContainer,
+                finalCountWithSafety,
+                finalFinalCount,
+                multiples: finalFinalCount / actualSlideCount
             })
         
-        return { finalCount, actualSlideCount, validContent }
+        return { finalCount: finalFinalCount, actualSlideCount, validContent }
         } else {
             // Fallback: use minimum slides if container width not available
             const finalCount = actualSlideCount * 2
@@ -1614,13 +1676,23 @@ export default function Carousel({
         const dimensions = calculateSlideDimensions(containerWidth, containerHeight, validContent)
         const slideWidth = Math.max(dimensions.width, 50)
         
+        // For fill modes, use the specified dimensions instead of calculated ones
+        let finalWidth = slideWidth
+        if (slidesUI.slideSizing?.mode === "fill-height") {
+            finalWidth = slidesUI.slideSizing?.fixedWidth || 200
+        } else if (slidesUI.slideSizing?.mode === "fill-width") {
+            finalWidth = containerWidth // Will be overridden by CSS to 100%
+        }
+        
         // Generate same width for all slides - simpler and more stable
-        boxWidths.current = Array.from({ length: finalCount }, () => slideWidth)
+        boxWidths.current = Array.from({ length: finalCount }, () => finalWidth)
         
         console.log("Simplified slide generation:", {
             contentCount: validContent.length,
             totalSlides: finalCount,
-            slideWidth
+            slideWidth,
+            finalWidth,
+            mode: slidesUI.slideSizing?.mode
         })
         
         return { finalCount, validContent }
@@ -1673,9 +1745,21 @@ export default function Carousel({
                 className="box"
                 style={{
                     flexShrink: 0,
-                    height: "85%", // Increased from 80% for better proportions
-                    width: `${boxWidths.current[i] || 250}px`, // Use stable width with fallback
-                    minWidth: "100px", // Reduced minimum for better responsiveness
+                    // Dynamic height based on mode
+                    height: slidesUI.slideSizing?.mode === "fill-height" 
+                        ? "100%" // Fill height mode: use full height
+                        : slidesUI.slideSizing?.mode === "fill-width" 
+                            ? `${slidesUI.slideSizing?.fixedHeight || 300}px` // Fill width mode: use specified height
+                            : "85%", // Other modes: use 85%
+                    // Dynamic width based on mode
+                    width: slidesUI.slideSizing?.mode === "fill-width"
+                        ? "100%" // Fill width mode: use full width
+                        : slidesUI.slideSizing?.mode === "fill-height"
+                            ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Fill height mode: use specified width
+                            : `${boxWidths.current[i] || 250}px`, // Other modes: use calculated width
+                    minWidth: slidesUI.slideSizing?.mode === "fill-height" 
+                        ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Use specified width as minimum
+                        : "100px", // Other modes: use 100px minimum
                     maxWidth: "none", // Remove max-width constraint for fill-width mode
                     marginRight: `${Math.max(ui?.gap || 20, 0)}px`, // Ensure gap is non-negative
                     display: "flex", // Ensure slide container is flex
@@ -1913,7 +1997,8 @@ export default function Carousel({
                     position: "relative" as const,
                     display: "flex",
                     alignItems: "center",
-                    overflow: showOverflow ? "visible" : "hidden",
+                    overflowX: "hidden",
+                    overflowY: "visible", 
                 }}
             >
                 <div
@@ -1956,15 +2041,6 @@ addPropertyControls(Carousel, {
         type: ControlType.Boolean,
         title: "Click Nav",
         defaultValue: true,
-    },
-    content: {
-        type: ControlType.Array,
-        title: "Content",
-        maxCount: 10,
-        control: {
-            type: ControlType.ComponentInstance,
-        },
-        description: "Add components to display in slides. More components at [Framer University](https://frameruni.link/cc).",
     },
     autoplay: {
         type: ControlType.Object,
@@ -2060,8 +2136,8 @@ addPropertyControls(Carousel, {
                     mode: {
                         type: ControlType.Enum,
                         title: "Mode",
-                        options: ["fill-width", "aspect-ratio", "fixed-dimensions", "fill"],
-                        optionTitles: ["Fill Width", "Aspect Ratio", "Fixed Dimensions", "Fill"],
+                        options: ["fill", "fill-width", "fill-height", "aspect-ratio", "fixed-dimensions"],
+                        optionTitles: ["Fill", "Fill Width", "Fill Height", "Aspect Ratio", "Fixed Dimensions"],
                         defaultValue: "fill-width",
                         displaySegmentedControl: true,
                         segmentedControlDirection: "vertical",
@@ -2090,7 +2166,7 @@ addPropertyControls(Carousel, {
                         max: 800,
                         step: 10,
                         defaultValue: 300,
-                        hidden: (props: any) => props?.mode !== "fixed-dimensions",
+                        hidden: (props: any) => props?.mode !== "fixed-dimensions" || props?.mode !== "fill-height",
                     },
                     fixedHeight: {
                         type: ControlType.Number,
@@ -2099,17 +2175,7 @@ addPropertyControls(Carousel, {
                         max: 600,
                         step: 10,
                         defaultValue: 200,
-                        hidden: (props: any) => props?.mode !== "fixed-dimensions",
-                    },
-                    fillMode: {
-                        type: ControlType.Enum,
-                        title: "Fill Mode",
-                        options: ["fill", "contain", "cover"],
-                        optionTitles: ["Fill", "Contain", "Cover"],
-                        defaultValue: "fill",
-                        displaySegmentedControl: true,
-                        segmentedControlDirection: "vertical",
-                        hidden: (props: any) => props?.mode !== "fill",
+                        hidden: (props: any) => props?.mode !== "fixed-dimensions" || props?.mode !== "fill-width",
                     },
                 },
             },
@@ -2273,6 +2339,14 @@ addPropertyControls(Carousel, {
                 step: 5,
                 defaultValue: 20,
             },
+        },
+    },
+    content: {
+        type: ControlType.Array,
+        title: "Content",
+        maxCount: 10,
+        control: {
+            type: ControlType.ComponentInstance,
         },
     },
 })
