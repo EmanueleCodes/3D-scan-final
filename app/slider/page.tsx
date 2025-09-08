@@ -95,12 +95,12 @@ interface HorizontalLoopTimeline {
  * It uses useGSAP for proper GSAP integration with React lifecycle.
  *
  * Key features:
- * - 11 slides with different gradient borders
+ * - Dynamic slides based on content array
  * - Drag-to-scroll with momentum
  * - Click navigation (prev/next buttons)
  * - Direct slide selection by clicking
- * - Toggle overflow visibility
- * - Responsive design with inline CSS
+ * - Responsive component support
+ * - Seamless infinite loop with smart duplication
  * @framerSupportedLayoutWidth fixed
  * @framerSupportedLayoutHeight fixed
  * @framerIntrinsicWidth 600
@@ -112,6 +112,7 @@ export default function Carousel({
     draggable = true,
     clickNavigation = true,
     variableWidths = true,
+    content = [],
     autoplay = {
         enabled: false,
         duration: 3,
@@ -137,6 +138,14 @@ export default function Carousel({
     buttonsNavigation = true,
     slidesUI = {
         central: "Same style",
+        slideSizing: {
+            mode: "fill-width",
+            aspectRatio: "16:9",
+            customAspectRatio: "16:9",
+            fixedWidth: 300,
+            fixedHeight: 200,
+            fillMode: "fill",
+        },
         allSlides: {
             backgroundColor: "rgba(0,0,0,0.1)",
             border: "1px solid rgba(0,0,0,0.2)",
@@ -159,6 +168,7 @@ export default function Carousel({
     draggable?: boolean
     clickNavigation?: boolean
     variableWidths?: boolean
+    content?: React.ReactNode[]
     autoplay?: {
         enabled: boolean
         duration: number
@@ -184,6 +194,14 @@ export default function Carousel({
     buttonsNavigation?: boolean
     slidesUI?: {
         central: "Same style" | "Customize style"
+        slideSizing?: {
+            mode: "fill" | "aspect-ratio" | "fixed-dimensions" | "fill-width"
+            aspectRatio?: "16:9" | "4:3" | "1:1" | "3:2" | "21:9" | "custom"
+            customAspectRatio?: string
+            fixedWidth?: number
+            fixedHeight?: number
+            fillMode?: "fill" | "contain" | "cover"
+        }
         allSlides: {
             backgroundColor?: string
             border?: string | { width?: string; style?: string; color?: string }
@@ -226,6 +244,90 @@ export default function Carousel({
     const currentAutoplayDirectionRef = useRef<"left" | "right">(
         autoplay.direction
     ) // Current autoplay direction
+
+    /**
+     * Make a component responsive by cloning it with updated styles
+     * 
+     * This function takes a React component and makes it fill the available space
+     * while preserving its internal styling and functionality.
+     */
+    const makeComponentResponsive = (component: React.ReactNode, key: string | number) => {
+        if (!React.isValidElement(component)) {
+            return component
+        }
+
+        // Clone the component with responsive styles
+        return React.cloneElement(component, {
+            key,
+            style: {
+                ...(component.props as any).style,
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+            },
+        } as any)
+    }
+
+    /**
+     * Calculate slide dimensions based on sizing mode
+     */
+    const calculateSlideDimensions = (containerWidth: number, containerHeight: number) => {
+        const mode = slidesUI.slideSizing?.mode || "fill-width"
+        
+        switch (mode) {
+            case "fill-width":
+                return {
+                    width: containerWidth,
+                    height: containerHeight * 0.8, // 80% of container height
+                    objectFit: "cover" as any,
+                }
+            
+            case "aspect-ratio":
+                const aspectRatio = slidesUI.slideSizing?.aspectRatio || "16:9"
+                let ratio = 16/9 // default
+                
+                if (aspectRatio === "4:3") ratio = 4/3
+                else if (aspectRatio === "1:1") ratio = 1
+                else if (aspectRatio === "3:2") ratio = 3/2
+                else if (aspectRatio === "21:9") ratio = 21/9
+                else if (aspectRatio === "custom") {
+                    const customRatio = slidesUI.slideSizing?.customAspectRatio || "16:9"
+                    const [w, h] = customRatio.split(":").map(Number)
+                    ratio = w / h
+                }
+                
+                const slideWidth = 200 // Fixed width for aspect ratio mode
+                return {
+                    width: slideWidth,
+                    height: slideWidth / ratio,
+                    objectFit: "cover" as any,
+                }
+            
+            case "fixed-dimensions":
+                return {
+                    width: slidesUI.slideSizing?.fixedWidth || 300,
+                    height: slidesUI.slideSizing?.fixedHeight || 200,
+                    objectFit: "cover" as any,
+                }
+            
+            case "fill":
+                const fillMode = slidesUI.slideSizing?.fillMode || "fill"
+                return {
+                    width: containerWidth * 0.8,
+                    height: containerHeight * 0.8,
+                    objectFit: fillMode as any,
+                }
+            
+            default:
+                return {
+                    width: 200,
+                    height: 150,
+                    objectFit: "cover" as any,
+                }
+        }
+    }
 
     /**
      * Creates a horizontal infinite loop animation using GSAP
@@ -903,7 +1005,7 @@ export default function Carousel({
         },
         {
             scope: wrapperRef,
-            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, ui?.gap, autoplay, slidesUI],
+            dependencies: [dragFactor, draggable, clickNavigation, variableWidths, content, ui?.gap, autoplay, slidesUI],
         }
     ) // Scope to wrapper element
 
@@ -1030,26 +1132,93 @@ export default function Carousel({
      * - Each slide gets a ref for GSAP timeline integration
      */
     
-    // Generate stable widths once on first render or when variableWidths changes
+    // Calculate how many slides we actually need to fill the container
+    const calculateRequiredSlides = () => {
+        // Use content length, fallback to 5 if empty
+        const actualSlideCount = content.length > 0 ? content.length : 5
+        if (actualSlideCount === 0) return 5 // Minimum for infinite loop
+        
+        const containerWidth = wrapperRef.current?.clientWidth || 600
+        const gap = ui?.gap || 20
+        
+        // Calculate slide width based on sizing mode
+        const dimensions = calculateSlideDimensions(containerWidth, 400) // Use 400 as default height
+        let averageSlideWidth = dimensions.width
+        
+        // Override with variable widths logic if enabled
+        if (variableWidths) {
+            // For variable widths, use average of random range
+            averageSlideWidth = (150 + 350) / 2 // Average of 150-350 range
+        }
+        
+        const effectiveSlideWidth = averageSlideWidth + gap
+        const slidesNeeded = Math.ceil(containerWidth / effectiveSlideWidth)
+        
+        // Ensure we have enough for seamless infinite loop
+        // Rule: At least 3x the actual slide count, or enough to fill container, minimum 5
+        const minForLoop = Math.max(actualSlideCount * 3, 5)
+        const finalCount = Math.max(slidesNeeded + 2, minForLoop) // +2 for smooth transitions
+        
+        console.log("Slide calculation:", {
+            contentLength: content.length,
+            actualSlideCount,
+            containerWidth,
+            averageSlideWidth,
+            effectiveSlideWidth,
+            slidesNeeded,
+            minForLoop,
+            finalCount
+        })
+        
+        return finalCount
+    }
+
+    // Generate stable widths once on first render or when variableWidths or content changes
     const lastVariableWidthsRef = useRef(variableWidths)
-    if (boxWidths.current.length === 0 || lastVariableWidthsRef.current !== variableWidths) {
+    const lastContentLengthRef = useRef(content.length)
+    const lastContainerWidthRef = useRef(0)
+    
+    const requiredSlides = calculateRequiredSlides()
+    const containerWidth = wrapperRef.current?.clientWidth || 600
+    
+    if (boxWidths.current.length === 0 || 
+        lastVariableWidthsRef.current !== variableWidths || 
+        lastContentLengthRef.current !== content.length ||
+        Math.abs(lastContainerWidthRef.current - containerWidth) > 50) { // Recalculate if container size changed significantly
+        
         lastVariableWidthsRef.current = variableWidths
-        boxWidths.current = Array.from({ length: 11 }, (_, i) => {
+        lastContentLengthRef.current = content.length
+        lastContainerWidthRef.current = containerWidth
+        
+        boxWidths.current = Array.from({ length: requiredSlides }, (_, i) => {
             if (variableWidths) {
                 // Variable widths: special width for slide 5, random for others
                 if (i === 4) return 350 // Special width for slide 5
                 return Math.floor(Math.random() * (350 - 150 + 1)) + 150 // Random width between 150px and 350px
             } else {
-                // Fixed widths: special width for slide 5, uniform for others
-                return i === 4 ? 350 : 150
+                // Use sizing mode for consistent widths
+                const dimensions = calculateSlideDimensions(containerWidth, 400)
+                return dimensions.width
             }
         })
         console.log("Generated stable box widths:", boxWidths.current)
     }
 
-    const boxes = Array.from({ length: 11 }, (_, i) => {
-        // Generate different gray shades for each slide
-        const grayShade = Math.floor((i / 10) * 200) + 50 // Range from 50 to 250
+    const boxes = Array.from({ length: requiredSlides }, (_, i) => {
+        // Use content length, fallback to 5 if empty
+        const actualSlideCount = content.length > 0 ? content.length : 5
+        // Cycle through the actual slide count for content
+        const contentIndex = i % actualSlideCount
+        
+        // Get content for this slide (if available)
+        const slideContent = content.length > 0 && content[contentIndex] 
+            ? makeComponentResponsive(content[contentIndex], `slide-${i}`)
+            : null
+
+        // Generate different gray shades for each slide based on content index
+        const grayShade = actualSlideCount > 1 
+            ? Math.floor((contentIndex / (actualSlideCount - 1)) * 200) + 50 // Range from 50 to 250
+            : 150 // Single color for single slide
         const backgroundColor = `rgb(${grayShade}, ${grayShade}, ${grayShade})`
 
         return (
@@ -1093,10 +1262,10 @@ export default function Carousel({
                         color: "#3D3D3D",
                         textAlign: "center",
                         lineHeight: "1",
-                        padding: "0.5rem",
+                        padding: "0px", // Remove padding to let content fill the space
                     }}
                 >
-                    <p>{i + 1}</p>
+                    {slideContent || <p>{contentIndex + 1}</p>}
                 </div>
             </div>
         )
@@ -1249,7 +1418,7 @@ export default function Carousel({
                 </>
             )}
 
-            {/* Gap Debug Info */}
+            {/* Debug Info */}
             <div
                 style={{
                     position: "absolute",
@@ -1263,7 +1432,7 @@ export default function Carousel({
                     zIndex: 1000,
                 }}
             >
-                Mode: Infinite | Gap: {ui?.gap ?? 20}px
+                Mode: Infinite | Content: {content.length} | Generated: {requiredSlides} | Sizing: {slidesUI.slideSizing?.mode || "fill-width"} | Gap: {ui?.gap ?? 20}px
             </div>
 
             {/* Toggle Overflow Button - Commented Out */}
@@ -1347,6 +1516,15 @@ addPropertyControls(Carousel, {
         type: ControlType.Boolean,
         title: "Variable Widths",
         defaultValue: true,
+    },
+    content: {
+        type: ControlType.Array,
+        title: "Content",
+        maxCount: 10,
+        control: {
+            type: ControlType.ComponentInstance,
+        },
+        description: "Add components to display in slides. More components at [Framer University](https://frameruni.link/cc).",
     },
     autoplay: {
         type: ControlType.Object,
@@ -1434,6 +1612,66 @@ addPropertyControls(Carousel, {
                 defaultValue: "Same style",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
+            },
+            slideSizing: {
+                type: ControlType.Object,
+                title: "Slide Sizing",
+                controls: {
+                    mode: {
+                        type: ControlType.Enum,
+                        title: "Mode",
+                        options: ["fill-width", "aspect-ratio", "fixed-dimensions", "fill"],
+                        optionTitles: ["Fill Width", "Aspect Ratio", "Fixed Dimensions", "Fill"],
+                        defaultValue: "fill-width",
+                        displaySegmentedControl: true,
+                        segmentedControlDirection: "vertical",
+                    },
+                    aspectRatio: {
+                        type: ControlType.Enum,
+                        title: "Aspect Ratio",
+                        options: ["16:9", "4:3", "1:1", "3:2", "21:9", "custom"],
+                        optionTitles: ["16:9", "4:3", "1:1", "3:2", "21:9", "Custom"],
+                        defaultValue: "16:9",
+                        displaySegmentedControl: true,
+                        segmentedControlDirection: "vertical",
+                        hidden: (props: any) => props?.mode !== "aspect-ratio",
+                    },
+                    customAspectRatio: {
+                        type: ControlType.String,
+                        title: "Custom Ratio",
+                        placeholder: "16:9",
+                        defaultValue: "16:9",
+                        hidden: (props: any) => props?.mode !== "aspect-ratio" || props?.aspectRatio !== "custom",
+                    },
+                    fixedWidth: {
+                        type: ControlType.Number,
+                        title: "Width",
+                        min: 100,
+                        max: 800,
+                        step: 10,
+                        defaultValue: 300,
+                        hidden: (props: any) => props?.mode !== "fixed-dimensions",
+                    },
+                    fixedHeight: {
+                        type: ControlType.Number,
+                        title: "Height",
+                        min: 100,
+                        max: 600,
+                        step: 10,
+                        defaultValue: 200,
+                        hidden: (props: any) => props?.mode !== "fixed-dimensions",
+                    },
+                    fillMode: {
+                        type: ControlType.Enum,
+                        title: "Fill Mode",
+                        options: ["fill", "contain", "cover"],
+                        optionTitles: ["Fill", "Contain", "Cover"],
+                        defaultValue: "fill",
+                        displaySegmentedControl: true,
+                        segmentedControlDirection: "vertical",
+                        hidden: (props: any) => props?.mode !== "fill",
+                    },
+                },
             },
             allSlides: {
                 type: ControlType.Object,
