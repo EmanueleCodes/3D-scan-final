@@ -333,6 +333,124 @@ export default function Carousel({
     }, [animation.elasticAmplitude, animation.elasticPeriod, animation.backIntensity])
 
     /**
+     * Apply initial styling to all slides using gsap.set
+     * 
+     * This function sets the initial visual state for all slides
+     * immediately without animation, ensuring proper styling on first load.
+     */
+    const applyInitialStylingToAllSlides = useCallback(() => {
+        console.log("Applying initial styling to all slides")
+        
+        boxesRef.current.forEach((slideElement, i) => {
+            if (!slideElement) return
+
+            const innerElement = slideElement.querySelector('.box__inner') as HTMLElement
+            if (!innerElement) return
+
+            // Determine if this is the active/central slide
+            let isCentralSlide = false
+            
+            if (finiteMode) {
+                // In finite mode, use the activeSlideIndex state
+                isCentralSlide = i === activeSlideIndex
+            } else {
+                // In infinite mode, use the middle of the timeline
+                isCentralSlide = i === Math.floor((loopRef.current?.times?.length || 0) / 2)
+            }
+            
+            const isCentralCustomized = slidesUI.central === "Customize style"
+            
+            // Debug logging for finite mode
+            if (finiteMode && isCentralSlide) {
+                console.log(`Finite mode: Slide ${i} is identified as active slide (activeSlideIndex: ${activeSlideIndex})`)
+            }
+            
+            // Get the appropriate style values
+            const targetScale = isCentralSlide && isCentralCustomized 
+                ? (slidesUI.centralSlide.scale || 1.1)
+                : (slidesUI.allSlides.scale || 1)
+            
+            const targetOpacity = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.opacity || 1)
+                : (slidesUI.allSlides.opacity || 1)
+            
+            const targetBackgroundColor = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)")
+                : (slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)")
+            
+            const targetBorder = isCentralSlide && isCentralCustomized
+                ? slidesUI.centralSlide.border
+                : slidesUI.allSlides.border
+            
+            const targetRadius = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.radius || "10px")
+                : (slidesUI.allSlides.radius || "10px")
+            
+            const targetShadow = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.shadow || "0px 0px 0px rgba(0,0,0,0)")
+                : (slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)")
+
+            // Create border shadow effect
+            let borderShadow = ""
+            if (targetBorder && typeof targetBorder === 'object') {
+                const borderWidth = (targetBorder as any).borderWidth || '1px'
+                const borderColor = (targetBorder as any).borderColor || 'rgba(0,0,0,0.2)'
+                const widthValue = typeof borderWidth === 'string' 
+                    ? parseInt(borderWidth.replace('px', '')) || 1
+                    : parseInt(String(borderWidth)) || 1
+                borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
+            } else if (typeof targetBorder === 'string') {
+                const parts = targetBorder.split(' ')
+                const width = parts[0] || '1px'
+                const color = parts[2] || 'rgba(0,0,0,0.2)'
+                const widthValue = parseInt(width.replace('px', '')) || 1
+                borderShadow = `0 0 0 ${widthValue}px ${color}`
+            } else {
+                borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
+            }
+            
+            // Combine existing shadow with border shadow
+            const finalShadow = targetShadow && targetShadow !== "0px 0px 0px rgba(0,0,0,0)" 
+                ? `${borderShadow}, ${targetShadow}`
+                : borderShadow
+
+            // Debug logging for styling
+            if (finiteMode && isCentralSlide) {
+                console.log(`Applying central slide styling to slide ${i}:`, {
+                    targetScale,
+                    targetOpacity,
+                    targetBackgroundColor,
+                    targetRadius,
+                    finalShadow,
+                    isCentralCustomized
+                })
+            }
+            
+            // Apply initial styling directly to DOM (immediate, no animation, can't be overridden)
+            innerElement.style.transform = `scale(${targetScale})`
+            innerElement.style.opacity = String(targetOpacity)
+            innerElement.style.backgroundColor = targetBackgroundColor
+            innerElement.style.boxShadow = finalShadow
+            innerElement.style.borderRadius = targetRadius
+            innerElement.style.transformOrigin = "center"
+            
+            // Also set with GSAP for consistency, but with immediate render
+            gsap.set(innerElement, {
+                scale: targetScale,
+                opacity: targetOpacity,
+                backgroundColor: targetBackgroundColor,
+                boxShadow: finalShadow,
+                borderRadius: targetRadius,
+                transformOrigin: "center",
+                immediateRender: true,
+                duration: 0 // Force immediate
+            })
+        })
+        
+        console.log("Initial styling applied to all slides successfully")
+    }, [slidesUI, finiteMode])
+
+    /**
      * Apply initial central slide styling using gsap.set
      * 
      * This function sets the initial visual state for the central slide
@@ -378,14 +496,26 @@ export default function Carousel({
             : borderShadow
 
         // Apply initial styling with gsap.set (immediate, no animation)
+        console.log("Applying initial central slide styling:", {
+            targetScale,
+            targetOpacity,
+            targetBackgroundColor,
+            targetRadius,
+            finalShadow,
+            element: innerElement
+        })
+        
         gsap.set(innerElement, {
             scale: targetScale,
             opacity: targetOpacity,
             backgroundColor: targetBackgroundColor,
             boxShadow: finalShadow,
             borderRadius: targetRadius,
-            transformOrigin: "center"
+            transformOrigin: "center",
+            immediateRender: true
         })
+        
+        console.log("Initial central slide styling applied successfully")
     }, [slidesUI])
 
     /**
@@ -457,17 +587,30 @@ export default function Carousel({
             ? (isCentralCustomized ? slidesUI.centralSlide.radius || "10px" : slidesUI.allSlides.radius || "10px")
             : (slidesUI.allSlides.radius || "10px")
 
-        // Animate all visual properties with GSAP
-        gsap.to(innerElement, {
-            scale: targetScale,
-            opacity: targetOpacity,
-            backgroundColor: targetBackgroundColor,
-            boxShadow: targetShadow,
-            borderRadius: targetRadius,
-            duration: animation.duration || 0.4,
-            ease: getEasingString(animation.easing || "power1.inOut"),
-            transformOrigin: "center"
-        })
+        // During initial setup, use gsap.set() for immediate styling
+        if (isInitialSetupRef.current) {
+            gsap.set(innerElement, {
+                scale: targetScale,
+                opacity: targetOpacity,
+                backgroundColor: targetBackgroundColor,
+                boxShadow: targetShadow,
+                borderRadius: targetRadius,
+                transformOrigin: "center",
+                immediateRender: true
+            })
+        } else {
+            // For subsequent animations, use gsap.to() with user timing
+            gsap.to(innerElement, {
+                scale: targetScale,
+                opacity: targetOpacity,
+                backgroundColor: targetBackgroundColor,
+                boxShadow: targetShadow,
+                borderRadius: targetRadius,
+                duration: animation.duration || 0.4,
+                ease: getEasingString(animation.easing || "power1.inOut"),
+                transformOrigin: "center"
+            })
+        }
     }, [slidesUI, animation.duration, animation.easing, getEasingString])
 
     /**
@@ -492,27 +635,114 @@ export default function Carousel({
         })
     }, [dotsUI, animation.duration, animation.easing, getEasingString])
 
-    // Animation function for navigation buttons
-    const animateButtons = useCallback((isPrevDisabled: boolean, isNextDisabled: boolean) => {
+    /**
+     * Apply initial styling to navigation buttons using gsap.set
+     * 
+     * This function sets the initial visual state for buttons
+     * immediately without animation, ensuring proper styling on first load.
+     */
+    const applyInitialButtonStyling = useCallback(() => {
+        console.log("Applying initial button styling")
+        
         const leftButton = document.querySelector('[data-button="prev"]') as HTMLElement
         const rightButton = document.querySelector('[data-button="next"]') as HTMLElement
 
         if (leftButton) {
-            gsap.to(leftButton, {
-                scale: isPrevDisabled ? (buttonsUI.disabledScale || 0.8) : 1,
-                opacity: isPrevDisabled ? (buttonsUI.disabledOpacity || 0.5) : 1,
-                duration: animation.duration || 0.4,
-                ease: getEasingString(animation.easing || "power1.inOut")
-            })
+            // In finite mode, first slide means prev button is disabled
+            const isPrevDisabled = finiteMode && activeSlideIndex === 0
+            
+            if (isPrevDisabled) {
+                // Set disabled state immediately
+                gsap.set(leftButton, {
+                    scale: buttonsUI.disabledScale ?? 1,
+                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    immediateRender: true,
+                    duration: 0
+                })
+            } else {
+                // Set enabled state immediately
+                gsap.set(leftButton, {
+                    scale: 1,
+                    opacity: 1,
+                    immediateRender: true,
+                    duration: 0
+                })
+            }
         }
 
         if (rightButton) {
-            gsap.to(rightButton, {
-                scale: isNextDisabled ? (buttonsUI.disabledScale || 0.8) : 1,
-                opacity: isNextDisabled ? (buttonsUI.disabledOpacity || 0.5) : 1,
-                duration: animation.duration || 0.4,
-                ease: getEasingString(animation.easing || "power1.inOut")
-            })
+            // In finite mode, check if next button should be disabled
+            // Use boxesRef.current.length since slideData might not be initialized yet
+            const totalSlides = boxesRef.current.length || 1
+            const isNextDisabled = finiteMode && activeSlideIndex === totalSlides - 1
+            
+            if (isNextDisabled) {
+                // Set disabled state immediately
+                gsap.set(rightButton, {
+                    scale: buttonsUI.disabledScale ?? 1,
+                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    immediateRender: true,
+                    duration: 0
+                })
+            } else {
+                // Set enabled state immediately
+                gsap.set(rightButton, {
+                    scale: 1,
+                    opacity: 1,
+                    immediateRender: true,
+                    duration: 0
+                })
+            }
+        }
+    }, [finiteMode, activeSlideIndex, buttonsUI.disabledScale, buttonsUI.disabledOpacity, boxesRef])
+
+    // Animation function for navigation buttons
+    const animateButtons = useCallback((isPrevDisabled: boolean, isNextDisabled: boolean) => {
+        console.log("animateButtons called:", { isPrevDisabled, isNextDisabled, isInitialSetup: isInitialSetupRef.current })
+        const leftButton = document.querySelector('[data-button="prev"]') as HTMLElement
+        const rightButton = document.querySelector('[data-button="next"]') as HTMLElement
+
+        if (leftButton) {
+            if (isPrevDisabled) {
+                // For disabled buttons, animate to disabled state with user timing
+                const disabledOpacity = buttonsUI.disabledOpacity ?? 0
+                console.log("Animating left button to disabled:", { disabledOpacity, disabledScale: buttonsUI.disabledScale ?? 1 })
+                gsap.to(leftButton, {
+                    scale: buttonsUI.disabledScale ?? 1,
+                    opacity: disabledOpacity,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            } else {
+                // For enabled buttons, animate to enabled state
+                console.log("Animating left button to enabled:", { isInitialSetup: isInitialSetupRef.current })
+                gsap.to(leftButton, {
+                    scale: 1,
+                    opacity: 1,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            }
+        }
+
+        if (rightButton) {
+            if (isNextDisabled) {
+                // For disabled buttons, animate to disabled state with user timing
+                gsap.to(rightButton, {
+                    scale: buttonsUI.disabledScale ?? 1,
+                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            } else {
+                // For enabled buttons, animate to enabled state
+                gsap.to(rightButton, {
+                    scale: 1,
+                    opacity: 1,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            }
         }
     }, [animation.duration, animation.easing, getEasingString, buttonsUI.disabledScale, buttonsUI.disabledOpacity])
 
@@ -1613,6 +1843,7 @@ export default function Carousel({
 
     // Add initialization state to prevent race conditions
     const initializationRef = useRef({ isInitializing: false, isInitialized: false })
+    const isInitialSetupRef = useRef(true) // Track if we're in initial setup phase
     
     // Fallback timeout to ensure component shows up even if initialization fails
     useEffect(() => {
@@ -1771,13 +2002,15 @@ export default function Carousel({
                                     setActiveElement(element)
                                     setActiveSlideIndex(index)
 
-                                    // Animate all slides with GSAP
-                                    boxesRef.current.forEach((box, i) => {
-                                        if (box) {
-                                            const isActive = box === element
-                                            animateSlideVisuals(box, isActive)
-                                        }
-                                    })
+                                    // Animate all slides with GSAP (skip during initial setup)
+                                    if (!isInitialSetupRef.current) {
+                                        boxesRef.current.forEach((box, i) => {
+                                            if (box) {
+                                                const isActive = box === element
+                                                animateSlideVisuals(box, isActive)
+                                            }
+                                        })
+                                    }
 
                                     // Animate dots if in finite mode
                                     if (finiteMode && dotsUI.enabled) {
@@ -1811,13 +2044,15 @@ export default function Carousel({
                         setActiveElement(element)
                         setActiveSlideIndex(index)
 
-                        // Animate all slides with GSAP
-                        boxesRef.current.forEach((box, i) => {
-                            if (box) {
-                                const isActive = box === element
-                                animateSlideVisuals(box, isActive)
-                            }
-                        })
+                        // Animate all slides with GSAP (skip during initial setup)
+                        if (!isInitialSetupRef.current) {
+                            boxesRef.current.forEach((box, i) => {
+                                if (box) {
+                                    const isActive = box === element
+                                    animateSlideVisuals(box, isActive)
+                                }
+                            })
+                        }
 
                         // Animate dots if in finite mode
                         if (finiteMode && dotsUI.enabled) {
@@ -1847,37 +2082,21 @@ export default function Carousel({
 
                     // Initialize visual states for all slides and dots
                     setTimeout(() => {
-                        // For infinite mode, find the central slide and apply initial styling
-                        if (!finiteMode && loop && loop.times && loop.times.length > 0) {
-                            // Find the central slide index (middle of the timeline)
-                            const centralIndex = Math.floor(loop.times.length / 2)
-                            const centralSlide = boxesRef.current[centralIndex]
-                            
-                            if (centralSlide) {
-                                // Apply initial central slide styling immediately
-                                applyInitialCentralSlideStyling(centralSlide)
-                                console.log("Applied initial central slide styling to index:", centralIndex)
-                            }
+                        // Apply initial styling to ALL slides immediately (no animation)
+                        applyInitialStylingToAllSlides()
+
+                        // Apply initial styling to buttons immediately (no animation)
+                        if (finiteMode && buttonsNavigation) {
+                            applyInitialButtonStyling()
                         }
 
-                        // Set initial visual state for all slides
-                        boxesRef.current.forEach((box, i) => {
-                            if (box) {
-                                const isActive = finiteMode ? i === 0 : i === Math.floor((loop?.times?.length || 0) / 2)
-                                animateSlideVisuals(box, isActive)
-                            }
-                        })
+                        // Note: We don't need to call animateSlideVisuals here anymore
+                        // because applyInitialStylingToAllSlides handles all the initial styling
+                        // The slides will animate normally during navigation
 
                         // Set initial visual state for dots if in finite mode
                         if (finiteMode && dotsUI.enabled) {
                             animateDots(0) // First dot is active by default
-                        }
-
-                        // Set initial visual state for buttons if in finite mode
-                        if (finiteMode && buttonsNavigation) {
-                            const isPrevDisabled = true // First slide, so prev is disabled
-                            const isNextDisabled = (slideData?.actualSlideCount || 1) <= 1 // Only one slide, so next is disabled
-                            animateButtons(isPrevDisabled, isNextDisabled)
                         }
                     }, 100) // Small delay to ensure DOM is ready
 
@@ -1909,6 +2128,9 @@ export default function Carousel({
                         // Mark as fully initialized after all centering is complete
                         console.log("Setting isFullyInitialized to true")
                         setIsFullyInitialized(true)
+                        
+                        // Allow animations for subsequent interactions
+                        isInitialSetupRef.current = false
                     }, 100)
 
                     // Return cleanup function - useGSAP will handle this automatically
@@ -2561,18 +2783,9 @@ export default function Carousel({
      * - Inline CSS for gradient theming and active states
      */
     
-    // Show loading state until all GSAP setup and centering is complete
-    // Temporarily disabled to ensure component shows up
-    // if (!isFullyInitialized) {
-    //     return (
-    //         <div>Loading...</div>
-    //     )
-    // }
-
     return (
         <div
             style={{
-               
                 background: ui?.backgroundColor || "#000000",
                 padding: ui?.padding || "0px",
                 borderRadius: ui?.borderRadius || "0px",
@@ -2586,11 +2799,49 @@ export default function Carousel({
                 height: "100%",
                 width: "100%",
                 margin: 0,
-                overflow: "hidden",
+                overflow: "visible",
                 position: "relative",
-                zIndex: 0
+                zIndex: 0,
+                // Hide until fully initialized to prevent layout shifts
+                opacity: isFullyInitialized ? 1 : 0,
+                visibility: isFullyInitialized ? "visible" : "hidden",
+                // No transition - instant reveal once logic is complete
             }}
         >
+            {/* Loading indicator - only visible while initializing */}
+            {!isFullyInitialized && (
+                <div style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    zIndex: 1000,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    opacity: 0.8,
+                    fontSize: "14px"
+                }}>
+                    <div style={{
+                        width: "16px",
+                        height: "16px",
+                        border: "2px solid rgba(255,255,255,0.3)",
+                        borderTop: "2px solid white",
+                        borderRadius: "50%",
+                        animation: "spin 1s linear infinite"
+                    }} />
+                    Initializing...
+                </div>
+            )}
+            
+            {/* CSS for spinner animation */}
+            <style>{`
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `}</style>
+            
             {/* GSAP will handle all animations - no CSS transitions needed */}
 
             {/* Navigation Buttons - Absolutely Positioned */}
@@ -2631,7 +2882,7 @@ export default function Carousel({
                                             ? "translateY(-50%)"
                                             : "none",
                                 
-                                cursor: "pointer",
+                                cursor: finiteMode && activeSlideIndex === 0 ? "default" : "pointer",
                             }}
                             onClick={finiteMode && activeSlideIndex === 0 ? undefined : (e) => {
                                 e.stopPropagation()
@@ -2677,7 +2928,7 @@ export default function Carousel({
                                             ? "translateY(-50%)"
                                             : "none",
                              
-                                cursor: "pointer",
+                                cursor: finiteMode && activeSlideIndex === (slideData?.actualSlideCount || 1) - 1 ? "default" : "pointer",
                             }}
                             onClick={finiteMode && activeSlideIndex === (slideData?.actualSlideCount || 1) - 1 ? undefined : (e) => {
                                 e.stopPropagation()
@@ -2777,7 +3028,7 @@ export default function Carousel({
                                 // Initial state - GSAP will animate from here
                                 opacity: index === activeSlideIndex 
                                     ? (dotsUI.activeOpacity || 1) 
-                                    : (dotsUI.inactiveOpacity || 0.3),
+                                    : (dotsUI.inactiveOpacity || 0),
                                 transform: index === activeSlideIndex 
                                     ? `scale(${dotsUI.activeScale || 1.2})` 
                                     : 'scale(1)',
@@ -2841,7 +3092,7 @@ addPropertyControls(Carousel, {
                 max: 1,
                 step: 0.1,
                 defaultValue: 1,
-                description: "Opacity of the active dot",
+                description: "Active dot opacity",
                 hidden: (props: any) => !props.enabled,
             },
             inactiveOpacity: {
@@ -2851,7 +3102,7 @@ addPropertyControls(Carousel, {
                 max: 1,
                 step: 0.1,
                 defaultValue: 0.3,
-               
+                description: "Inactive dot opacity",
                 hidden: (props: any) => !props.enabled,
             },
             activeScale: {
@@ -2891,23 +3142,23 @@ addPropertyControls(Carousel, {
             },
             insetX: {
                 type: ControlType.Number,
-                title: "Y Inset",
+                title: "X Inset",
                 min: -100,
                 max: 100,
                 step: 1,
                 defaultValue: 0,
                
-                hidden: (props: any) => !props.enabled,
+                hidden: (props: any) => !props.enabled || props.horizontalAlign === "center",
             },
             insetY: {
                 type: ControlType.Number,
-                title: "X Inset",
+                title: "Y Inset",
                 min: -100,
                 max: 100,
                 step: 1,
                 defaultValue: 20,
                 
-                hidden: (props: any) => !props.enabled,
+                hidden: (props: any) => !props.enabled || props.verticalAlign === "center",
             },
         },
     },
@@ -3389,32 +3640,32 @@ addPropertyControls(Carousel, {
             },
             elasticAmplitude: {
                 type: ControlType.Number,
-                title: "Elastic Amplitude",
+                title: "Amplitude",
                 min: 0.1,
                 max: 3,
                 step: 0.1,
                 defaultValue: 1,
-                hidden: (props: any) => !props.animation?.easing?.startsWith('elastic'),
+                hidden: (props: any) => !props.easing?.startsWith('elastic'),
                 description: "Amplitude parameter for elastic easing (higher = more bounce)",
             },
             elasticPeriod: {
                 type: ControlType.Number,
-                title: "Elastic Period",
+                title: "Period",
                 min: 0.1,
                 max: 1,
                 step: 0.1,
                 defaultValue: 0.3,
-                hidden: (props: any) => !props.animation?.easing?.startsWith('elastic'),
+                hidden: (props: any) => !props.easing?.startsWith('elastic'),
                 description: "Period parameter for elastic easing (lower = faster oscillation)",
             },
             backIntensity: {
                 type: ControlType.Number,
-                title: "Back Intensity",
+                title: "Intensity",
                 min: 0.1,
                 max: 3,
                 step: 0.1,
                 defaultValue: 1.7,
-                hidden: (props: any) => !props.animation?.easing?.startsWith('back'),
+                hidden: (props: any) => !props.easing?.startsWith('back'),
                 description: "Intensity parameter for back easing (higher = more overshoot)",
             },
         },
