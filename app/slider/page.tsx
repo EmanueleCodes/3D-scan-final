@@ -609,35 +609,45 @@ export default function Carousel({
             return sum + width + gap
         }, 0)
         
-        // Position slides horizontally (start with left alignment)
-        let currentX = 0
+        // Position slides horizontally - start with slide 0 in active position
+        // Use the same calculation as toIndex but with slide 0 as the active slide
         items.forEach((item, i) => {
-            gsap.set(item, { x: currentX })
-            currentX += item.offsetWidth + (i < items.length - 1 ? (config.gap || 0) : 0)
-        })
-
-        // Create timeline animations
-        items.forEach((item, i) => {
-            let targetX = -i * (item.offsetWidth + (config.gap || 0))
+            // Calculate where slide i should be when slide 0 is active
+            // This is the same as toIndex(0) but for each individual slide
+            let initialX = -(i - 0) * (item.offsetWidth + (config.gap || 0))
             
             if (alignment === "center") {
-                // Center each slide within the container
+                // Center slide 0 within the container
                 const containerWidth = items[0]?.parentElement?.offsetWidth || 0
                 const slideWidth = items[0].offsetWidth
-                targetX += (containerWidth - slideWidth) / 2
+                initialX += (containerWidth - slideWidth) / 2
             } else if (alignment === "right") {
-                // Align each slide to the right edge
+                // Align slide 0 to the right edge
                 const containerWidth = items[0]?.parentElement?.offsetWidth || 0
                 const slideWidth = items[0].offsetWidth
-                targetX += containerWidth - slideWidth
+                initialX += containerWidth - slideWidth
             }
             
-            tl.to(items, { x: targetX, duration: 0.8, ease: "power1.inOut" }, 0)
+            gsap.set(item, { x: initialX })
         })
+
+        // Initial positioning is now handled above, no need for duplicate timeline animations
 
         // Add custom methods to match HorizontalLoopTimeline interface
         tl.toIndex = (index: number, options?: any) => {
-            console.log("Finite timeline toIndex called:", { index, itemsLength: items.length, lastIndex, isValid: index >= 0 && index < items.length, alignment })
+            console.log("Finite timeline toIndex called:", { 
+                index, 
+                itemsLength: items.length, 
+                lastIndex, 
+                isValid: index >= 0 && index < items.length, 
+                alignment,
+                options,
+                currentPositions: items.map((item, i) => ({ 
+                    index: i, 
+                    x: gsap.getProperty(item, "x"),
+                    offsetWidth: item.offsetWidth 
+                }))
+            })
             
             if (index >= 0 && index < items.length) {
                 // Calculate target position based on alignment
@@ -705,13 +715,26 @@ export default function Carousel({
             return tl.toIndex(prevIndex)
         }
 
-        // Set up draggable if enabled
-        if (config.draggable) {
+        // Set up draggable if enabled (but disable in finite mode with click navigation to prevent conflicts)
+        if (config.draggable && !(finiteMode && clickNavigation)) {
             const draggableInstance = Draggable.create(items, {
                 type: "x",
                 bounds: { minX: -(totalWidth - (items[0]?.parentElement?.offsetWidth || 0)), maxX: 0 },
                 inertia: true,
-                onDrag: () => {
+                // Prevent draggable from interfering with click navigation
+                allowEventDefault: false,
+                onPress: function() {
+                    // Only allow dragging if it's not a click (check for movement)
+                    this.allowDrag = false
+                },
+                onDragStart: function() {
+                    // Only start dragging if there's actual movement
+                    if (Math.abs(this.getVelocity("x")) > 0.1) {
+                        this.allowDrag = true
+                    }
+                },
+                onDrag: function() {
+                    if (!this.allowDrag) return
                     // Update active element during drag
                     const closestIndex = tl.closestIndex()
                     if (closestIndex !== lastIndex) {
@@ -1554,34 +1577,7 @@ export default function Carousel({
                     loopRef.current = loop
                     initializationRef.current.isInitialized = true
 
-                    // Add click handlers to boxes (only if clickNavigation is enabled)
-                    if (clickNavigation) {
-                        boxesRef.current.forEach((box, i) => {
-                            if (box) {
-                                const clickHandler = () => {
-                                        try {
-                                    stopAutoplay() // Stop autoplay when user clicks
-                                    if (loop && loop.toIndex) {
-                                        loop.toIndex(i, {
-                                            duration: 0.8,
-                                            ease: "power1.inOut",
-                                        })
-                                    }
-                                    // Restart autoplay after user interaction
-                                    if (autoplay.enabled) {
-                                                setTimeout(startAutoplay, 10) // Restart after delay
-                                            }
-                                        } catch (error) {
-                                            console.error("Error in click handler:", error)
-                                    }
-                                }
-                                box.addEventListener("click", clickHandler)
-
-                                // Store the handler for cleanup
-                                ;(box as any).__clickHandler = clickHandler
-                            }
-                        })
-                    }
+                    // Click handlers are now handled directly in React onClick
 
                     // Initialize autoplay direction
                     currentAutoplayDirectionRef.current = autoplay.direction
@@ -1624,19 +1620,7 @@ export default function Carousel({
                         initializationRef.current.isInitialized = false
                         stopAutoplay() // Stop autoplay on cleanup
 
-                        // Custom cleanup for event listeners
-                        boxesRef.current.forEach((box) => {
-                            if (box && (box as any).__clickHandler) {
-                                    try {
-                                box.removeEventListener(
-                                    "click",
-                                    (box as any).__clickHandler
-                                )
-                                    } catch (error) {
-                                        console.warn("Error removing click handler:", error)
-                                    }
-                            }
-                        })
+                        // Click handlers are now handled by React, no cleanup needed
 
                         // Call the timeline's cleanup function
                         if ((loop as any).cleanup) {
@@ -2117,6 +2101,27 @@ export default function Carousel({
                     if (el) boxesRef.current[i] = el
                 }}
                 className="box"
+                onClick={clickNavigation ? (e) => {
+                    e.stopPropagation()
+                    try {
+                        stopAutoplay() // Stop autoplay when user clicks
+                        
+                        // TREAT EACH SLIDE AS A BIG DOT - USE EXACT SAME LOGIC AS DOTS NAVIGATION
+                        if (loopRef.current && loopRef.current.toIndex) {
+                            loopRef.current.toIndex(i, {
+                                duration: 0.4,
+                                ease: "power1.inOut"
+                            })
+                        }
+                        
+                        // Restart autoplay after user interaction
+                        if (autoplay.enabled) {
+                            setTimeout(startAutoplay, 10) // Restart after delay
+                        }
+                    } catch (error) {
+                        console.error("Error in click handler:", error)
+                    }
+                } : undefined}
                 style={{
                     zIndex: 1, // Ensure slides stay below arrows (zIndex: 21)
                     border: "1px solid red",
