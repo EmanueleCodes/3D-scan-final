@@ -136,6 +136,21 @@ export default function Carousel({
     leftControl = null,
     rightControl = null,
     buttonsNavigation = true,
+    finiteMode = false,
+    slideAlignment = "left",
+    dotsUI = {
+        enabled: false,
+        size: 8,
+        gap: 12,
+        activeOpacity: 1,
+        inactiveOpacity: 0.3,
+        activeScale: 1.2,
+        backgroundColor: "#000000",
+        verticalAlign: "bottom",
+        horizontalAlign: "center",
+        insetX: 0,
+        insetY: 20,
+    },
     slidesUI = {
         central: "Same style",
         slideSizing: {
@@ -190,6 +205,21 @@ export default function Carousel({
     leftControl?: React.ReactNode
     rightControl?: React.ReactNode
     buttonsNavigation?: boolean
+    finiteMode?: boolean
+    slideAlignment?: "left" | "center" | "right"
+    dotsUI?: {
+        enabled?: boolean
+        size?: number
+        gap?: number
+        activeOpacity?: number
+        inactiveOpacity?: number
+        activeScale?: number
+        backgroundColor?: string
+        verticalAlign?: "top" | "center" | "bottom"
+        horizontalAlign?: "left" | "center" | "right"
+        insetX?: number
+        insetY?: number
+    }
     slidesUI?: {
         central: "Same style" | "Customize style"
         slideSizing?: {
@@ -237,6 +267,7 @@ export default function Carousel({
     // React state for component behavior
     const [showOverflow, setShowOverflow] = useState(false) // Toggle for showing overflow content
     const [activeElement, setActiveElement] = useState<HTMLElement | null>(null) // Currently active slide
+    const [activeSlideIndex, setActiveSlideIndex] = useState(0) // Current slide index for dots
     const [containerReady, setContainerReady] = useState(false) // Track when container has proper dimensions
 
     // Refs for tracking drag state without causing re-renders
@@ -280,6 +311,63 @@ export default function Carousel({
             return component
         }
     }, [])
+
+    /**
+     * Calculate dots positioning based on alignment settings
+     */
+    const calculateDotsPosition = useCallback(() => {
+        if (!dotsUI.enabled || !finiteMode) return { display: 'none' }
+        
+        const containerWidth = containerDimensions.current.width
+        const containerHeight = containerDimensions.current.height
+        
+        if (containerWidth === 0 || containerHeight === 0) return { display: 'none' }
+        
+        // Calculate vertical position
+        let top = 'auto'
+        let bottom = 'auto'
+        let transform = 'translateY(0)'
+        
+        if (dotsUI.verticalAlign === 'top') {
+            top = `${dotsUI.insetY || 0}px`
+        } else if (dotsUI.verticalAlign === 'bottom') {
+            bottom = `${dotsUI.insetY || 0}px`
+        } else if (dotsUI.verticalAlign === 'center') {
+            top = '50%'
+            transform = 'translateY(-50%)'
+        }
+        
+        // Calculate horizontal position
+        let left = 'auto'
+        let right = 'auto'
+        let justifyContent = 'center'
+        
+        if (dotsUI.horizontalAlign === 'left') {
+            left = `${dotsUI.insetX || 0}px`
+            justifyContent = 'flex-start'
+        } else if (dotsUI.horizontalAlign === 'right') {
+            right = `${dotsUI.insetX || 0}px`
+            justifyContent = 'flex-end'
+        } else if (dotsUI.horizontalAlign === 'center') {
+            left = '50%'
+            transform = transform === 'translateY(-50%)' ? 'translate(-50%, -50%)' : 'translateX(-50%)'
+            justifyContent = 'center'
+        }
+        
+        return {
+            position: 'absolute' as const,
+            top,
+            bottom,
+            left,
+            right,
+            transform,
+            display: 'flex',
+            gap: `${dotsUI.gap || 12}px`,
+            justifyContent,
+            alignItems: 'center',
+            zIndex: 10,
+        }
+    }, [dotsUI, finiteMode, containerDimensions.current.width, containerDimensions.current.height])
 
     /**
      * Calculate slide dimensions based on sizing mode with proper validation and responsive behavior
@@ -426,6 +514,7 @@ export default function Carousel({
                     objectFit: "cover" as const,
                 }
             
+            
             case "fill":
                 return {
                     width: containerWidth, // 100% of actual container width (not safe)
@@ -457,7 +546,190 @@ export default function Carousel({
                     objectFit: "cover" as const,
                 }
         }
-    }, [slidesUI.slideSizing])
+    }, [slidesUI.slideSizing, finiteMode])
+
+    /**
+     * Creates a finite timeline animation using GSAP
+     *
+     * This function creates a simple horizontal timeline without infinite loop.
+     * Slides move from first to last without duplication.
+     *
+     * @param {HTMLElement[]} items - Array of DOM elements to animate
+     * @param {LoopConfig} config - Configuration object for the timeline
+     * @returns {HorizontalLoopTimeline|null} - GSAP timeline with custom methods, or null if no items
+     */
+    function createFiniteTimeline(
+        items: HTMLElement[],
+        config: LoopConfig,
+        alignment: "left" | "center" | "right" = "left"
+    ): HorizontalLoopTimeline | null {
+        // Early return if no items provided
+        if (!items.length) return null
+        
+        console.log("Creating finite timeline with items:", {
+            itemCount: items.length,
+            items: items.map((item, i) => ({ index: i, element: item.tagName, width: item.offsetWidth }))
+        })
+
+        // Extract configuration values with defaults
+        const onChange = config.onChange
+        let lastIndex = 0 // Track the last active index to detect changes
+
+        // Create a simple timeline
+        const tl = gsap.timeline({ paused: true }) as any
+
+        // Calculate total width and positions
+        const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+        const totalWidth = items.reduce((sum, item, i) => {
+            const width = item.offsetWidth
+            const gap = i < items.length - 1 ? (config.gap || 0) : 0
+            return sum + width + gap
+        }, 0)
+        
+        // Position slides horizontally (start with left alignment)
+        let currentX = 0
+        items.forEach((item, i) => {
+            gsap.set(item, { x: currentX })
+            currentX += item.offsetWidth + (i < items.length - 1 ? (config.gap || 0) : 0)
+        })
+
+        // Create timeline animations
+        items.forEach((item, i) => {
+            let targetX = -i * (item.offsetWidth + (config.gap || 0))
+            
+            if (alignment === "center") {
+                // Center each slide within the container
+                const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+                const slideWidth = items[0].offsetWidth
+                targetX += (containerWidth - slideWidth) / 2
+            } else if (alignment === "right") {
+                // Align each slide to the right edge
+                const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+                const slideWidth = items[0].offsetWidth
+                targetX += containerWidth - slideWidth
+            }
+            
+            tl.to(items, { x: targetX, duration: 0.8, ease: "power1.inOut" }, 0)
+        })
+
+        // Add custom methods to match HorizontalLoopTimeline interface
+        tl.toIndex = (index: number, options?: any) => {
+            console.log("Finite timeline toIndex called:", { index, itemsLength: items.length, lastIndex, isValid: index >= 0 && index < items.length, alignment })
+            
+            if (index >= 0 && index < items.length) {
+                // Calculate target position based on alignment
+                let targetX = -index * (items[0].offsetWidth + (config.gap || 0))
+                
+                if (alignment === "center") {
+                    // Center the active slide within the container
+                    const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+                    const slideWidth = items[0].offsetWidth
+                    targetX += (containerWidth - slideWidth) / 2
+                } else if (alignment === "right") {
+                    // Align the active slide to the right edge
+                    const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+                    const slideWidth = items[0].offsetWidth
+                    targetX += containerWidth - slideWidth
+                }
+                // For "left" alignment, targetX remains as calculated
+                
+                const tween = gsap.to(items, { x: targetX, duration: options?.duration || 0.8, ease: options?.ease || "power1.inOut" })
+                
+                // Update lastIndex to track current position
+                lastIndex = index
+                
+                // Update active element
+                if (onChange && items[index]) {
+                    onChange(items[index], index)
+                }
+                
+                return tween
+            }
+            console.warn("Finite timeline toIndex: invalid index", { index, itemsLength: items.length })
+            return tl
+        }
+
+        tl.closestIndex = () => {
+            // Find the slide closest to center
+            const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+            const centerX = containerWidth / 2
+            let closestIndex = 0
+            let minDistance = Infinity
+
+            items.forEach((item, i) => {
+                const itemX = gsap.getProperty(item, "x") as number
+                const itemCenter = itemX + item.offsetWidth / 2
+                const distance = Math.abs(itemCenter - centerX)
+                
+                if (distance < minDistance) {
+                    minDistance = distance
+                    closestIndex = i
+                }
+            })
+
+            return closestIndex
+        }
+
+        tl.current = () => lastIndex
+        tl.next = () => {
+            const nextIndex = Math.min(lastIndex + 1, items.length - 1)
+            console.log("Finite timeline next:", { lastIndex, nextIndex, maxIndex: items.length - 1, canGoNext: nextIndex > lastIndex })
+            return tl.toIndex(nextIndex)
+        }
+        tl.previous = () => {
+            const prevIndex = Math.max(lastIndex - 1, 0)
+            console.log("Finite timeline previous:", { lastIndex, prevIndex, canGoPrev: prevIndex < lastIndex })
+            return tl.toIndex(prevIndex)
+        }
+
+        // Set up draggable if enabled
+        if (config.draggable) {
+            const draggableInstance = Draggable.create(items, {
+                type: "x",
+                bounds: { minX: -(totalWidth - (items[0]?.parentElement?.offsetWidth || 0)), maxX: 0 },
+                inertia: true,
+                onDrag: () => {
+                    // Update active element during drag
+                    const closestIndex = tl.closestIndex()
+                    if (closestIndex !== lastIndex) {
+                        lastIndex = closestIndex
+                        if (onChange && items[closestIndex]) {
+                            onChange(items[closestIndex], closestIndex)
+                        }
+                    }
+                }
+            })[0]
+
+        if (draggableInstance) {
+            tl.draggable = draggableInstance
+        }
+    }
+
+    // Center the first slide on initial load if in center alignment mode
+    if (alignment === "center") {
+        // Use a small delay to ensure container dimensions are available
+        setTimeout(() => {
+            const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+            const slideWidth = items[0].offsetWidth
+            if (containerWidth > 0 && slideWidth > 0) {
+                const centerOffset = (containerWidth - slideWidth) / 2
+                gsap.set(items, { x: centerOffset })
+            }
+        }, 10)
+    } else if (alignment === "right") {
+        // Right align the first slide on initial load
+        setTimeout(() => {
+            const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+            const slideWidth = items[0].offsetWidth
+            if (containerWidth > 0 && slideWidth > 0) {
+                const rightOffset = containerWidth - slideWidth
+                gsap.set(items, { x: rightOffset })
+            }
+        }, 10)
+    }
+
+    return tl
+    }
 
     /**
      * Creates a horizontal infinite loop animation using GSAP
@@ -1188,7 +1460,46 @@ export default function Carousel({
                     }
                     
                 try {
-                const loop = createHorizontalLoop(finalValidSlides, {
+                // Use different GSAP logic for finite vs infinite modes
+                let loop: HorizontalLoopTimeline | null = null
+                
+                if (finiteMode) {
+                    // Finite mode: create a simple timeline without infinite loop
+                    console.log("Creating finite timeline with slides:", {
+                        finiteMode,
+                        finalValidSlidesCount: finalValidSlides.length,
+                        expectedCount: slideData.finalCount,
+                        slides: finalValidSlides.map((slide, i) => ({ index: i, element: slide.tagName }))
+                    })
+                    loop = createFiniteTimeline(finalValidSlides, {
+                        paused: true,
+                        draggable: draggable,
+                        center: wrapperRef.current || true,
+                        gap: currentGap,
+                        onChange: (element: HTMLElement, index: number) => {
+                            // Debounce onChange to prevent excessive state updates
+                            requestAnimationFrame(() => {
+                                try {
+                                    // Update React state when active slide changes
+                                    setActiveElement(element)
+                                    setActiveSlideIndex(index)
+
+                                    // Remove active class from all slides
+                                    boxesRef.current.forEach((box) => {
+                                        if (box) box.classList.remove("active")
+                                    })
+
+                                    // Add active class to the current slide
+                                    if (element) element.classList.add("active")
+                                } catch (error) {
+                                    console.error("Error in onChange callback:", error)
+                                }
+                            })
+                        },
+                    }, slideAlignment)
+                } else {
+                    // Infinite mode: use horizontal loop
+                    loop = createHorizontalLoop(finalValidSlides, {
                     paused: true,
                     draggable: draggable, // Use the property control value
                     center: wrapperRef.current || true, // Pass the wrapper element for proper centering
@@ -1199,6 +1510,7 @@ export default function Carousel({
                             try {
                         // Update React state when active slide changes
                         setActiveElement(element)
+                        setActiveSlideIndex(index)
 
                         // Remove active class from all slides
                         boxesRef.current.forEach((box) => {
@@ -1213,6 +1525,7 @@ export default function Carousel({
                         })
                     },
                 })
+                }
 
                 if (loop) {
                     loopRef.current = loop
@@ -1598,7 +1911,16 @@ export default function Carousel({
     const calculateRequiredSlides = useCallback(() => {
         // Validate content array
         const validContent = Array.isArray(content) ? content.filter(item => item != null) : []
-        const actualSlideCount = Math.max(validContent.length, 3) // Minimum 3 for infinite loop
+        const actualSlideCount = finiteMode 
+            ? Math.max(validContent.length, 1) // Finite mode: use actual content count
+            : Math.max(validContent.length, 3) // Infinite modes: minimum 3 for infinite loop
+        
+        console.log("Finite mode slide calculation:", {
+            finiteMode,
+            validContentLength: validContent.length,
+            actualSlideCount,
+            validContent: validContent.map((item, i) => ({ index: i, type: typeof item }))
+        })
         
         // DYNAMIC APPROACH: Calculate slides needed to fill container
         const containerWidth = containerDimensions.current.width
@@ -1606,8 +1928,11 @@ export default function Carousel({
         
         if (containerWidth > 0) {
             // Calculate how many slides we need to fill the container
-            // We need at least 2x the content for infinite loop, but more if container is wide
-            const minSlides = actualSlideCount * 2 // Minimum for infinite loop
+            // For finite mode, just use the actual slide count
+            // For infinite modes, we need at least 2x the content for infinite loop
+            const minSlides = finiteMode 
+                ? actualSlideCount // Finite mode: just the actual slides
+                : actualSlideCount * 2 // Infinite modes: minimum for infinite loop
             
             // Calculate slide width (use first slide width if available, otherwise estimate)
             // For very short slides, we need a better estimation strategy
@@ -1623,18 +1948,24 @@ export default function Carousel({
             const slideWidthWithGap = estimatedSlideWidth + gap
             
             // Calculate how many slides we need to fill the container with some overflow
-            const slidesNeeded = Math.ceil((containerWidth * 1.5) / slideWidthWithGap) // 1.5x for smooth scrolling
+            const slidesNeeded = finiteMode
+                ? actualSlideCount // Finite mode: just use actual slides
+                : Math.ceil((containerWidth * 1.5) / slideWidthWithGap) // 1.5x for smooth scrolling
             
             // CRITICAL FIX: Ensure finalCount is always a multiple of actualSlideCount
             // This ensures proper content cycling and infinite loop behavior
             const rawFinalCount = Math.max(minSlides, slidesNeeded)
-            const finalCount = Math.ceil(rawFinalCount / actualSlideCount) * actualSlideCount
+            const finalCount = finiteMode
+                ? rawFinalCount // Finite mode: use exact count
+                : Math.ceil(rawFinalCount / actualSlideCount) * actualSlideCount // Infinite modes: ensure multiples
             
             // SAFETY CHECK: Ensure we have enough slides for very wide containers
             // For very wide containers, we might need more than 1.5x to ensure smooth scrolling
             const minSlidesForWideContainer = Math.ceil(containerWidth / slideWidthWithGap) + actualSlideCount
             const finalCountWithSafety = Math.max(finalCount, minSlidesForWideContainer)
-            const finalFinalCount = Math.ceil(finalCountWithSafety / actualSlideCount) * actualSlideCount
+            const finalFinalCount = finiteMode
+                ? finalCount // Finite mode: use exact count (no safety check)
+                : Math.ceil(finalCountWithSafety / actualSlideCount) * actualSlideCount // Infinite modes: ensure multiples
             
             console.log("Dynamic slide calculation:", {
                 containerWidth,
@@ -1657,13 +1988,13 @@ export default function Carousel({
             const finalCount = actualSlideCount * 2
         return { finalCount, actualSlideCount, validContent }
         }
-    }, [content, ui?.gap])
+    }, [content, finiteMode, ui?.gap])
 
     /**
      * Generate stable slide widths - SIMPLIFIED
      */
     const generateSlideWidths = useCallback(() => {
-        const { finalCount, validContent } = calculateRequiredSlides()
+        const { finalCount, actualSlideCount, validContent } = calculateRequiredSlides()
         
         // Use current container dimensions
         const containerWidth = containerDimensions.current.width
@@ -1679,7 +2010,7 @@ export default function Carousel({
             const canvasFinalCount = Math.max(finalCount, 6)
             boxWidths.current = Array.from({ length: canvasFinalCount }, () => fallbackWidth)
             boxHeights.current = Array.from({ length: canvasFinalCount }, () => fallbackHeight)
-            return { finalCount: canvasFinalCount, validContent }
+            return { finalCount: canvasFinalCount, actualSlideCount, validContent }
         }
         
         // Calculate width and height once and use for all slides
@@ -1715,7 +2046,7 @@ export default function Carousel({
             mode: slidesUI.slideSizing?.mode
         })
         
-        return { finalCount, validContent }
+        return { finalCount, actualSlideCount, validContent }
     }, [calculateRequiredSlides, calculateSlideDimensions])
 
     // DYNAMIC FIX: Recalculate slides when container size changes
@@ -2045,11 +2376,168 @@ export default function Carousel({
                     {boxes}
                 </div>
             </div>
+            
+            {/* Dots Navigation - Only show in finite mode when enabled */}
+            {finiteMode && dotsUI.enabled && (
+                <div style={calculateDotsPosition()}>
+                    {Array.from({ length: slideData?.actualSlideCount || 0 }, (_, index) => (
+                        <button
+                            key={index}
+                            onClick={() => {
+                                if (loopRef.current && loopRef.current.toIndex) {
+                                    loopRef.current.toIndex(index, {
+                                        duration: 0.4,
+                                        ease: "power1.inOut"
+                                    })
+                                }
+                            }}
+                            style={{
+                                width: `${dotsUI.size || 8}px`,
+                                height: `${dotsUI.size || 8}px`,
+                                borderRadius: '50%',
+                                border: 'none',
+                                backgroundColor: dotsUI.backgroundColor || '#000000',
+                                opacity: index === activeSlideIndex 
+                                    ? (dotsUI.activeOpacity || 1) 
+                                    : (dotsUI.inactiveOpacity || 0.3),
+                                transform: index === activeSlideIndex 
+                                    ? `scale(${dotsUI.activeScale || 1.2})` 
+                                    : 'scale(1)',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease',
+                                padding: 0,
+                                margin: 0,
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     )
 }
 
 addPropertyControls(Carousel, {
+    finiteMode: {
+        type: ControlType.Boolean,
+        title: "Finite Mode",
+        defaultValue: false,
+        description: "Enable finite mode (no infinite loop, goes from first to last slide)",
+    },
+    slideAlignment: {
+        type: ControlType.Enum,
+        title: "Slide Alignment",
+        options: ["left", "center", "right"],
+        optionTitles: ["Left", "Center", "Right"],
+        defaultValue: "left",
+        description: "How slides align within the carousel container",
+    },
+    dotsUI: {
+        type: ControlType.Object,
+        title: "Dots",
+        hidden: (props: any) => !props.finiteMode,
+        controls: {
+            enabled: {
+                type: ControlType.Boolean,
+                title: "Enable",
+                defaultValue: false,                
+            },
+            size: {
+                type: ControlType.Number,
+                title: "Size",
+                min: 4,
+                max: 20,
+                step: 1,
+                defaultValue: 8,
+                
+                hidden: (props: any) => !props.enabled,
+            },
+            gap: {
+                type: ControlType.Number,
+                title: "Gap",
+                min: 4,
+                max: 30,
+                step: 1,
+                defaultValue: 12,
+               
+                hidden: (props: any) => !props.enabled,
+            },
+            activeOpacity: {
+                type: ControlType.Number,
+                title: "Opacity",
+                min: 0.1,
+                max: 1,
+                step: 0.1,
+                defaultValue: 1,
+                description: "Opacity of the active dot",
+                hidden: (props: any) => !props.enabled,
+            },
+            inactiveOpacity: {
+                type: ControlType.Number,
+                title: "Inactive",
+                min: 0.1,
+                max: 1,
+                step: 0.1,
+                defaultValue: 0.3,
+               
+                hidden: (props: any) => !props.enabled,
+            },
+            activeScale: {
+                type: ControlType.Number,
+                title: "Active Scale",
+                min: 0.5,
+                max: 2,
+                step: 0.1,
+                defaultValue: 1.2,
+                hidden: (props: any) => !props.enabled,
+            },
+            backgroundColor: {
+                type: ControlType.Color,
+                title: "Color",
+                defaultValue: "#000000",
+                hidden: (props: any) => !props.enabled,
+            },
+            verticalAlign: {
+                type: ControlType.Enum,
+                title: "Vertical",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["Top", "Center", "Bottom"],
+                defaultValue: "bottom",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+                hidden: (props: any) => !props.enabled,
+            },
+            horizontalAlign: {
+                type: ControlType.Enum,
+                title: "Horizontal",
+                options: ["left", "center", "right"],
+                optionTitles: ["Left", "Center", "Right"],
+                defaultValue: "center",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+                hidden: (props: any) => !props.enabled,
+            },
+            insetX: {
+                type: ControlType.Number,
+                title: "Y Inset",
+                min: -100,
+                max: 100,
+                step: 1,
+                defaultValue: 0,
+               
+                hidden: (props: any) => !props.enabled,
+            },
+            insetY: {
+                type: ControlType.Number,
+                title: "X Inset",
+                min: -100,
+                max: 100,
+                step: 1,
+                defaultValue: 20,
+                
+                hidden: (props: any) => !props.enabled,
+            },
+        },
+    },
     draggable: {
         type: ControlType.Boolean,
         title: "Draggable",
