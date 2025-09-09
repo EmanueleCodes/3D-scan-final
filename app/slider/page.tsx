@@ -303,6 +303,7 @@ export default function Carousel({
     const [activeElement, setActiveElement] = useState<HTMLElement | null>(null) // Currently active slide
     const [activeSlideIndex, setActiveSlideIndex] = useState(0) // Current slide index for dots
     const [containerReady, setContainerReady] = useState(false) // Track when container has proper dimensions
+    const [isFullyInitialized, setIsFullyInitialized] = useState(false) // Track when all GSAP setup and centering is complete
 
     // Refs for tracking drag state without causing re-renders
     const isDraggingRef = useRef(false) // Track if user is currently dragging
@@ -330,6 +331,62 @@ export default function Carousel({
         }
         return easing
     }, [animation.elasticAmplitude, animation.elasticPeriod, animation.backIntensity])
+
+    /**
+     * Apply initial central slide styling using gsap.set
+     * 
+     * This function sets the initial visual state for the central slide
+     * immediately without animation, ensuring proper styling on first load.
+     */
+    const applyInitialCentralSlideStyling = useCallback((slideElement: HTMLElement) => {
+        if (!slideElement) return
+
+        const innerElement = slideElement.querySelector('.box__inner') as HTMLElement
+        if (!innerElement) return
+
+        // Get the appropriate style values for central slide
+        const isCentralCustomized = slidesUI.central === "Customize style"
+        const targetScale = isCentralCustomized ? slidesUI.centralSlide.scale || 1.1 : slidesUI.allSlides.scale || 1.1
+        const targetOpacity = isCentralCustomized ? slidesUI.centralSlide.opacity || 1 : slidesUI.allSlides.opacity || 1
+        const targetBackgroundColor = isCentralCustomized ? slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)" : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"
+        const targetBorder = isCentralCustomized ? slidesUI.centralSlide.border : slidesUI.allSlides.border
+        const targetRadius = isCentralCustomized ? slidesUI.centralSlide.radius || "10px" : slidesUI.allSlides.radius || "10px"
+        const targetShadow = isCentralCustomized ? slidesUI.centralSlide.shadow || "0px 0px 0px rgba(0,0,0,0)" : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)"
+
+        // Create border shadow effect
+        let borderShadow = ""
+        if (targetBorder && typeof targetBorder === 'object') {
+            const borderWidth = (targetBorder as any).borderWidth || '1px'
+            const borderColor = (targetBorder as any).borderColor || 'rgba(0,0,0,0.2)'
+            const widthValue = typeof borderWidth === 'string' 
+                ? parseInt(borderWidth.replace('px', '')) || 1
+                : parseInt(String(borderWidth)) || 1
+            borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
+        } else if (typeof targetBorder === 'string') {
+            const parts = targetBorder.split(' ')
+            const width = parts[0] || '1px'
+            const color = parts[2] || 'rgba(0,0,0,0.2)'
+            const widthValue = parseInt(width.replace('px', '')) || 1
+            borderShadow = `0 0 0 ${widthValue}px ${color}`
+        } else {
+            borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
+        }
+        
+        // Combine existing shadow with border shadow
+        const finalShadow = targetShadow && targetShadow !== "0px 0px 0px rgba(0,0,0,0)" 
+            ? `${borderShadow}, ${targetShadow}`
+            : borderShadow
+
+        // Apply initial styling with gsap.set (immediate, no animation)
+        gsap.set(innerElement, {
+            scale: targetScale,
+            opacity: targetOpacity,
+            backgroundColor: targetBackgroundColor,
+            boxShadow: finalShadow,
+            borderRadius: targetRadius,
+            transformOrigin: "center"
+        })
+    }, [slidesUI])
 
     /**
      * Animate slide visual properties using GSAP
@@ -1556,6 +1613,18 @@ export default function Carousel({
 
     // Add initialization state to prevent race conditions
     const initializationRef = useRef({ isInitializing: false, isInitialized: false })
+    
+    // Fallback timeout to ensure component shows up even if initialization fails
+    useEffect(() => {
+        const fallbackTimeout = setTimeout(() => {
+            if (!isFullyInitialized) {
+                console.log("Fallback timeout: forcing component to show")
+                setIsFullyInitialized(true)
+            }
+        }, 2000) // 2 second fallback
+        
+        return () => clearTimeout(fallbackTimeout)
+    }, [isFullyInitialized])
 
     /**
      * Initialize the horizontal loop using useGSAP
@@ -1778,10 +1847,23 @@ export default function Carousel({
 
                     // Initialize visual states for all slides and dots
                     setTimeout(() => {
+                        // For infinite mode, find the central slide and apply initial styling
+                        if (!finiteMode && loop && loop.times && loop.times.length > 0) {
+                            // Find the central slide index (middle of the timeline)
+                            const centralIndex = Math.floor(loop.times.length / 2)
+                            const centralSlide = boxesRef.current[centralIndex]
+                            
+                            if (centralSlide) {
+                                // Apply initial central slide styling immediately
+                                applyInitialCentralSlideStyling(centralSlide)
+                                console.log("Applied initial central slide styling to index:", centralIndex)
+                            }
+                        }
+
                         // Set initial visual state for all slides
                         boxesRef.current.forEach((box, i) => {
                             if (box) {
-                                const isActive = i === 0 // First slide is active by default
+                                const isActive = finiteMode ? i === 0 : i === Math.floor((loop?.times?.length || 0) / 2)
                                 animateSlideVisuals(box, isActive)
                             }
                         })
@@ -1823,6 +1905,10 @@ export default function Carousel({
                             }
                             console.log("Delayed centering applied to time:", centerTime, "index:", middleIndex)
                         }
+                        
+                        // Mark as fully initialized after all centering is complete
+                        console.log("Setting isFullyInitialized to true")
+                        setIsFullyInitialized(true)
                     }, 100)
 
                     // Return cleanup function - useGSAP will handle this automatically
@@ -2474,6 +2560,15 @@ export default function Carousel({
      * - Individual slide elements with gradient borders
      * - Inline CSS for gradient theming and active states
      */
+    
+    // Show loading state until all GSAP setup and centering is complete
+    // Temporarily disabled to ensure component shows up
+    // if (!isFullyInitialized) {
+    //     return (
+    //         <div>Loading...</div>
+    //     )
+    // }
+
     return (
         <div
             style={{
