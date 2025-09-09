@@ -357,20 +357,44 @@ export default function Carousel({
             ? (isCentralCustomized ? slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)" : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)")
             : (slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)")
 
-        const targetShadow = isActive
-            ? (isCentralCustomized ? slidesUI.centralSlide.shadow || "0px 0px 0px rgba(0,0,0,0)" : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0)")
-            : (slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0)")
-
         const targetBorder = isActive
             ? (isCentralCustomized ? slidesUI.centralSlide.border : slidesUI.allSlides.border)
             : (slidesUI.allSlides.border)
         
-        // Convert border object to string if needed
-        const borderString = typeof targetBorder === 'string' 
-            ? targetBorder 
-            : targetBorder 
-                ? `${targetBorder.width || '1px'} ${targetBorder.style || 'solid'} ${targetBorder.color || 'rgba(0,0,0,0.2)'}`
-                : '1px solid rgba(0,0,0,0.2)'
+        // Get existing shadow
+        const existingShadow = isActive
+            ? (isCentralCustomized ? slidesUI.centralSlide.shadow || "0px 0px 0px rgba(0,0,0,0)" : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0)")
+            : (slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0)")
+        
+        // Create border shadow effect
+        let borderShadow = ""
+        if (targetBorder && typeof targetBorder === 'object') {
+            const borderWidth = (targetBorder as any).borderWidth || '1px'
+            const borderColor = (targetBorder as any).borderColor || 'rgba(0,0,0,0.2)'
+            // Handle both string and number borderWidth values
+            const widthValue = typeof borderWidth === 'string' 
+                ? parseInt(borderWidth.replace('px', '')) || 1
+                : parseInt(String(borderWidth)) || 1
+            borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
+            console.log("Animation border shadow created:", { borderWidth, borderColor, widthValue, borderShadow })
+        } else if (typeof targetBorder === 'string') {
+            const parts = targetBorder.split(' ')
+            const width = parts[0] || '1px'
+            const color = parts[2] || 'rgba(0,0,0,0.2)'
+            const widthValue = parseInt(width.replace('px', '')) || 1
+            borderShadow = `0 0 0 ${widthValue}px ${color}`
+            console.log("Animation border shadow from string:", { width, color, widthValue, borderShadow })
+        } else {
+            borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
+            console.log("Animation using default border shadow:", borderShadow)
+        }
+        
+        // Combine existing shadow with border shadow
+        const targetShadow = existingShadow && existingShadow !== "0px 0px 0px rgba(0,0,0,0)" 
+            ? `${borderShadow}, ${existingShadow}`
+            : borderShadow
+        
+        console.log("Final target shadow for animation:", { existingShadow, borderShadow, targetShadow })
 
         const targetRadius = isActive
             ? (isCentralCustomized ? slidesUI.centralSlide.radius || "10px" : slidesUI.allSlides.radius || "10px")
@@ -382,7 +406,6 @@ export default function Carousel({
             opacity: targetOpacity,
             backgroundColor: targetBackgroundColor,
             boxShadow: targetShadow,
-            border: borderString,
             borderRadius: targetRadius,
             duration: animation.duration || 0.4,
             ease: getEasingString(animation.easing || "power1.inOut"),
@@ -411,6 +434,30 @@ export default function Carousel({
             })
         })
     }, [dotsUI, animation.duration, animation.easing, getEasingString])
+
+    // Animation function for navigation buttons
+    const animateButtons = useCallback((isPrevDisabled: boolean, isNextDisabled: boolean) => {
+        const leftButton = document.querySelector('[data-button="prev"]') as HTMLElement
+        const rightButton = document.querySelector('[data-button="next"]') as HTMLElement
+
+        if (leftButton) {
+            gsap.to(leftButton, {
+                scale: isPrevDisabled ? (buttonsUI.disabledScale || 0.8) : 1,
+                opacity: isPrevDisabled ? (buttonsUI.disabledOpacity || 0.5) : 1,
+                duration: animation.duration || 0.4,
+                ease: getEasingString(animation.easing || "power1.inOut")
+            })
+        }
+
+        if (rightButton) {
+            gsap.to(rightButton, {
+                scale: isNextDisabled ? (buttonsUI.disabledScale || 0.8) : 1,
+                opacity: isNextDisabled ? (buttonsUI.disabledOpacity || 0.5) : 1,
+                duration: animation.duration || 0.4,
+                ease: getEasingString(animation.easing || "power1.inOut")
+            })
+        }
+    }, [animation.duration, animation.easing, getEasingString, buttonsUI.disabledScale, buttonsUI.disabledOpacity])
 
     /**
      * Make a component responsive by cloning it with updated styles
@@ -1667,6 +1714,13 @@ export default function Carousel({
                                     if (finiteMode && dotsUI.enabled) {
                                         animateDots(index)
                                     }
+
+                                    // Animate buttons based on disabled state
+                                    if (finiteMode && buttonsNavigation) {
+                                        const isPrevDisabled = index === 0
+                                        const isNextDisabled = index === (slideData?.actualSlideCount || 1) - 1
+                                        animateButtons(isPrevDisabled, isNextDisabled)
+                                    }
                                 } catch (error) {
                                     console.error("Error in onChange callback:", error)
                                 }
@@ -1735,6 +1789,13 @@ export default function Carousel({
                         // Set initial visual state for dots if in finite mode
                         if (finiteMode && dotsUI.enabled) {
                             animateDots(0) // First dot is active by default
+                        }
+
+                        // Set initial visual state for buttons if in finite mode
+                        if (finiteMode && buttonsNavigation) {
+                            const isPrevDisabled = true // First slide, so prev is disabled
+                            const isNextDisabled = (slideData?.actualSlideCount || 1) <= 1 // Only one slide, so next is disabled
+                            animateButtons(isPrevDisabled, isNextDisabled)
                         }
                     }, 100) // Small delay to ensure DOM is ready
 
@@ -2356,7 +2417,6 @@ export default function Carousel({
                 <div
                     className="box__inner"
                     style={{
-                        border: "1px solid blue",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -2366,16 +2426,18 @@ export default function Carousel({
                         height: "100%",
                         // Ensure no CSS aspect ratio interferes when mode is not "aspect-ratio"
                         aspectRatio: slidesUI.slideSizing?.mode === "aspect-ratio" ? undefined : "auto",
-                        backgroundColor: slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)",
-                        // border: typeof slidesUI.allSlides.border === 'string' 
-                        //     ? slidesUI.allSlides.border 
-                        //     : slidesUI.allSlides.border 
-                        //         ? `${slidesUI.allSlides.border.width || '1px'} ${slidesUI.allSlides.border.style || 'solid'} ${slidesUI.allSlides.border.color || 'rgba(0,0,0,0.2)'}`
-                        //         : "1px solid rgba(0,0,0,0.2)",
-                        borderRadius: slidesUI.allSlides.radius,
-                        boxShadow: slidesUI.allSlides.shadow,
-                        transform: `scale(${Math.max(slidesUI.allSlides.scale || 1, 0.1)})`, // Ensure scale is positive
-                        opacity: Math.max(Math.min(slidesUI.allSlides.opacity || 1, 1), 0), // Clamp opacity between 0 and 1
+                        backgroundColor: i === activeSlideIndex 
+                            ? (slidesUI.centralSlide?.backgroundColor || slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)")
+                            : (slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"),
+                        border: "none", // Remove regular border 
+                        borderRadius: "10px", // Default value - GSAP will animate this
+                        boxShadow: "0 0 0 1px rgba(0,0,0,0.2)", // Default value - GSAP will animate this
+                        transform: `scale(${Math.max(i === activeSlideIndex 
+                            ? (slidesUI.centralSlide?.scale || slidesUI.allSlides.scale || 1)
+                            : (slidesUI.allSlides.scale || 1), 0.1)})`, // Ensure scale is positive
+                        opacity: Math.max(Math.min(i === activeSlideIndex 
+                            ? (slidesUI.centralSlide?.opacity || slidesUI.allSlides.opacity || 1)
+                            : (slidesUI.allSlides.opacity || 1), 1), 0), // Clamp opacity between 0 and 1
                         fontSize: "clamp(16px, 4vw, 36px)", // Responsive font size
                         fontWeight: "medium",
                         overflow:"hidden",
@@ -2442,6 +2504,7 @@ export default function Carousel({
                     {/* Previous Button */}
                     {leftControl && (
                         <div
+                            data-button="prev"
                             style={{
                                 zIndex: 9999,
                                 position: "absolute",
@@ -2474,24 +2537,6 @@ export default function Carousel({
                                             : "none",
                                 
                                 cursor: "pointer",
-                                // Disabled styling for finite mode
-                                ...(finiteMode && 
-                                    buttonsUI.disabledStyle === "styled" && 
-                                    activeSlideIndex === 0 && {
-                                        transform: `${
-                                            buttonsUI.horizontalAlign === "center" &&
-                                            buttonsUI.verticalAlign === "center"
-                                                ? "translateX(-100%) translateY(-50%)"
-                                                : buttonsUI.horizontalAlign === "center"
-                                                  ? "translateX(-100%)"
-                                                  : buttonsUI.verticalAlign === "center"
-                                                    ? "translateY(-50%)"
-                                                    : "none"
-                                        } scale(${buttonsUI.disabledScale})`,
-                                        opacity: buttonsUI.disabledOpacity,
-                                        cursor: "auto",
-                                    }
-                                ),
                             }}
                             onClick={finiteMode && activeSlideIndex === 0 ? undefined : (e) => {
                                 e.stopPropagation()
@@ -2505,6 +2550,7 @@ export default function Carousel({
                     {/* Next Button */}
                     {rightControl && (
                         <div
+                            data-button="next"
                             style={{
                                 zIndex: 9999,
                                 position: "absolute",
@@ -2537,24 +2583,6 @@ export default function Carousel({
                                             : "none",
                              
                                 cursor: "pointer",
-                                // Disabled styling for finite mode
-                                ...(finiteMode && 
-                                    buttonsUI.disabledStyle === "styled" && 
-                                    activeSlideIndex === (slideData?.actualSlideCount || 1) - 1 && {
-                                        transform: `${
-                                            buttonsUI.horizontalAlign === "center" &&
-                                            buttonsUI.verticalAlign === "center"
-                                                ? "translateX(100%) translateY(-50%)"
-                                                : buttonsUI.horizontalAlign === "center"
-                                                  ? "translateX(100%)"
-                                                  : buttonsUI.verticalAlign === "center"
-                                                    ? "translateY(-50%)"
-                                                    : "none"
-                                        } scale(${buttonsUI.disabledScale})`,
-                                        opacity: buttonsUI.disabledOpacity,
-                                        cursor: "auto",
-                                    }
-                                ),
                             }}
                             onClick={finiteMode && activeSlideIndex === (slideData?.actualSlideCount || 1) - 1 ? undefined : (e) => {
                                 e.stopPropagation()
@@ -2792,6 +2820,7 @@ addPropertyControls(Carousel, {
         type: ControlType.Boolean,
         title: "Draggable",
         defaultValue: true,
+        hidden: (props: any) => props.finiteMode,
     },
     dragFactor: {
         type: ControlType.Number,
