@@ -631,6 +631,9 @@ export default function Carousel({
                     immediateRender: true,
                 })
             } else {
+                // Kill any existing animations on this element to prevent conflicts
+                gsap.killTweensOf(innerElement)
+                
                 // For subsequent animations, use gsap.to() with user timing
                 gsap.to(innerElement, {
                     scale: targetScale,
@@ -641,6 +644,7 @@ export default function Carousel({
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                     transformOrigin: "center",
+                    overwrite: true, // Overwrite any existing animations on this element
                 })
             }
         },
@@ -1327,6 +1331,42 @@ export default function Carousel({
             }, 10)
         }
 
+        // Fallback click handler for when draggable is disabled but click navigation is enabled
+        if (!config.draggable && clickNavigation) {
+            items.forEach((item, index) => {
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation()
+                    try {
+                        stopAutoplay() // Stop autoplay when user clicks
+                        
+                        // Update styling immediately when click navigation starts
+                        const targetElement = items[index]
+                        if (targetElement) {
+                            // Update React state immediately
+                            setActiveElement(targetElement)
+                            setActiveSlideIndex(index)
+                            
+                            // Note: Visual updates will be handled by the onChange callback
+                            // when the slide actually changes, preventing animation conflicts
+                        }
+                        
+                        // Navigate to the clicked slide
+                        tl.toIndex(index, {
+                            duration: animation.duration,
+                            ease: getEasingString(animation.easing || "power1.inOut"),
+                        })
+                        
+                        // Restart autoplay after user interaction
+                        if (autoplay.enabled) {
+                            setTimeout(startAutoplay, 10)
+                        }
+                    } catch (error) {
+                        console.error("Error in fallback click handler:", error)
+                    }
+                })
+            })
+        }
+
         return tl
     }
 
@@ -1904,11 +1944,25 @@ export default function Carousel({
                                 if (slideElement) {
                                     const slideIndex = Array.from(boxesRef.current).indexOf(slideElement as HTMLDivElement)
                                     if (slideIndex !== -1 && loopRef.current && loopRef.current.toIndex) {
-                                        console.log("🎯 Clicking slide:", slideIndex)
-                                        loopRef.current.toIndex(slideIndex, {
-                                            duration: animation.duration,
-                                            ease: getEasingString(animation.easing || "power1.inOut"),
-                                        })
+                                        console.log("🎯 Clicking slide:", slideIndex, "infinite mode")
+                                        
+                                        // Use the same simple pattern as buttons navigation
+                                        try {
+                                            stopAutoplay() // Stop autoplay when user clicks
+                                            
+                                            // Just call toIndex directly, let onChange handle the visual updates
+                                            loopRef.current.toIndex(slideIndex, {
+                                                duration: animation.duration,
+                                                ease: getEasingString(animation.easing || "power1.inOut"),
+                                            })
+                                            
+                                            // Restart autoplay after user interaction
+                                            if (autoplay.enabled) {
+                                                setTimeout(startAutoplay, 10)
+                                            }
+                                        } catch (error) {
+                                            console.error("Error in click navigation:", error)
+                                        }
                                     }
                                 }
                             }
@@ -1954,6 +2008,23 @@ export default function Carousel({
                             isThrowingRef.current = true
                             indexIsDirty = true
                             console.log("🎯 Throwing animation will start")
+                            
+                            // Update styling immediately when throw starts
+                            try {
+                                const currentIndex = tl.closestIndex ? tl.closestIndex() : 0
+                                const currentElement = boxesRef.current[currentIndex]
+                                
+                                if (currentElement) {
+                                    // Update React state immediately
+                                    setActiveElement(currentElement)
+                                    setActiveSlideIndex(currentIndex)
+                                    
+                                    // Note: Visual updates will be handled by the onChange callback
+                                    // when the slide actually changes, preventing animation conflicts
+                                }
+                            } catch (error) {
+                                console.error("Error updating styling on throw start:", error)
+                            }
                         }
                     } else {
                         console.log("❌ Processing as click release (click nav enabled)")
@@ -2029,6 +2100,42 @@ export default function Carousel({
             if ((tl as any).cleanupGlobalDrag) {
                 ;(tl as any).cleanupGlobalDrag()
             }
+        }
+
+        // Fallback click handler for when draggable is disabled but click navigation is enabled
+        if (!config.draggable && clickNavigation) {
+            items.forEach((item, index) => {
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation()
+                    try {
+                        stopAutoplay() // Stop autoplay when user clicks
+                        
+                        // Update styling immediately when click navigation starts
+                        const targetElement = items[index]
+                        if (targetElement) {
+                            // Update React state immediately
+                            setActiveElement(targetElement)
+                            setActiveSlideIndex(index)
+                            
+                            // Note: Visual updates will be handled by the onChange callback
+                            // when the slide actually changes, preventing animation conflicts
+                        }
+                        
+                        // Navigate to the clicked slide
+                        tl.toIndex(index, {
+                            duration: animation.duration,
+                            ease: getEasingString(animation.easing || "power1.inOut"),
+                        })
+                        
+                        // Restart autoplay after user interaction
+                        if (autoplay.enabled) {
+                            setTimeout(startAutoplay, 10)
+                        }
+                    } catch (error) {
+                        console.error("Error in fallback click handler:", error)
+                    }
+                })
+            })
         }
 
         return tl
@@ -2438,6 +2545,7 @@ export default function Carousel({
                                     element: HTMLElement,
                                     index: number
                                 ) => {
+                                    console.log("🔄 Infinite mode onChange triggered - index:", index, "element:", element)
                                     // Debounce onChange to prevent excessive state updates
                                     requestAnimationFrame(() => {
                                         try {
