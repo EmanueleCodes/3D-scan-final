@@ -2111,8 +2111,8 @@ export default function Carousel({
             if (finiteMode) {
                 isCentralSlide = i === activeSlideIndex
             } else {
-                isCentralSlide =
-                    i === Math.floor((loopRef.current?.times?.length || 0) / 2)
+                // In infinite mode, also use the activeSlideIndex state for consistency
+                isCentralSlide = i === activeSlideIndex
             }
 
             const isCentralCustomized = slidesUI.central === "Customize style"
