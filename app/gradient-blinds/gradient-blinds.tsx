@@ -667,8 +667,18 @@ void main() {
 
             const rect = canvas.getBoundingClientRect()
             const scale = (renderer as unknown as { dpr?: number }).dpr || 1
-            const x = (e.clientX - rect.left) * scale
-            const y = (rect.height - (e.clientY - rect.top)) * scale
+            
+            // Calculate mouse position relative to the canvas center
+            const canvasCenterX = rect.left + rect.width / 2
+            const canvasCenterY = rect.top + rect.height / 2
+            
+            // Get mouse position relative to canvas center
+            const mouseX = e.clientX - canvasCenterX
+            const mouseY = e.clientY - canvasCenterY
+            
+            // Convert to canvas coordinate system (centered at origin)
+            const x = (mouseX * scale) + (gl.drawingBufferWidth / 2)
+            const y = (-mouseY * scale) + (gl.drawingBufferHeight / 2)
 
             // Ensure we never set invalid coordinates
             if (

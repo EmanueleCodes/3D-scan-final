@@ -1853,9 +1853,154 @@ export default function Carousel({
                 setIsFullyInitialized(true)
             }
         }, 2000) // 2 second fallback
-        
+
         return () => clearTimeout(fallbackTimeout)
     }, [isFullyInitialized])
+
+    // Update slide visuals when slidesUI props change
+    useEffect(() => {
+        if (!isFullyInitialized || !boxesRef.current) return
+
+        console.log("SlidesUI props changed, updating slide visuals")
+        
+        // Update all slides with new styling
+        boxesRef.current.forEach((slideElement, i) => {
+            if (!slideElement) return
+
+            const innerElement = slideElement.querySelector('.box__inner') as HTMLElement
+            if (!innerElement) return
+
+            // Determine if this is the active/central slide
+            let isCentralSlide = false
+            
+            if (finiteMode) {
+                isCentralSlide = i === activeSlideIndex
+            } else {
+                isCentralSlide = i === Math.floor((loopRef.current?.times?.length || 0) / 2)
+            }
+            
+            const isCentralCustomized = slidesUI.central === "Customize style"
+            
+            // Get the appropriate style values
+            const targetScale = isCentralSlide && isCentralCustomized 
+                ? (slidesUI.centralSlide.scale || 1.1)
+                : (slidesUI.allSlides.scale || 1)
+            
+            const targetOpacity = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.opacity || 1)
+                : (slidesUI.allSlides.opacity || 1)
+            
+            const targetBackgroundColor = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)")
+                : (slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)")
+            
+            const targetBorder = isCentralSlide && isCentralCustomized
+                ? slidesUI.centralSlide.border
+                : slidesUI.allSlides.border
+            
+            const targetRadius = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.radius || "10px")
+                : (slidesUI.allSlides.radius || "10px")
+            
+            const targetShadow = isCentralSlide && isCentralCustomized
+                ? (slidesUI.centralSlide.shadow || "0px 0px 0px rgba(0,0,0,0)")
+                : (slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)")
+
+            // Create border shadow effect
+            let borderShadow = ""
+            if (targetBorder && typeof targetBorder === 'object') {
+                const borderWidth = (targetBorder as any).borderWidth || '1px'
+                const borderColor = (targetBorder as any).borderColor || 'rgba(0,0,0,0.2)'
+                const widthValue = typeof borderWidth === 'string' 
+                    ? parseInt(borderWidth.replace('px', '')) || 1
+                    : parseInt(String(borderWidth)) || 1
+                borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
+            } else if (typeof targetBorder === 'string') {
+                const parts = targetBorder.split(' ')
+                const width = parts[0] || '1px'
+                const color = parts[2] || 'rgba(0,0,0,0.2)'
+                const widthValue = parseInt(width.replace('px', '')) || 1
+                borderShadow = `0 0 0 ${widthValue}px ${color}`
+            } else {
+                borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
+            }
+            
+            // Combine existing shadow with border shadow
+            const finalShadow = targetShadow && targetShadow !== "0px 0px 0px rgba(0,0,0,0)" 
+                ? `${borderShadow}, ${targetShadow}`
+                : borderShadow
+
+            // Apply styling with smooth animation
+            gsap.to(innerElement, {
+                scale: targetScale,
+                opacity: targetOpacity,
+                backgroundColor: targetBackgroundColor,
+                boxShadow: finalShadow,
+                borderRadius: targetRadius,
+                duration: animation.duration || 0.4,
+                ease: getEasingString(animation.easing || "power1.inOut")
+            })
+        })
+    }, [slidesUI, finiteMode, activeSlideIndex, animation.duration, animation.easing, isFullyInitialized, getEasingString])
+
+    // Update button visuals when buttonsUI props change
+    useEffect(() => {
+        if (!isFullyInitialized) return
+
+        console.log("ButtonsUI props changed, updating button visuals")
+        
+        const leftButton = document.querySelector('[data-button="prev"]') as HTMLElement
+        const rightButton = document.querySelector('[data-button="next"]') as HTMLElement
+
+        if (leftButton) {
+            const isPrevDisabled = finiteMode && activeSlideIndex === 0
+            
+            if (isPrevDisabled) {
+                gsap.to(leftButton, {
+                    scale: buttonsUI.disabledScale ?? 1,
+                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            } else {
+                gsap.to(leftButton, {
+                    scale: 1,
+                    opacity: 1,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            }
+        }
+
+        if (rightButton) {
+            const totalSlides = boxesRef.current.length || 1
+            const isNextDisabled = finiteMode && activeSlideIndex === totalSlides - 1
+            
+            if (isNextDisabled) {
+                gsap.to(rightButton, {
+                    scale: buttonsUI.disabledScale ?? 1,
+                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            } else {
+                gsap.to(rightButton, {
+                    scale: 1,
+                    opacity: 1,
+                    duration: animation.duration || 0.4,
+                    ease: getEasingString(animation.easing || "power1.inOut")
+                })
+            }
+        }
+    }, [buttonsUI, finiteMode, activeSlideIndex, animation.duration, animation.easing, isFullyInitialized, getEasingString])
+
+    // Update dots when dotsUI props change
+    useEffect(() => {
+        if (!isFullyInitialized || !finiteMode || !dotsUI.enabled) return
+
+        console.log("DotsUI props changed, updating dots")
+        animateDots(activeSlideIndex)
+    }, [dotsUI, activeSlideIndex, isFullyInitialized, animateDots])
 
     /**
      * Initialize the horizontal loop using useGSAP
