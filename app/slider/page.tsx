@@ -1893,9 +1893,31 @@ export default function Carousel({
                 onRelease() {
                     console.log("🖱️ Release detected - isClick:", this.isClick, "allowDrag:", this.allowDrag, "clickNav:", clickNavigation)
                     
-                    if (this.isClick && !clickNavigation) {
-                        console.log("❌ Processing as click release (click nav disabled)")
-                        // This was just a click - ignore completely, no drag system involvement
+                    if (this.isClick) {
+                        if (clickNavigation) {
+                            console.log("🖱️ Processing as click navigation")
+                            // This was a click with click nav enabled - trigger navigation
+                            const clickedElement = document.elementFromPoint(this.pressX, this.pressY)
+                            if (clickedElement) {
+                                // Find which slide was clicked
+                                const slideElement = clickedElement.closest('.box')
+                                if (slideElement) {
+                                    const slideIndex = Array.from(boxesRef.current).indexOf(slideElement as HTMLDivElement)
+                                    if (slideIndex !== -1 && loopRef.current && loopRef.current.toIndex) {
+                                        console.log("🎯 Clicking slide:", slideIndex)
+                                        loopRef.current.toIndex(slideIndex, {
+                                            duration: animation.duration,
+                                            ease: getEasingString(animation.easing || "power1.inOut"),
+                                        })
+                                    }
+                                }
+                            }
+                        } else {
+                            console.log("❌ Processing as click release (click nav disabled)")
+                            // This was just a click with click nav disabled - ignore completely
+                        }
+                        
+                        // Reset state for clicks
                         isDraggingRef.current = false
                         isThrowingRef.current = false
                         
@@ -1908,6 +1930,10 @@ export default function Carousel({
                         if (autoplay.enabled) {
                             setTimeout(startAutoplay, 10)
                         }
+                        
+                        // Reset for next interaction immediately for clicks
+                        this.isClick = true
+                        this.allowDrag = false
                     } else if (this.allowDrag) {
                         console.log("✅ Processing as drag release")
                         // This was a real drag
@@ -2454,7 +2480,7 @@ export default function Carousel({
                             loopRef.current = loop
                             initializationRef.current.isInitialized = true
 
-                            // Click handlers are now handled directly in React onClick
+                            // Click navigation is now handled through the draggable system
 
                             // Initialize autoplay direction
                             currentAutoplayDirectionRef.current =
@@ -3109,39 +3135,7 @@ export default function Carousel({
                     if (el) boxesRef.current[i] = el
                 }}
                 className="box"
-                onClick={
-                    clickNavigation
-                        ? (e) => {
-                              e.stopPropagation()
-                              try {
-                                  stopAutoplay() // Stop autoplay when user clicks
-
-                                  // TREAT EACH SLIDE AS A BIG DOT - USE EXACT SAME LOGIC AS DOTS NAVIGATION
-                                  if (
-                                      loopRef.current &&
-                                      loopRef.current.toIndex
-                                  ) {
-                                      loopRef.current.toIndex(i, {
-                                          duration: animation.duration,
-                                          ease: getEasingString(
-                                              animation.easing || "power1.inOut"
-                                          ),
-                                      })
-                                  }
-
-                                  // Restart autoplay after user interaction
-                                  if (autoplay.enabled) {
-                                      setTimeout(startAutoplay, 10) // Restart after delay
-                                  }
-                              } catch (error) {
-                                  console.error(
-                                      "Error in click handler:",
-                                      error
-                                  )
-                              }
-                          }
-                        : undefined
-                }
+                // Click navigation is now handled through the draggable system
                 style={{
                     zIndex: 1, // Ensure slides stay below arrows (zIndex: 21)
                     flexShrink: 0,
