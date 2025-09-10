@@ -352,7 +352,6 @@ export default function Carousel({
      * immediately without animation, ensuring proper styling on first load.
      */
     const applyInitialStylingToAllSlides = useCallback(() => {
-        console.log("Applying initial styling to all slides")
 
         boxesRef.current.forEach((slideElement, i) => {
             if (!slideElement) return
@@ -374,13 +373,6 @@ export default function Carousel({
             }
 
             const isCentralCustomized = slidesUI.central === "Customize style"
-
-            // Debug logging for both modes
-            if (isCentralSlide) {
-                console.log(
-                    `${finiteMode ? 'Finite' : 'Infinite'} mode: Slide ${i} is identified as active slide (activeSlideIndex: ${activeSlideIndex})`
-                )
-            }
 
             // Get the appropriate style values
             const targetScale =
@@ -441,18 +433,6 @@ export default function Carousel({
                     ? `${borderShadow}, ${targetShadow}`
                     : borderShadow
 
-            // Debug logging for styling
-            if (finiteMode && isCentralSlide) {
-                console.log(`Applying central slide styling to slide ${i}:`, {
-                    targetScale,
-                    targetOpacity,
-                    targetBackgroundColor,
-                    targetRadius,
-                    finalShadow,
-                    isCentralCustomized,
-                })
-            }
-
             // Apply initial styling directly to DOM (immediate, no animation, can't be overridden)
             innerElement.style.transform = `scale(${targetScale})`
             innerElement.style.opacity = String(targetOpacity)
@@ -473,8 +453,6 @@ export default function Carousel({
                 duration: 0, // Force immediate
             })
         })
-
-        console.log("Initial styling applied to all slides successfully")
     }, [slidesUI, finiteMode, activeSlideIndex])
 
     /**
@@ -540,16 +518,6 @@ export default function Carousel({
                     ? `${borderShadow}, ${targetShadow}`
                     : borderShadow
 
-            // Apply initial styling with gsap.set (immediate, no animation)
-            console.log("Applying initial central slide styling:", {
-                targetScale,
-                targetOpacity,
-                targetBackgroundColor,
-                targetRadius,
-                finalShadow,
-                element: innerElement,
-            })
-
             gsap.set(innerElement, {
                 scale: targetScale,
                 opacity: targetOpacity,
@@ -559,8 +527,6 @@ export default function Carousel({
                 transformOrigin: "center",
                 immediateRender: true,
             })
-
-            console.log("Initial central slide styling applied successfully")
         },
         [slidesUI]
     )
@@ -626,30 +592,17 @@ export default function Carousel({
                         ? parseInt(borderWidth.replace("px", "")) || 1
                         : parseInt(String(borderWidth)) || 1
                 borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
-                console.log("Animation border shadow created:", {
-                    borderWidth,
-                    borderColor,
-                    widthValue,
-                    borderShadow,
-                })
+                
             } else if (typeof targetBorder === "string") {
                 const parts = targetBorder.split(" ")
                 const width = parts[0] || "1px"
                 const color = parts[2] || "rgba(0,0,0,0.2)"
                 const widthValue = parseInt(width.replace("px", "")) || 1
                 borderShadow = `0 0 0 ${widthValue}px ${color}`
-                console.log("Animation border shadow from string:", {
-                    width,
-                    color,
-                    widthValue,
-                    borderShadow,
-                })
+                
             } else {
                 borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
-                console.log(
-                    "Animation using default border shadow:",
-                    borderShadow
-                )
+                
             }
 
             // Combine existing shadow with border shadow
@@ -658,11 +611,7 @@ export default function Carousel({
                     ? `${borderShadow}, ${existingShadow}`
                     : borderShadow
 
-            console.log("Final target shadow for animation:", {
-                existingShadow,
-                borderShadow,
-                targetShadow,
-            })
+            
 
             const targetRadius = isActive
                 ? isCentralCustomized
@@ -732,7 +681,6 @@ export default function Carousel({
      * immediately without animation, ensuring proper styling on first load.
      */
     const applyInitialButtonStyling = useCallback(() => {
-        console.log("Applying initial button styling")
 
         const leftButton = document.querySelector(
             '[data-button="prev"]'
@@ -800,11 +748,7 @@ export default function Carousel({
     // Animation function for navigation buttons
     const animateButtons = useCallback(
         (isPrevDisabled: boolean, isNextDisabled: boolean) => {
-            console.log("animateButtons called:", {
-                isPrevDisabled,
-                isNextDisabled,
-                isInitialSetup: isInitialSetupRef.current,
-            })
+            
             const leftButton = document.querySelector(
                 '[data-button="prev"]'
             ) as HTMLElement
@@ -816,10 +760,7 @@ export default function Carousel({
                 if (isPrevDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     const disabledOpacity = buttonsUI.disabledOpacity ?? 0
-                    console.log("Animating left button to disabled:", {
-                        disabledOpacity,
-                        disabledScale: buttonsUI.disabledScale ?? 1,
-                    })
+                    
                     gsap.to(leftButton, {
                         scale: buttonsUI.disabledScale ?? 1,
                         opacity: disabledOpacity,
@@ -829,10 +770,7 @@ export default function Carousel({
                         ),
                     })
                 } else {
-                    // For enabled buttons, animate to enabled state
-                    console.log("Animating left button to enabled:", {
-                        isInitialSetup: isInitialSetupRef.current,
-                    })
+                    
                     gsap.to(leftButton, {
                         scale: 1,
                         opacity: 1,
@@ -999,9 +937,7 @@ export default function Carousel({
                 containerWidth === 0 ||
                 containerHeight === 0
             ) {
-                console.log(
-                    "Container not ready, using fallback dimensions for canvas/preview"
-                )
+            
                 // Use reasonable fallback dimensions that work well in canvas
                 const fallbackWidth = 400
                 const fallbackHeight = 300
@@ -1147,16 +1083,6 @@ export default function Carousel({
                     const fixedWidth = slidesUI.slideSizing?.fixedWidth || 300
                     const fixedHeight = slidesUI.slideSizing?.fixedHeight || 200
 
-                    // Debug fixed dimensions calculation
-                    console.log("Fixed dimensions debug:", {
-                        requestedWidth: fixedWidth,
-                        requestedHeight: fixedHeight,
-                        containerWidth: safeContainerWidth,
-                        containerHeight: safeContainerHeight,
-                        finalWidth: fixedWidth,
-                        finalHeight: fixedHeight,
-                    })
-
                     // Use exact dimensions from property controls
                     return {
                         width: fixedWidth,
@@ -1217,15 +1143,6 @@ export default function Carousel({
         // Early return if no items provided
         if (!items.length) return null
 
-        console.log("Creating finite timeline with items:", {
-            itemCount: items.length,
-            items: items.map((item, i) => ({
-                index: i,
-                element: item.tagName,
-                width: item.offsetWidth,
-            })),
-        })
-
         // Extract configuration values with defaults
         const onChange = config.onChange
         let lastIndex = 0 // Track the last active index to detect changes
@@ -1267,19 +1184,6 @@ export default function Carousel({
 
         // Add custom methods to match HorizontalLoopTimeline interface
         tl.toIndex = (index: number, options?: any) => {
-            console.log("Finite timeline toIndex called:", {
-                index,
-                itemsLength: items.length,
-                lastIndex,
-                isValid: index >= 0 && index < items.length,
-                alignment,
-                options,
-                currentPositions: items.map((item, i) => ({
-                    index: i,
-                    x: gsap.getProperty(item, "x"),
-                    offsetWidth: item.offsetWidth,
-                })),
-            })
 
             if (index >= 0 && index < items.length) {
                 // Calculate target position based on alignment
@@ -1350,21 +1254,12 @@ export default function Carousel({
         tl.current = () => lastIndex
         tl.next = () => {
             const nextIndex = Math.min(lastIndex + 1, items.length - 1)
-            console.log("Finite timeline next:", {
-                lastIndex,
-                nextIndex,
-                maxIndex: items.length - 1,
-                canGoNext: nextIndex > lastIndex,
-            })
+            
             return tl.toIndex(nextIndex)
         }
         tl.previous = () => {
             const prevIndex = Math.max(lastIndex - 1, 0)
-            console.log("Finite timeline previous:", {
-                lastIndex,
-                prevIndex,
-                canGoPrev: prevIndex < lastIndex,
-            })
+            
             return tl.toIndex(prevIndex)
         }
 
@@ -1571,14 +1466,6 @@ export default function Carousel({
                     ) as string
                     const computedWidth = parseFloat(gsapWidth)
 
-                    // Simplified debug (only for first slide)
-                    if (i === 0) {
-                        console.log("First slide measurement:", {
-                            computed: computedWidth,
-                            element: el.offsetWidth,
-                            expected: boxWidths.current[i],
-                        })
-                    }
 
                     // Use computed style as fallback if GSAP can't measure
                     if (isNaN(computedWidth) || computedWidth <= 0) {
@@ -1613,15 +1500,6 @@ export default function Carousel({
                         spaceBefore[i] = 0 // First slide has no space before
                     } else {
                         spaceBefore[i] = gap // Use the configured gap consistently
-                    }
-
-                    // Debug space calculation (only for first slide)
-                    if (i === 0) {
-                        console.log("Space calculation:", {
-                            spaceValue: spaceBefore[i],
-                            elementWidth: el.offsetWidth,
-                            gap: gap,
-                        })
                     }
 
                     // Update b1 for next iteration (still needed for some calculations)
@@ -1668,15 +1546,6 @@ export default function Carousel({
             timeOffset = center
                 ? (tl.duration() * (containerWidth / 2)) / totalWidth
                 : 0
-
-            // Debug centering
-            console.log("Centering debug:", {
-                containerWidth,
-                totalWidth,
-                timeOffset,
-                center: !!center,
-                averageSlideWidth: totalWidth / length,
-            })
 
             // Apply centering offset to each slide's timeline position (use slide centers)
             center &&
@@ -1872,9 +1741,19 @@ export default function Carousel({
                 const newProgress =
                     startProgress + (draggable.startX - draggable.x) * ratio
                 // Infinite mode: use wrapping for seamless infinite scrolling
+                console.log("🔄 Align called - newProgress:", newProgress, "wrapped:", wrap(newProgress))
                 tl.progress(wrap(newProgress))
             }
-            const syncIndex = () => tl.closestIndex(true)
+            const syncIndex = () => {
+                // Only sync index if we actually dragged
+                if (draggable && draggable.allowDrag) {
+                    console.log("🔄 Syncing index - drag occurred")
+                    return tl.closestIndex(true)
+                } else {
+                    console.log("🚫 Sync index blocked - no drag occurred")
+                    return tl.current()
+                }
+            }
 
             // Check if mouse is inside carousel area
             const isMouseInsideCarousel = (
@@ -1926,6 +1805,16 @@ export default function Carousel({
             draggable = Draggable.create(proxy, {
                 trigger: null, // Disable GSAP's built-in trigger system
                 type: "x",
+                // Prevent draggable from interfering with clicks
+                allowEventDefault: false,
+                onPress() {
+                    // Store the initial mouse position for click detection
+                    this.pressX = this.pointerX || this.startX || 0
+                    this.pressY = this.pointerY || this.startY || 0
+                    this.isClick = true // Assume it's a click until proven otherwise
+                    this.allowDrag = false // Start with drag disabled
+                    console.log("🖱️ Press detected - position:", this.pressX, this.pressY, "isClick:", this.isClick)
+                },
                 onPressInit() {
                     const x = this.x
                     gsap.killTweensOf(tl)
@@ -1937,19 +1826,48 @@ export default function Carousel({
                     initChangeX = startProgress / -ratio - x
                     gsap.set(proxy, { x: startProgress / -ratio })
 
-                    // Set dragging state and stop autoplay
-                    isDraggingRef.current = true
                     // Store actual mouse coordinates for direction detection
                     dragStartMouseXRef.current =
                         this.pointerX || this.startX || 0
                     stopAutoplay()
                 },
+                onDragStart() {
+                    // Don't enable dragging yet - wait for actual movement
+                    console.log("🎯 Drag start event - checking for movement...")
+                },
                 onDrag: function () {
+                    // Check if this is the first movement - enable dragging if so
+                    if (!this.allowDrag && this.isClick) {
+                        const currentX = this.pointerX || this.x || 0
+                        const currentY = this.pointerY || this.y || 0
+                        const hasMoved = Math.abs(currentX - (this.pressX || 0)) > 5 || Math.abs(currentY - (this.pressY || 0)) > 5
+                        
+                        if (hasMoved) {
+                            this.isClick = false
+                            this.allowDrag = true
+                            isDraggingRef.current = true
+                            console.log("🎯 Movement detected - enabling drag, allowDrag:", this.allowDrag)
+                        }
+                    }
+                    
+                    if (!this.allowDrag) {
+                        console.log("🚫 Drag blocked - allowDrag is false")
+                        return
+                    }
+                    console.log("🔄 Dragging...")
                     align()
                     // Track current mouse position for direction detection
                     dragEndMouseXRef.current = this.pointerX || this.x || 0
                 },
-                onThrowUpdate: align,
+                onThrowUpdate: function() {
+                    // Allow throwing if we have a genuine drag (allowDrag is true)
+                    if (this.allowDrag) {
+                        console.log("🔄 Throw update - aligning")
+                        align()
+                    } else {
+                        console.log("🚫 Throw update blocked - no actual drag occurred")
+                    }
+                },
                 overshootTolerance: 0,
                 inertia: true,
                 /**
@@ -1973,31 +1891,73 @@ export default function Carousel({
                     return lastSnap
                 },
                 onRelease() {
-                    syncIndex()
-                    isDraggingRef.current = false // User released, no longer dragging
+                    console.log("🖱️ Release detected - isClick:", this.isClick, "allowDrag:", this.allowDrag, "clickNav:", clickNavigation)
+                    
+                    if (this.isClick && !clickNavigation) {
+                        console.log("❌ Processing as click release (click nav disabled)")
+                        // This was just a click - ignore completely, no drag system involvement
+                        isDraggingRef.current = false
+                        isThrowingRef.current = false
+                        
+                        // Resume autoplay if it was playing before
+                        if (wasPlaying) {
+                            tl.play()
+                        }
+                        
+                        // Restart autoplay if enabled
+                        if (autoplay.enabled) {
+                            setTimeout(startAutoplay, 10)
+                        }
+                    } else if (this.allowDrag) {
+                        console.log("✅ Processing as drag release")
+                        // This was a real drag
+                        syncIndex()
+                        isDraggingRef.current = false
 
-                    // Update autoplay direction based on drag direction if throwAware is enabled
-                    if (autoplay.throwAware === "Follow") {
-                        const mouseDistance =
-                            dragEndMouseXRef.current -
-                            dragStartMouseXRef.current
-                        // Use mouse movement to determine direction
-                        // Positive distance = dragged right (go left/previous)
-                        // Negative distance = dragged left (go right/next)
-                        currentAutoplayDirectionRef.current =
-                            mouseDistance > 0 ? "left" : "right"
+                        // Update autoplay direction based on drag direction if throwAware is enabled
+                        if (autoplay.throwAware === "Follow") {
+                            const mouseDistance =
+                                dragEndMouseXRef.current -
+                                dragStartMouseXRef.current
+                            currentAutoplayDirectionRef.current =
+                                mouseDistance > 0 ? "left" : "right"
+                        }
+
+                        // Check if throwing animation will start
+                        if (draggable.isThrowing) {
+                            isThrowingRef.current = true
+                            indexIsDirty = true
+                            console.log("🎯 Throwing animation will start")
+                        }
+                    } else {
+                        console.log("❌ Processing as click release (click nav enabled)")
+                        // This was a click but click nav is enabled - let the click handler deal with it
+                        isDraggingRef.current = false
+                        isThrowingRef.current = false
+                        
+                        // Reset for next interaction immediately for clicks
+                        this.isClick = true
+                        this.allowDrag = false
                     }
-
-                    // Check if throwing animation will start
-                    if (draggable.isThrowing) {
-                        isThrowingRef.current = true
-                        indexIsDirty = true
+                    
+                    // For drags, don't reset until throwing is complete
+                    if (this.allowDrag && !draggable.isThrowing) {
+                        // No throwing animation, reset now
+                        this.isClick = true
+                        this.allowDrag = false
                     }
                 },
                 onThrowComplete: () => {
                     syncIndex()
                     isThrowingRef.current = false // Throwing animation completed
                     wasPlaying && tl.play()
+
+                    // Reset for next interaction after throwing completes
+                    if (draggable) {
+                        draggable.isClick = true
+                        draggable.allowDrag = false
+                        console.log("🔄 Throwing complete - reset for next interaction")
+                    }
 
                     // Restart autoplay after throwing completes
                     if (autoplay.enabled) {
@@ -2029,35 +1989,12 @@ export default function Carousel({
             // Set the timeline to the center position immediately
             tl.time(centerTime, true)
 
-            // Debug centering
-            console.log("Initial centering applied:", {
-                middleIndex,
-                centerTime,
-                currentIndex: tl.current(),
-                progress: tl.progress(),
-                totalWidth: getTotalWidth(),
-                containerWidth: container
-                    ? (container as HTMLElement).offsetWidth
-                    : 0,
-            })
         }
 
         // Update current index after centering
         tl.closestIndex(true)
         lastIndex = curIndex
         onChange && onChange(items[curIndex], curIndex)
-
-        // Debug timeline and duplication issues
-        console.log("Timeline debug:", {
-            progress: tl.progress(),
-            duration: tl.duration(),
-            currentIndex: tl.current(),
-            totalWidth: getTotalWidth(),
-            widths: widths.slice(0, 3),
-            spaceBefore: spaceBefore.slice(0, 3),
-            timesArray: times.slice(0, 3),
-            actualSlideCount: length,
-        })
 
         // Store cleanup function for later use
         ;(tl as any).cleanup = () => {
@@ -2082,7 +2019,6 @@ export default function Carousel({
     useEffect(() => {
         const fallbackTimeout = setTimeout(() => {
             if (!isFullyInitialized) {
-                console.log("Fallback timeout: forcing component to show")
                 setIsFullyInitialized(true)
             }
         }, 2000) // 2 second fallback
@@ -2093,8 +2029,6 @@ export default function Carousel({
     // Update slide visuals when slidesUI props change
     useEffect(() => {
         if (!isFullyInitialized || !boxesRef.current) return
-
-        console.log("SlidesUI props changed, updating slide visuals")
 
         // Update all slides with new styling
         boxesRef.current.forEach((slideElement, i) => {
@@ -2201,8 +2135,6 @@ export default function Carousel({
     useEffect(() => {
         if (!isFullyInitialized) return
 
-        console.log("ButtonsUI props changed, updating button visuals")
-
         const leftButton = document.querySelector(
             '[data-button="prev"]'
         ) as HTMLElement
@@ -2264,8 +2196,6 @@ export default function Carousel({
     // Update dots when dotsUI props change
     useEffect(() => {
         if (!isFullyInitialized || !finiteMode || !dotsUI.enabled) return
-
-        console.log("DotsUI props changed, updating dots")
         animateDots(activeSlideIndex)
     }, [dotsUI, activeSlideIndex, isFullyInitialized, animateDots])
 
@@ -2309,11 +2239,7 @@ export default function Carousel({
                     setTimeout(() => {
                         const retrySlides = boxesRef.current.filter(Boolean)
                         if (retrySlides.length >= slideData.finalCount) {
-                            console.log(
-                                "Retry successful, proceeding with",
-                                retrySlides.length,
-                                "slides"
-                            )
+
                             // Re-run the initialization logic here
                         } else {
                             console.warn(
@@ -2332,15 +2258,6 @@ export default function Carousel({
                     return isInDOM && isVisible
                 })
 
-                console.log(
-                    "DEBUG: NEW APPROACH - All static slides:",
-                    allSlides.length,
-                    "valid slides:",
-                    validSlides.length,
-                    "total rendered:",
-                    boxesRef.current.length
-                )
-
                 // Validate that we have slides and container
                 if (validSlides.length === 0 || !wrapperRef.current) {
                     console.warn(
@@ -2352,9 +2269,6 @@ export default function Carousel({
                 // Ensure container has dimensions - single check with fallback
                 const containerRect = wrapperRef.current.getBoundingClientRect()
                 if (containerRect.width === 0 || containerRect.height === 0) {
-                    console.log(
-                        "Container not ready, using fallback dimensions"
-                    )
                     // Use fallback dimensions instead of retrying
                     containerDimensions.current = { width: 600, height: 400 }
                 } else {
@@ -2376,25 +2290,7 @@ export default function Carousel({
                  * - onChange: Callback fired when the active slide changes
                  */
                 const currentGap = Math.max(ui?.gap ?? 20, 0)
-
-                // DEBUG: Log the slides being passed to GSAP
-                console.log(
-                    "DEBUG: NEW APPROACH - Creating loop with static slides:",
-                    {
-                        totalSlides: validSlides.length,
-                        expectedSlides: slideData.finalCount,
-                        contentItems: slideData.validContent.length,
-                        slideElements: validSlides.map((el, i) => ({
-                            index: i,
-                            element: el,
-                            hasElement: !!el,
-                            width: el?.offsetWidth || 0,
-                            visible: el
-                                ? window.getComputedStyle(el).display !== "none"
-                                : false,
-                        })),
-                    }
-                )
+            
 
                 // FIX: Add delay to ensure all 6 slides are rendered
                 setTimeout(() => {
@@ -2418,12 +2314,6 @@ export default function Carousel({
                         }
                     )
 
-                    console.log(
-                        "DEBUG: Final valid slides after delay:",
-                        finalValidSlides.length,
-                        "out of",
-                        allSlidesAfterDelay.length
-                    )
 
                     if (finalValidSlides.length === 0) {
                         console.warn("No valid slides found after delay")
@@ -2436,21 +2326,7 @@ export default function Carousel({
 
                         if (finiteMode) {
                             // Finite mode: create a simple timeline without infinite loop
-                            console.log(
-                                "Creating finite timeline with slides:",
-                                {
-                                    finiteMode,
-                                    finalValidSlidesCount:
-                                        finalValidSlides.length,
-                                    expectedCount: slideData.finalCount,
-                                    slides: finalValidSlides.map(
-                                        (slide, i) => ({
-                                            index: i,
-                                            element: slide.tagName,
-                                        })
-                                    ),
-                                }
-                            )
+                        
                             loop = createFiniteTimeline(
                                 finalValidSlides,
                                 {
@@ -2462,6 +2338,7 @@ export default function Carousel({
                                         element: HTMLElement,
                                         index: number
                                     ) => {
+                                        console.log("🔄 onChange triggered - index:", index, "element:", element)
                                         // Debounce onChange to prevent excessive state updates
                                         requestAnimationFrame(() => {
                                             try {
@@ -2637,18 +2514,11 @@ export default function Carousel({
                                     if (loop.closestIndex) {
                                         loop.closestIndex(true)
                                     }
-                                    console.log(
-                                        "Delayed centering applied to time:",
-                                        centerTime,
-                                        "index:",
-                                        middleIndex
-                                    )
+                                    
                                 }
 
                                 // Mark as fully initialized after all centering is complete
-                                console.log(
-                                    "Setting isFullyInitialized to true"
-                                )
+                                
                                 setIsFullyInitialized(true)
 
                                 // Allow animations for subsequent interactions
@@ -2771,25 +2641,13 @@ export default function Carousel({
                                             ?.current
                                             ? loopRef.current.current()
                                             : 0
-                                        console.log(
-                                            "Finite mode autoplay check:",
-                                            {
-                                                currentIndex,
-                                                newIndex,
-                                                direction:
-                                                    currentAutoplayDirectionRef.current,
-                                                moved:
-                                                    newIndex !== currentIndex,
-                                            }
-                                        )
+                                        
                                         if (newIndex === currentIndex) {
                                             // We didn't move, which means we're at the end
                                             // Reverse direction for next iteration
                                             currentAutoplayDirectionRef.current =
                                                 "left"
-                                            console.log(
-                                                "Reached end, reversing direction to left"
-                                            )
+                                            
                                         }
                                     }, 50)
                                 }
@@ -2813,25 +2671,13 @@ export default function Carousel({
                                             ?.current
                                             ? loopRef.current.current()
                                             : 0
-                                        console.log(
-                                            "Finite mode autoplay check:",
-                                            {
-                                                currentIndex,
-                                                newIndex,
-                                                direction:
-                                                    currentAutoplayDirectionRef.current,
-                                                moved:
-                                                    newIndex !== currentIndex,
-                                            }
-                                        )
+                                        
                                         if (newIndex === currentIndex) {
                                             // We didn't move, which means we're at the beginning
                                             // Reverse direction for next iteration
                                             currentAutoplayDirectionRef.current =
                                                 "right"
-                                            console.log(
-                                                "Reached beginning, reversing direction to right"
-                                            )
+                                        
                                         }
                                     }, 50)
                                 }
@@ -2983,13 +2829,7 @@ export default function Carousel({
                                 () => slideWidth
                             )
                         }
-
-                        // DYNAMIC FIX: Recalculate slides when container size changes
-                        console.log("Resize detected, updating dimensions:", {
-                            width,
-                            height,
-                        })
-
+                        
                         // Update container dimensions
                         containerDimensions.current = { width, height }
 
@@ -3080,15 +2920,6 @@ export default function Carousel({
             ? Math.max(validContent.length, 1) // Finite mode: use actual content count
             : Math.max(validContent.length, 3) // Infinite modes: minimum 3 for infinite loop
 
-        console.log("Finite mode slide calculation:", {
-            finiteMode,
-            validContentLength: validContent.length,
-            actualSlideCount,
-            validContent: validContent.map((item, i) => ({
-                index: i,
-                type: typeof item,
-            })),
-        })
 
         // DYNAMIC APPROACH: Calculate slides needed to fill container
         const containerWidth = containerDimensions.current.width
@@ -3143,21 +2974,6 @@ export default function Carousel({
                 : Math.ceil(finalCountWithSafety / actualSlideCount) *
                   actualSlideCount // Infinite modes: ensure multiples
 
-            console.log("Dynamic slide calculation:", {
-                containerWidth,
-                estimatedSlideWidth,
-                slideWidthWithGap,
-                slidesNeeded,
-                minSlides,
-                rawFinalCount,
-                actualSlideCount,
-                finalCount,
-                minSlidesForWideContainer,
-                finalCountWithSafety,
-                finalFinalCount,
-                multiples: finalFinalCount / actualSlideCount,
-            })
-
             return {
                 finalCount: finalFinalCount,
                 actualSlideCount,
@@ -3183,9 +2999,7 @@ export default function Carousel({
 
         // If container not ready, use fallback for canvas/preview mode
         if (!containerWidth || !containerHeight) {
-            console.log(
-                "Container not ready, using fallback dimensions for canvas/preview"
-            )
+
             // Use reasonable fallback dimensions that work well in canvas
             const fallbackWidth = 400
             const fallbackHeight = 300
@@ -3236,15 +3050,6 @@ export default function Carousel({
             () => finalHeight
         )
 
-        console.log("Simplified slide generation:", {
-            contentCount: validContent.length,
-            totalSlides: finalCount,
-            slideWidth,
-            slideHeight,
-            finalWidth,
-            finalHeight,
-            mode: slidesUI.slideSizing?.mode,
-        })
 
         return { finalCount, actualSlideCount, validContent }
     }, [calculateRequiredSlides, calculateSlideDimensions])
@@ -3260,10 +3065,6 @@ export default function Carousel({
         ui?.gap,
     ]) // Include container width and gap
 
-    // Debug: Log the actual boxWidths being used (only when container is ready)
-    if (containerReady && slideData.finalCount > 0) {
-        console.log("Box widths being used:", boxWidths.current.slice(0, 3))
-    }
 
     const boxes = Array.from({ length: slideData.finalCount }, (_, i) => {
         const { validContent, finalCount } = slideData
