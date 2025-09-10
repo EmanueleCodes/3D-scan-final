@@ -49,7 +49,15 @@ interface Sniper {
     y: number
 }
 
-export function MouseEffects({
+/**
+ *
+ * @framerSupportedLayoutWidth fixed
+ * @framerSupportedLayoutHeight fixed
+ * @framerIntrinsicWidth 100
+ * @framerIntrinsicHeight 100
+ * @framerDisableUnlink
+ */
+export default function MouseEffects({
     color = "#ff0000",
     interactionMode = "rings",
     duration = 1,
@@ -170,8 +178,8 @@ export function MouseEffects({
         <div
             ref={containerRef}
             style={{
-                width: "100%",
-                height: "100%",
+                width: "0px",
+                height: "0px",
                 position: "relative",
                 overflow: "visible", // Allow rings to appear outside component bounds
             }}
@@ -874,23 +882,23 @@ export function MouseEffects({
                                         (11 * Math.PI) / 6,
                                     ].map((angle, index) => {
                                         return (
-                                             <div
-                                                 key={index}
-                                                 style={{
-                                                     position: "absolute",
-                                                     left:
-                                                         sniper.x -
-                                                         strokeWidth / 2,
-                                                     top:
-                                                         sniper.y -
-                                                         strokeWidth / 2,
-                                                     width: strokeWidth,
-                                                     height: strokeWidth,
-                                                     backgroundColor: color,
-                                                     pointerEvents: "none",
-                                                     transformOrigin: "center",
-                                                     transform: `rotate(${rotation}deg)`,
-                                                 }}
+                                            <div
+                                                key={index}
+                                                style={{
+                                                    position: "absolute",
+                                                    left:
+                                                        sniper.x -
+                                                        strokeWidth / 2,
+                                                    top:
+                                                        sniper.y -
+                                                        strokeWidth / 2,
+                                                    width: strokeWidth,
+                                                    height: strokeWidth,
+                                                    backgroundColor: color,
+                                                    pointerEvents: "none",
+                                                    transformOrigin: "center",
+                                                    transform: `rotate(${rotation}deg)`,
+                                                }}
                                                 ref={(el) => {
                                                     if (
                                                         el &&
@@ -980,27 +988,26 @@ export function MouseEffects({
     )
 }
 
-MouseEffects.defaultProps = {
-    color: "#ff0000",
-    interactionMode: "rings",
-    duration: 0.4,
-    strokeWidth: 2,
-    effectSize: 60,
-    rotation: 0,
-}
-
 addPropertyControls(MouseEffects, {
     interactionMode: {
         type: ControlType.Enum,
         title: "Effect",
         options: ["rings", "burst", "particles", "crosshair", "wavy", "sniper"],
+        optionTitles: [
+            "Rings",
+            "Burst",
+            "Particles",
+            "Crosshair",
+            "Wavy",
+            "Sniper",
+        ],
         defaultValue: "rings",
     },
 
     color: {
         type: ControlType.Color,
         title: "Color",
-        defaultValue: "#ff0000",
+        defaultValue: "#000000",
     },
 
     duration: {
@@ -1042,7 +1049,5 @@ addPropertyControls(MouseEffects, {
             "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
-
-
 
 MouseEffects.displayName = "Click Effects"
