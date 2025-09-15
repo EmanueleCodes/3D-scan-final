@@ -126,12 +126,10 @@ export default function Carousel({
     draggable = true,
     clickNavigation = true,
     content = [],
-    autoplay = {
-        enabled: false,
-        duration: 3,
-        direction: "right",
-        throwAware: "No follow",
-    },
+    autoplay = false,
+    interval = 3,
+    direction = "right",
+    throwAware = "No follow",
     ui = {
         backgroundColor: "#000000",
         padding: "0px",
@@ -154,7 +152,6 @@ export default function Carousel({
     buttonsNavigation = true,
     finiteMode = false,
     fluid = true,
-    threshold = 100,
     slideAlignment = "left",
     dotsUI = {
         enabled: false,
@@ -210,12 +207,10 @@ export default function Carousel({
     draggable?: boolean
     clickNavigation?: boolean
     content?: React.ReactNode[]
-    autoplay?: {
-        enabled: boolean
-        duration: number
-        direction: "left" | "right"
-        throwAware: "Follow" | "No follow"
-    }
+    autoplay?: boolean
+    interval?: number
+    direction?: "left" | "right"
+    throwAware?: "Follow" | "No follow"
     ui?: {
         backgroundColor?: string
         padding?: string
@@ -238,7 +233,6 @@ export default function Carousel({
     buttonsNavigation?: boolean
     finiteMode?: boolean
     fluid?: boolean
-    threshold?: number
     slideAlignment?: "left" | "center" | "right"
     dotsUI?: {
         enabled?: boolean
@@ -326,7 +320,7 @@ export default function Carousel({
     const dragStartMouseXRef = useRef(0) // Track where mouse drag started to determine direction
     const dragEndMouseXRef = useRef(0) // Track where mouse drag ended
     const currentAutoplayDirectionRef = useRef<"left" | "right">(
-        autoplay.direction
+        direction
     ) // Current autoplay direction
 
     /**
@@ -1346,7 +1340,7 @@ export default function Carousel({
                         })
 
                         // Restart autoplay after user interaction
-                        if (autoplay.enabled) {
+                        if (autoplay) {
                             setTimeout(startAutoplay, 10)
                         }
                     } catch (error) {}
@@ -1880,12 +1874,11 @@ export default function Carousel({
                         // NON-FLUID MODE: Check threshold and navigate immediately
                         const dragDistance = startProgress / -ratio - this.x
                         
-                        // Calculate smart threshold based on card width
+                        // Use card width as the fixed threshold for immediate navigation
                         const cardWidth = items[0]?.offsetWidth || 300
-                        const maxThreshold = cardWidth / 2 // Maximum is half card width
-                        const smartThreshold = Math.min(threshold, maxThreshold)
+                        const dragThreshold = cardWidth // Always use full card width
                         
-                        if (Math.abs(dragDistance) > smartThreshold) {
+                        if (Math.abs(dragDistance) > dragThreshold) {
                             // Determine target slide based on direction
                             const startIndex = this.startIndex !== undefined ? this.startIndex : (tl.closestIndex ? tl.closestIndex() : 0)
                             const targetIndex = dragDistance > 0 
@@ -1901,7 +1894,7 @@ export default function Carousel({
                                 })
                                 
                                 // Restart autoplay after user interaction
-                                if (autoplay.enabled) {
+                                if (autoplay) {
                                     setTimeout(startAutoplay, 10)
                                 }
                                 
@@ -1992,7 +1985,7 @@ export default function Carousel({
                                             )
 
                                             // Restart autoplay after user interaction
-                                            if (autoplay.enabled) {
+                                            if (autoplay) {
                                                 setTimeout(startAutoplay, 10)
                                             }
                                         } catch (error) {}
@@ -2013,7 +2006,7 @@ export default function Carousel({
                         }
 
                         // Restart autoplay if enabled
-                        if (autoplay.enabled) {
+                        if (autoplay) {
                             setTimeout(startAutoplay, 10)
                         }
 
@@ -2025,12 +2018,23 @@ export default function Carousel({
                         isDraggingRef.current = false
 
                         if (!fluid) {
-                            // NON-FLUID MODE: If we reach release, it means we didn't exceed threshold during drag
-                            // Just snap back to the starting slide
+                            // NON-FLUID MODE: If we reach release, check if we dragged enough for slide change
+                            const dragDistance = startProgress / -ratio - this.x
+                            const minReleaseThreshold = 50 // Minimum drag distance on release to trigger slide change
                             const startIndex = this.startIndex !== undefined ? this.startIndex : (tl.closestIndex ? tl.closestIndex() : 0)
                             
+                            let targetIndex = startIndex
+                            
+                            if (Math.abs(dragDistance) > minReleaseThreshold) {
+                                // Determine target slide based on direction
+                                targetIndex = dragDistance > 0 
+                                    ? (startIndex + 1) % length  // Next slide
+                                    : (startIndex - 1 + length) % length  // Previous slide
+                            }
+                            // If drag distance is small, targetIndex remains startIndex (current slide)
+                            
                             try {
-                                tl.toIndex(startIndex, {
+                                tl.toIndex(targetIndex, {
                                     duration: animation.duration,
                                     ease: getEasingString(animation.easing || "power1.inOut"),
                                 })
@@ -2040,7 +2044,7 @@ export default function Carousel({
                             syncIndex()
                             
                             // Update autoplay direction based on drag direction if throwAware is enabled
-                            if (autoplay.throwAware === "Follow") {
+                            if (throwAware === "Follow") {
                                 const mouseDistance =
                                     dragEndMouseXRef.current -
                                     dragStartMouseXRef.current
@@ -2101,7 +2105,7 @@ export default function Carousel({
                     }
 
                     // Restart autoplay after throwing completes
-                    if (autoplay.enabled) {
+                    if (autoplay) {
                         setTimeout(startAutoplay, 10) // Restart after 1 second delay
                     }
                 },
@@ -2166,7 +2170,7 @@ export default function Carousel({
                         })
 
                         // Restart autoplay after user interaction
-                        if (autoplay.enabled) {
+                        if (autoplay) {
                             setTimeout(startAutoplay, 10)
                         }
                     } catch (error) {}
@@ -2600,10 +2604,10 @@ export default function Carousel({
 
                             // Initialize autoplay direction
                             currentAutoplayDirectionRef.current =
-                                autoplay.direction
+                                direction
 
                             // Start autoplay if enabled
-                            if (autoplay.enabled) {
+                            if (autoplay) {
                                 startAutoplay()
                             }
 
@@ -2711,8 +2715,8 @@ export default function Carousel({
                 clickNavigation,
                 content.length,
                 ui?.gap,
-                autoplay.enabled,
-                autoplay.direction,
+                autoplay,
+                direction,
                 slidesUI.slideSizing?.mode,
                 containerReady,
             ],
@@ -2727,7 +2731,7 @@ export default function Carousel({
     const startAutoplay = () => {
         try {
             if (
-                !autoplay.enabled ||
+                !autoplay ||
                 !loopRef.current ||
                 RenderTarget.current() === RenderTarget.canvas
             )
@@ -2742,7 +2746,7 @@ export default function Carousel({
             }
 
             // Validate autoplay duration
-            const duration = Math.max(autoplay.duration || 3, 0.5) // Minimum 0.5 seconds
+            const duration = Math.max(interval || 3, 0.5) // Minimum 0.5 seconds
 
             // Start new timer
             autoplayTimerRef.current = setInterval(() => {
@@ -2857,7 +2861,7 @@ export default function Carousel({
                 })
             }
             // Restart autoplay after user interaction
-            if (autoplay.enabled) {
+            if (autoplay) {
                 setTimeout(startAutoplay, 10) // Restart after delay
             }
         } catch (error) {}
@@ -2880,7 +2884,7 @@ export default function Carousel({
                 })
             }
             // Restart autoplay after user interaction
-            if (autoplay.enabled) {
+            if (autoplay) {
                 setTimeout(startAutoplay, 10) // Restart after delay
             }
         } catch (error) {}
@@ -3642,10 +3646,72 @@ export default function Carousel({
 }
 
 addPropertyControls(Carousel, {
+    content: {
+        type: ControlType.Array,
+        title: "Content",
+        maxCount: 10,
+        control: {
+            type: ControlType.ComponentInstance,
+        },
+    },
     finiteMode: {
         type: ControlType.Boolean,
         title: "Finite Mode",
         defaultValue: false,
+    },
+     autoplay: {
+         type: ControlType.Boolean,
+         title: "Autoplay",
+         defaultValue: false,
+     },
+     interval: {
+         type: ControlType.Number,
+         title: "Interval",
+         min: 1,
+         max: 10,
+         step: 0.5,
+         defaultValue: 3,
+         hidden: (props: any) => !props.autoplay,
+     },
+     direction: {
+         type: ControlType.Enum,
+         title: "Direction",
+         options: ["left", "right"],
+         defaultValue: "right",
+         displaySegmentedControl: true,
+         hidden: (props: any) => !props.autoplay,
+         optionIcons: ["direction-left", "direction-right"],
+     },
+     throwAware: {
+         type: ControlType.Enum,
+         title: "On Throw",
+         options: ["Follow", "No follow"],
+         defaultValue: "No follow",
+         displaySegmentedControl: true,
+         segmentedControlDirection: "vertical",
+         hidden: (props: any) => !props.autoplay,
+     },
+    draggable: {
+        type: ControlType.Boolean,
+        title: "Draggable",
+        defaultValue: true,
+        hidden: (props: any) => props.finiteMode,
+    },
+    dragFactor: {
+        type: ControlType.Number,
+        title: "Drag Resistence",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+        hidden: (props: any) => !props.draggable,
+    },
+    fluid: {
+        type: ControlType.Boolean,
+        title: "Fluid Drag",
+        defaultValue: true,
+        hidden: (props: any) => props.finiteMode || !props.draggable,
+        description: "Enable fluid dragging with momentum (off = discrete slide navigation)",
     },
     slideAlignment: {
         type: ControlType.Enum,
@@ -3764,82 +3830,13 @@ addPropertyControls(Carousel, {
             },
         },
     },
-    draggable: {
-        type: ControlType.Boolean,
-        title: "Draggable",
-        defaultValue: true,
-        hidden: (props: any) => props.finiteMode,
-    },
-    dragFactor: {
-        type: ControlType.Number,
-        title: "Drag",
-        min: 0,
-        max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
-        hidden: (props: any) => !props.draggable,
-    },
-    fluid: {
-        type: ControlType.Boolean,
-        title: "Fluid Drag",
-        defaultValue: true,
-        hidden: (props: any) => props.finiteMode || !props.draggable,
-        description: "Enable fluid dragging with momentum (off = discrete slide navigation)",
-    },
-    threshold: {
-        type: ControlType.Number,
-        title: "Drag Threshold",
-        min: 50,
-        max: 500,
-        step: 10,
-        defaultValue: 100,
-        hidden: (props: any) => props.finiteMode || !props.draggable || props.fluid,
-        description: "Minimum drag distance to trigger slide change (limited by card width)",
-    },
+    
     clickNavigation: {
         type: ControlType.Boolean,
         title: "Click Nav",
         defaultValue: true,
     },
-    autoplay: {
-        type: ControlType.Object,
-        title: "Autoplay",
-        controls: {
-            enabled: {
-                type: ControlType.Boolean,
-                title: "Enabled",
-                defaultValue: false,
-            },
-            duration: {
-                type: ControlType.Number,
-                title: "Delay",
-                min: 1,
-                max: 10,
-                step: 0.5,
-                defaultValue: 3,
-                hidden: (props: any) => !props.enabled,
-            },
-            direction: {
-                type: ControlType.Enum,
-                title: "Direction",
-                options: ["left", "right"],
-
-                defaultValue: "right",
-                displaySegmentedControl: true,
-                hidden: (props: any) => !props.enabled,
-                optionIcons: ["direction-left", "direction-right"],
-            },
-            throwAware: {
-                type: ControlType.Enum,
-                title: "On Throw",
-                options: ["Follow", "No follow"],
-                defaultValue: "No follow",
-                displaySegmentedControl: true,
-                segmentedControlDirection: "vertical",
-                hidden: (props: any) => !props.enabled,
-            },
-        },
-    },
+    
     ui: {
         type: ControlType.Object,
         title: "UI",
@@ -4206,14 +4203,7 @@ addPropertyControls(Carousel, {
             },
         },
     },
-    content: {
-        type: ControlType.Array,
-        title: "Content",
-        maxCount: 10,
-        control: {
-            type: ControlType.ComponentInstance,
-        },
-    },
+
     animation: {
         type: ControlType.Object,
         title: "Animation",
