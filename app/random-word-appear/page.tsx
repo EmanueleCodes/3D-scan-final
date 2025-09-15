@@ -1,4 +1,3 @@
-'use client'
 import React from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import { useRef, useEffect, useState, useCallback } from "react"
@@ -11,9 +10,8 @@ import {
     gsap,
     useGSAP,
     SplitText,
-    ScrollTrigger
+    ScrollTrigger,
 } from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/word-random-reveal.js"
-
 
 // Register plugins
 gsap.registerPlugin(SplitText, useGSAP, ScrollTrigger)
@@ -32,9 +30,11 @@ interface RandomWordAppearProps {
     delay: number
     staggerAmount: number
     opacityDuration: number
-    triggerOnScroll: boolean
+    trigger: "Appear" | "Scroll"
+    reverse: boolean
+    scrollTriggerPosition: "bottom" | "center" | "top"
+    splitMode: "words" | "chars" | "lines"
 }
-
 
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
@@ -54,97 +54,172 @@ export default function RandomWordAppear(props: RandomWordAppearProps) {
         delay = 1,
         staggerAmount = 0.2,
         opacityDuration = 0.8,
-        triggerOnScroll = false,
+        trigger = "Appear",
+        reverse = false,
+        scrollTriggerPosition = "center",
+        splitMode = "words",
     } = props
 
     const textRef = useRef<HTMLElement>(null)
     const TAG = tag
 
     // Animation function
-    const animateWords = useCallback(() => {
+    const animateText = useCallback(() => {
         if (!textRef.current) return
 
-        // Create SplitText instance to split into words
-        const split = SplitText.create(textRef.current, {
-            type: "words",
-        })
+        // Create SplitText instance based on split mode
+        let elements
+        if (splitMode === "chars") {
+            // For characters: first split by words to maintain proper text wrapping
+            const wordSplit = SplitText.create(textRef.current, {
+                type: "words",
+                wordsClass: "word",
+            })
 
-        // Set initial state - all words invisible
-        gsap.set(split.words, {
+            // Then split each word into characters
+            const charSplit = SplitText.create(wordSplit.words, {
+                type: "chars",
+                charsClass: "char",
+            })
+
+            elements = charSplit.chars
+        } else {
+            // For words and lines: direct split
+            const split = SplitText.create(textRef.current, {
+                type: splitMode,
+            })
+
+            if (splitMode === "words") {
+                elements = split.words
+            } else {
+                elements = split.lines
+            }
+        }
+
+        // Set initial state - all elements invisible
+        gsap.set(elements, {
             opacity: 0,
         })
 
         // Create random order array
-        const randomOrder = [...split.words].sort(() => Math.random() - 0.5)
+        const randomOrder = [...elements].sort(() => Math.random() - 0.5)
 
-        // Animate words appearing in random order
+        // Animate elements appearing in random order
         gsap.to(randomOrder, {
             opacity: 1,
             duration: opacityDuration,
             stagger: {
-                each: staggerAmount, // Delay between each word
+                each: staggerAmount, // Delay between each element
                 from: "random", // Random order
             },
             ease: "power2.out",
             delay: delay, // Start after specified delay
         })
-    }, [text, delay, staggerAmount, opacityDuration])
+    }, [text, delay, staggerAmount, opacityDuration, splitMode])
 
     // Scroll-triggered animation using GSAP ScrollTrigger
     useGSAP(() => {
-        if (!triggerOnScroll || RenderTarget.current() === RenderTarget.canvas) return
+        if (
+            trigger !== "Scroll" ||
+            RenderTarget.current() === RenderTarget.canvas
+        )
+            return
         if (!textRef.current) return
 
-        // Create SplitText instance
-        const split = SplitText.create(textRef.current, {
-            type: "words",
-        })
+        // Create SplitText instance based on split mode
+        let elements
+        if (splitMode === "chars") {
+            // For characters: first split by words to maintain proper text wrapping
+            const wordSplit = SplitText.create(textRef.current, {
+                type: "words",
+                wordsClass: "word",
+            })
 
-        // Set initial state - words invisible
-        gsap.set(split.words, {
+            // Then split each word into characters
+            const charSplit = SplitText.create(wordSplit.words, {
+                type: "chars",
+                charsClass: "char",
+            })
+
+            elements = charSplit.chars
+        } else {
+            // For words and lines: direct split
+            const split = SplitText.create(textRef.current, {
+                type: splitMode,
+            })
+
+            if (splitMode === "words") {
+                elements = split.words
+            } else {
+                elements = split.lines
+            }
+        }
+
+        // Set initial state - elements invisible
+        gsap.set(elements, {
             opacity: 0,
         })
 
-        // Create ScrollTrigger animation
+        // Create random order array
+        const randomOrder = [...elements].sort(() => Math.random() - 0.5)
+
+        // Determine scroll trigger start position based on user selection
+        const getScrollTriggerStart = () => {
+            switch (scrollTriggerPosition) {
+                case "bottom":
+                    return "bottom bottom" // Element bottom hits viewport bottom
+                case "top":
+                    return "top top" // Element top hits viewport top
+                case "center":
+                default:
+                    return "center center" // Element center hits viewport center
+            }
+        }
+
+        // Define the animation timeline
         const tl = gsap.timeline({
             scrollTrigger: {
                 trigger: textRef.current,
-                start: "center center", // When center of element hits center of viewport
+                start: getScrollTriggerStart(),
                 end: "bottom top",
-                toggleActions: "play none none reverse",
-                onEnter: () => {
-                    console.log('ScrollTrigger: Animation triggered!')
-                    // Create random order array
-                    const randomOrder = [...split.words].sort(() => Math.random() - 0.5)
+                toggleActions:
+                    "play none none " + (reverse ? "reverse" : "none"), // play on enter, reverse on leave
+            },
+        })
 
-                    // Animate words appearing in random order
-                    gsap.to(randomOrder, {
-                        opacity: 1,
-                        duration: opacityDuration,
-                        stagger: {
-                            each: staggerAmount,
-                            from: "random",
-                        },
-                        ease: "power2.out",
-                        delay: delay,
-                    })
-                }
-            }
+        // Add the animation to the timeline
+        tl.to(randomOrder, {
+            opacity: 1,
+            duration: opacityDuration,
+            stagger: {
+                each: staggerAmount,
+                from: "random",
+            },
+            ease: "power2.out",
+            delay: delay,
         })
 
         return () => {
             tl.kill()
         }
-    }, [triggerOnScroll, animateWords, delay, staggerAmount, opacityDuration])
+    }, [
+        trigger,
+        delay,
+        staggerAmount,
+        opacityDuration,
+        scrollTriggerPosition,
+        reverse,
+        splitMode,
+    ])
 
     // Immediate animation (when not scroll-triggered)
     useGSAP(() => {
         // Do not run animation logic in the Framer canvas
         if (RenderTarget.current() === RenderTarget.canvas) return
-        if (triggerOnScroll) return // Skip if scroll-triggered
+        if (trigger !== "Appear") return // Skip if not immediate animation
 
-        animateWords()
-    }, [triggerOnScroll, animateWords])
+        animateText()
+    }, [trigger, animateText])
 
     return (
         <div
@@ -155,9 +230,7 @@ export default function RandomWordAppear(props: RandomWordAppearProps) {
                 alignItems: "center",
                 width: "100%",
                 height: "auto",
-              
-                backgroundColor: "#0a0a0a",
-                padding: "2rem",
+                backgroundColor: "transparent",
                 ...style,
             }}
         >
@@ -168,13 +241,12 @@ export default function RandomWordAppear(props: RandomWordAppearProps) {
                     style: {
                         margin: 0,
                         color,
-                        textAlign: "center",
-                        lineHeight: "1.2",
-                        maxWidth: "800px",
                         // Apply font styles directly to the text element
-                        fontSize: font.fontSize || "clamp(2rem, 8vw, 6rem)",
+                        fontSize: font.fontSize,
                         fontWeight: font.fontWeight || "700",
-                        fontFamily: font.fontFamily || "system-ui, -apple-system, sans-serif",
+                        fontFamily:
+                            font.fontFamily ||
+                            "system-ui, -apple-system, sans-serif",
                         fontStyle: font.fontStyle,
                         textDecoration: font.textDecoration,
                         letterSpacing: font.letterSpacing,
@@ -195,6 +267,39 @@ export default function RandomWordAppear(props: RandomWordAppearProps) {
 // ------------------------------------------------------------ //
 
 addPropertyControls(RandomWordAppear, {
+    splitMode: {
+        type: ControlType.Enum,
+        title: "Split Mode",
+        options: ["words", "chars", "lines"],
+        optionTitles: ["Words", "Characters", "Lines"],
+        displaySegmentedControl: true,
+        segmentedControlDirection: "vertical",
+        defaultValue: "words",
+    },
+    trigger: {
+        type: ControlType.Enum,
+        title: "Trigger",
+        options: ["Appear", "Scroll"],
+        displaySegmentedControl: true,
+        defaultValue: "Appear",
+    },
+    reverse: {
+        type: ControlType.Boolean,
+        title: "Reverse",
+        defaultValue: false,
+        hidden: (props: any) => props.trigger !== "Scroll",
+    },
+    scrollTriggerPosition: {
+        type: ControlType.Enum,
+        title: "Start At",
+        options: ["top", "center", "bottom"],
+        optionTitles: ["Top", "Center", "Bottom"],
+        displaySegmentedControl: true,
+        segmentedControlDirection: "horizontal",
+        defaultValue: "center",
+        hidden: (props: any) => props.trigger !== "Scroll",
+    },
+
     text: {
         type: ControlType.String,
         title: "Text",
@@ -204,7 +309,7 @@ addPropertyControls(RandomWordAppear, {
     color: {
         type: ControlType.Color,
         title: "Color",
-        defaultValue: "#ffffff",
+        defaultValue: "#000000",
     },
     font: {
         type: ControlType.Font,
@@ -212,7 +317,8 @@ addPropertyControls(RandomWordAppear, {
         defaultFontType: "sans-serif",
         defaultValue: {
             fontSize: 48,
-            fontWeight: 700,
+            //@ts-ignore
+            fontWeight: "600",
             fontFamily: "system-ui, -apple-system, sans-serif",
         },
     },
@@ -230,17 +336,15 @@ addPropertyControls(RandomWordAppear, {
         max: 10,
         step: 0.1,
         defaultValue: 1,
-       
     },
     staggerAmount: {
         type: ControlType.Number,
-        title: "Word Delay",
+        title: "Stagger",
         unit: "s",
         min: 0,
         max: 2,
         step: 0.05,
         defaultValue: 0.2,
-       
     },
     opacityDuration: {
         type: ControlType.Number,
@@ -250,12 +354,8 @@ addPropertyControls(RandomWordAppear, {
         max: 5,
         step: 0.05,
         defaultValue: 0.8,
-       
-    },
-    triggerOnScroll: {
-        type: ControlType.Boolean,
-        title: "Trigger on Scroll",
-        defaultValue: false,
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 

@@ -24,7 +24,6 @@ interface HeatmapProps {
     outerGlow?: number
     scale?: number
     image?: string
-    frame?: number
 }
 
 const MAX_COLORS = 8
@@ -208,7 +207,6 @@ export default function HeatmapComponent({
     outerGlow = 0.5,
     scale = 0.75,
     image = "https://workers.paper.design/file-assets/01K2KEX78Z34EZ86R69T4CGNNX/01K4PRJY7A6KB5V1PXMR92Q9F4.png",
-    frame = 0,
 }: HeatmapProps) {
     // Prepare colors array
     const { arr: colorArr, count: colorCount } = prepStops(
@@ -255,7 +253,7 @@ export default function HeatmapComponent({
                 outerGlow={outerGlow}
                 scale={scale}
                 image={image}
-                frame={frame}
+                frame={0}
                 style={{
                     backgroundColor: colors?.bgColor || "#000000",
                     width: "100%",
@@ -351,14 +349,6 @@ addPropertyControls(HeatmapComponent, {
         max: 2,
         step: 0.1,
         defaultValue: 0.75,
-    },
-    frame: {
-        type: ControlType.Number,
-        title: "Start point",
-        min: 0,
-        max: 100,
-        step: 1,
-        defaultValue: 0,
     },
     colors: {
         type: ControlType.Object,
