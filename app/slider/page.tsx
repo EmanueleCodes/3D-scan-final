@@ -154,6 +154,7 @@ export default function Carousel({
     buttonsNavigation = true,
     finiteMode = false,
     fluid = true,
+    threshold = 100,
     slideAlignment = "left",
     dotsUI = {
         enabled: false,
@@ -237,6 +238,7 @@ export default function Carousel({
     buttonsNavigation?: boolean
     finiteMode?: boolean
     fluid?: boolean
+    threshold?: number
     slideAlignment?: "left" | "center" | "right"
     dotsUI?: {
         enabled?: boolean
@@ -1845,6 +1847,10 @@ export default function Carousel({
                     // Store actual mouse coordinates for direction detection
                     dragStartMouseXRef.current =
                         this.pointerX || this.startX || 0
+                    
+                    // Store starting index for non-fluid mode
+                    this.startIndex = tl.closestIndex ? tl.closestIndex() : 0
+                    
                     stopAutoplay()
                 },
                 onDragStart() {
@@ -1870,65 +1876,83 @@ export default function Carousel({
                         return
                     }
 
-                    align()
+                    if (!fluid) {
+                        // NON-FLUID MODE: Check threshold and navigate immediately
+                        const dragDistance = startProgress / -ratio - this.x
+                        
+                        // Calculate smart threshold based on card width
+                        const cardWidth = items[0]?.offsetWidth || 300
+                        const maxThreshold = cardWidth / 2 // Maximum is half card width
+                        const smartThreshold = Math.min(threshold, maxThreshold)
+                        
+                        if (Math.abs(dragDistance) > smartThreshold) {
+                            // Determine target slide based on direction
+                            const startIndex = this.startIndex !== undefined ? this.startIndex : (tl.closestIndex ? tl.closestIndex() : 0)
+                            const targetIndex = dragDistance > 0 
+                                ? (startIndex + 1) % length  // Next slide
+                                : (startIndex - 1 + length) % length  // Previous slide
+                            
+                            // Navigate to target slide immediately
+                            try {
+                                stopAutoplay() // Stop autoplay when user drags
+                                tl.toIndex(targetIndex, {
+                                    duration: animation.duration,
+                                    ease: getEasingString(animation.easing || "power1.inOut"),
+                                })
+                                
+                                // Restart autoplay after user interaction
+                                if (autoplay.enabled) {
+                                    setTimeout(startAutoplay, 10)
+                                }
+                                
+                                // Stop drag detection - we've navigated
+                                this.allowDrag = false
+                                isDraggingRef.current = false
+                                return
+                            } catch (error) {}
+                        } else {
+                            // Still within threshold - allow cursor following
+                            align()
+                        }
+                    } else {
+                        // FLUID MODE: Original behavior - natural cursor following
+                        align()
+                    }
+                    
                     // Track current mouse position for direction detection
                     dragEndMouseXRef.current = this.pointerX || this.x || 0
                 },
                 onThrowUpdate: function () {
-                    // Allow throwing if we have a genuine drag (allowDrag is true)
-                    if (this.allowDrag) {
+                    // Allow throwing if we have a genuine drag (allowDrag is true) and fluid mode is enabled
+                    if (this.allowDrag && fluid) {
                         align()
-                    } else {
+                    } else if (!fluid) {
+                        // NON-FLUID MODE: Prevent any throwing updates - keep at current position
+                        // This ensures the manual release logic takes full control
                     }
                 },
                 overshootTolerance: 0,
-                inertia: fluid, // Disable inertia for non-fluid mode to prevent continuous movement
+                inertia: fluid, // Only use inertia in fluid mode
                 /**
                  * max
                  */
-                maxDuration: fluid ? 4 * (1.1 - dragFactor) : 1, // Reduce max duration for non-fluid mode
-                snap(value: number) {
+                maxDuration: fluid ? 4 * (1.1 - dragFactor) : 0, // No max duration for non-fluid mode
+                snap: fluid ? function(this: any, value: number) {
+                    // FLUID MODE: Original snap behavior
                     if (Math.abs(startProgress / -ratio - this.x) < 10) {
                         return lastSnap + initChangeX
                     }
 
-                    if (!fluid) {
-                        // NON-FLUID MODE: Discrete slide navigation - only move one slide at a time
-                        const dragDistance = startProgress / -ratio - this.x
-                        const threshold = 50 // Minimum drag distance to trigger slide change
-                        
-                        if (Math.abs(dragDistance) > threshold) {
-                            // Determine direction and move to next/previous slide
-                            const currentIndex = tl.closestIndex ? tl.closestIndex() : 0
-                            const targetIndex = dragDistance > 0 
-                                ? (currentIndex + 1) % length  // Next slide
-                                : (currentIndex - 1 + length) % length  // Previous slide
-                            
-                            const targetTime = times[targetIndex]
-                            const time = -(value * ratio) * tl.duration()
-                            const wrappedTime = timeWrap(time)
-                            let dif = targetTime - wrappedTime
-                            Math.abs(dif) > tl.duration() / 2 &&
-                                (dif += dif < 0 ? tl.duration() : -tl.duration())
-                            lastSnap = (time + dif) / tl.duration() / -ratio
-                            return lastSnap
-                        } else {
-                            // Small drag - snap back to current slide
-                            return lastSnap + initChangeX
-                        }
-                    } else {
-                        // FLUID MODE: Original behavior - continuous snapping with momentum
-                        const time = -(value * ratio) * tl.duration()
-                        const wrappedTime = timeWrap(time)
-                        const snapTime =
-                            times[getClosest(times, wrappedTime, tl.duration())]
-                        let dif = snapTime - wrappedTime
-                        Math.abs(dif) > tl.duration() / 2 &&
-                            (dif += dif < 0 ? tl.duration() : -tl.duration())
-                        lastSnap = (time + dif) / tl.duration() / -ratio
-                        return lastSnap
-                    }
-                },
+                    // INFINITE MODE: Snap logic with wrapping for seamless infinite scrolling
+                    const time = -(value * ratio) * tl.duration()
+                    const wrappedTime = timeWrap(time)
+                    const snapTime = times[getClosest(times, wrappedTime, tl.duration())]
+                    let dif = snapTime - wrappedTime
+                    Math.abs(dif) > tl.duration() / 2 &&
+                        (dif += dif < 0 ? tl.duration() : -tl.duration())
+                    lastSnap = (time + dif) / tl.duration() / -ratio
+                    return lastSnap
+                } : false, // NON-FLUID MODE: No snapping - let cursor follow directly
                 onRelease() {
                     if (this.isClick) {
                         if (clickNavigation) {
@@ -1998,20 +2022,35 @@ export default function Carousel({
                         this.allowDrag = false
                     } else if (this.allowDrag) {
                         // This was a real drag
-                        syncIndex()
                         isDraggingRef.current = false
 
-                        // Update autoplay direction based on drag direction if throwAware is enabled
-                        if (autoplay.throwAware === "Follow") {
-                            const mouseDistance =
-                                dragEndMouseXRef.current -
-                                dragStartMouseXRef.current
-                            currentAutoplayDirectionRef.current =
-                                mouseDistance > 0 ? "left" : "right"
+                        if (!fluid) {
+                            // NON-FLUID MODE: If we reach release, it means we didn't exceed threshold during drag
+                            // Just snap back to the starting slide
+                            const startIndex = this.startIndex !== undefined ? this.startIndex : (tl.closestIndex ? tl.closestIndex() : 0)
+                            
+                            try {
+                                tl.toIndex(startIndex, {
+                                    duration: animation.duration,
+                                    ease: getEasingString(animation.easing || "power1.inOut"),
+                                })
+                            } catch (error) {}
+                        } else {
+                            // FLUID MODE: Original behavior
+                            syncIndex()
+                            
+                            // Update autoplay direction based on drag direction if throwAware is enabled
+                            if (autoplay.throwAware === "Follow") {
+                                const mouseDistance =
+                                    dragEndMouseXRef.current -
+                                    dragStartMouseXRef.current
+                                currentAutoplayDirectionRef.current =
+                                    mouseDistance > 0 ? "left" : "right"
+                            }
                         }
 
-                        // Check if throwing animation will start
-                        if (draggable.isThrowing) {
+                        // Check if throwing animation will start (only in fluid mode)
+                        if (fluid && draggable.isThrowing) {
                             isThrowingRef.current = true
                             indexIsDirty = true
 
@@ -3746,6 +3785,16 @@ addPropertyControls(Carousel, {
         defaultValue: true,
         hidden: (props: any) => props.finiteMode || !props.draggable,
         description: "Enable fluid dragging with momentum (off = discrete slide navigation)",
+    },
+    threshold: {
+        type: ControlType.Number,
+        title: "Drag Threshold",
+        min: 50,
+        max: 500,
+        step: 10,
+        defaultValue: 100,
+        hidden: (props: any) => props.finiteMode || !props.draggable || props.fluid,
+        description: "Minimum drag distance to trigger slide change (limited by card width)",
     },
     clickNavigation: {
         type: ControlType.Boolean,
