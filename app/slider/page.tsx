@@ -130,13 +130,7 @@ export default function Carousel({
     interval = 3,
     direction = "right",
     throwAware = "No follow",
-    ui = {
-        backgroundColor: "#000000",
-        padding: "0px",
-        borderRadius: "0px",
-        shadow: "0px 0px 0px rgba(0,0,0,0)",
-        gap: 20,
-    },
+    gap = 20,
     buttonsUI = {
         verticalAlign: "center",
         horizontalAlign: "center",
@@ -211,13 +205,7 @@ export default function Carousel({
     interval?: number
     direction?: "left" | "right"
     throwAware?: "Follow" | "No follow"
-    ui?: {
-        backgroundColor?: string
-        padding?: string
-        borderRadius?: string
-        shadow?: string
-        gap?: number
-    }
+    gap?: number
     buttonsUI?: {
         verticalAlign?: "top" | "center" | "bottom"
         horizontalAlign?: "center" | "space-between"
@@ -955,7 +943,7 @@ export default function Carousel({
                 case "fill-width":
                     // For fill-width, slides should truly fill the available width
                     // Calculate how many slides can reasonably fit, then make each slide fill proportionally
-                    const gap = Math.max(ui?.gap ?? 20, 0)
+                    const slideGap = Math.max(gap ?? 20, 0)
 
                     // Determine optimal number of visible slides based on container width
                     let slidesToShow = 1
@@ -2452,7 +2440,7 @@ export default function Carousel({
                  * - center: wrapperRef.current - Use wrapper element for centering calculations
                  * - onChange: Callback fired when the active slide changes
                  */
-                const currentGap = Math.max(ui?.gap ?? 20, 0)
+                const currentGap = Math.max(gap ?? 20, 0)
 
                 // FIX: Add delay to ensure all 6 slides are rendered
                 setTimeout(() => {
@@ -2714,7 +2702,7 @@ export default function Carousel({
                 draggable,
                 clickNavigation,
                 content.length,
-                ui?.gap,
+                gap,
                 autoplay,
                 direction,
                 slidesUI.slideSizing?.mode,
@@ -3049,7 +3037,7 @@ export default function Carousel({
 
         // DYNAMIC APPROACH: Calculate slides needed to fill container
         const containerWidth = containerDimensions.current.width
-        const gap = Math.max(ui?.gap ?? 20, 0)
+        const slideGap = Math.max(gap ?? 20, 0)
 
         if (containerWidth > 0) {
             // Calculate how many slides we need to fill the container
@@ -3110,7 +3098,7 @@ export default function Carousel({
             const finalCount = actualSlideCount * 2
             return { finalCount, actualSlideCount, validContent }
         }
-    }, [content, finiteMode, ui?.gap])
+    }, [content, finiteMode, gap])
 
     /**
      * Generate stable slide widths - SIMPLIFIED
@@ -3186,7 +3174,7 @@ export default function Carousel({
         generateSlideWidths,
         content.length,
         containerDimensions.current.width,
-        ui?.gap,
+        gap,
     ]) // Include container width and gap
 
     const boxes = Array.from({ length: slideData.finalCount }, (_, i) => {
@@ -3267,7 +3255,7 @@ export default function Carousel({
                             ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Use specified width as minimum
                             : "100px", // Other modes: use 100px minimum
                     maxWidth: "none", // Remove max-width constraint for fill-width mode
-                    marginRight: `${Math.max(ui?.gap ?? 20, 0)}px`, // Ensure gap is non-negative
+                    marginRight: `${Math.max(gap ?? 20, 0)}px`, // Ensure gap is non-negative
                     display: "flex", // Ensure slide container is flex
                     flexDirection: "column" as const,
                     position: "relative" as const,
@@ -3357,10 +3345,6 @@ export default function Carousel({
     return (
         <div
             style={{
-                background: ui?.backgroundColor || "#000000",
-                padding: ui?.padding || "0px",
-                borderRadius: ui?.borderRadius || "0px",
-                boxShadow: ui?.shadow,
                 color: "white",
                 textAlign: "center" as const,
                 display: "flex",
@@ -3691,6 +3675,7 @@ addPropertyControls(Carousel, {
          segmentedControlDirection: "vertical",
          hidden: (props: any) => !props.autoplay,
      },
+     
     draggable: {
         type: ControlType.Boolean,
         title: "Draggable",
@@ -3708,10 +3693,10 @@ addPropertyControls(Carousel, {
     },
     fluid: {
         type: ControlType.Boolean,
-        title: "Fluid Drag",
+        title: "Throwing",
         defaultValue: true,
         hidden: (props: any) => props.finiteMode || !props.draggable,
-        description: "Enable fluid dragging with momentum (off = discrete slide navigation)",
+       
     },
     slideAlignment: {
         type: ControlType.Enum,
@@ -3833,46 +3818,17 @@ addPropertyControls(Carousel, {
     
     clickNavigation: {
         type: ControlType.Boolean,
-        title: "Click Nav",
+        title: "Click slide to advance",
         defaultValue: true,
     },
-    
-    ui: {
-        type: ControlType.Object,
-        title: "UI",
-        controls: {
-            backgroundColor: {
-                type: ControlType.Color,
-                title: "Background",
-                defaultValue: "#000000",
-            },
-            padding: {
-                // @ts-ignore - ControlType.Padding exists but may not be in types
-                type: ControlType.Padding,
-                title: "Padding",
-                defaultValue: "0px",
-            },
-            borderRadius: {
-                // @ts-ignore - ControlType.BorderRadius exists but may not be in types
-                type: ControlType.BorderRadius,
-                title: "Border Radius",
-                defaultValue: "0px",
-            },
-            shadow: {
-                // @ts-ignore - ControlType.Shadow exists but may not be in types
-                type: ControlType.BoxShadow,
-                title: "Shadow",
-                defaultValue: "0px 0px 0px rgba(0,0,0,0)",
-            },
-            gap: {
-                type: ControlType.Number,
-                title: "Slide Gap",
-                min: 0,
-                max: 100,
-                step: 5,
-                defaultValue: 20,
-            },
-        },
+    gap: {
+        type: ControlType.Number,
+        title: "Gap",
+        min: 0,
+        max: 100,
+        step: 5,
+        defaultValue: 20,
+        description: "Space between slides",
     },
     slidesUI: {
         type: ControlType.Object,
