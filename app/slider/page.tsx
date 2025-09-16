@@ -628,7 +628,7 @@ export default function Carousel({
      * Calculate dots positioning based on alignment settings
      */
     const calculateDotsPosition = useCallback(() => {
-        if (!dotsUI.enabled || !finiteMode) return { display: "none" }
+        if (!dotsUI.enabled) return { display: "none" }
 
         const containerWidth = containerDimensions.current.width
         const containerHeight = containerDimensions.current.height
@@ -1994,7 +1994,7 @@ export default function Carousel({
 
     // Update dots when dotsUI props change
     useEffect(() => {
-        if (!isFullyInitialized || !finiteMode || !dotsUI.enabled) return
+        if (!isFullyInitialized || !dotsUI.enabled) return
         animateDots(activeSlideIndex)
     }, [dotsUI, activeSlideIndex, isFullyInitialized, animateDots])
 
@@ -2213,8 +2213,8 @@ export default function Carousel({
                                                 )
                                             }
 
-                                            // Animate dots if in finite mode
-                                            if (finiteMode && dotsUI.enabled) {
+                                            // Animate dots
+                                            if (dotsUI.enabled) {
                                                 animateDots(index)
                                             }
                                         } catch (error) {}
@@ -2260,8 +2260,8 @@ export default function Carousel({
                                 // because applyInitialStylingToAllSlides handles all the initial styling
                                 // The slides will animate normally during navigation
 
-                                // Set initial visual state for dots if in finite mode
-                                if (finiteMode && dotsUI.enabled) {
+                                // Set initial visual state for dots
+                                if (dotsUI.enabled) {
                                     animateDots(0) // First dot is active by default
                                 }
                             }, 100) // Small delay to ensure DOM is ready
@@ -3032,19 +3032,12 @@ export default function Carousel({
                                     }
                                 })(),
 
-                                cursor:
-                                    finiteMode && activeSlideIndex === 0
-                                        ? "default"
-                                        : "pointer",
+                                cursor: "pointer",
                             }}
-                            onClick={
-                                finiteMode && activeSlideIndex === 0
-                                    ? undefined
-                                    : (e) => {
-                                          e.stopPropagation()
-                                          handlePrev()
-                                      }
-                            }
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handlePrev()
+                            }}
                         >
                             {prevArrow}
                         </div>
@@ -3081,23 +3074,12 @@ export default function Carousel({
                                     }
                                 })(),
 
-                                cursor:
-                                    finiteMode &&
-                                    activeSlideIndex ===
-                                        (slideData?.actualSlideCount || 1) - 1
-                                        ? "default"
-                                        : "pointer",
+                                cursor: "pointer",
                             }}
-                            onClick={
-                                finiteMode &&
-                                activeSlideIndex ===
-                                    (slideData?.actualSlideCount || 1) - 1
-                                    ? undefined
-                                    : (e) => {
-                                          e.stopPropagation()
-                                          handleNext()
-                                      }
-                            }
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handleNext()
+                            }}
                         >
                             {nextArrow}
                         </div>
@@ -3164,11 +3146,11 @@ export default function Carousel({
                 </div>
             </div>
 
-            {/* Dots Navigation - Only show in finite mode when enabled */}
-            {finiteMode && dotsUI.enabled && (
+            {/* Dots Navigation - Show when enabled */}
+            {dotsUI.enabled && (
                 <div style={{...calculateDotsPosition(), overflow: "visible"}}>
                     {Array.from(
-                        { length: slideData?.actualSlideCount || 0 },
+                        { length: finiteMode ? (slideData?.actualSlideCount || 0) : (slideData?.validContent?.length || 0) },
                         (_, index) => (
                             <button
                                 key={index}
@@ -3430,7 +3412,6 @@ addPropertyControls(Carousel, {
     dotsUI: {
         type: ControlType.Object,
         title: "Dots",
-        hidden: (props: any) => !props.finiteMode,
         controls: {
             enabled: {
                 type: ControlType.Boolean,
