@@ -156,6 +156,7 @@ export default function Carousel({
         radius: 50,
         opacity: 0.5,
         current: 1,
+        scale: 1.2,
         blur: 0,
         verticalAlign: "bottom",
         horizontalAlign: "center",
@@ -208,6 +209,7 @@ export default function Carousel({
         radius?: number
         opacity?: number
         current?: number
+        scale?: number
         blur?: number
         verticalAlign?: "top" | "center" | "bottom"
         horizontalAlign?: "left" | "center" | "right"
@@ -310,72 +312,29 @@ export default function Carousel({
                 isCentralSlide = i === activeSlideIndex
             }
 
-            const isCentralCustomized = false
-
             // Get the appropriate style values
             const targetScale = isCentralSlide
                 ? effects.current || 1.1
                 : effects.scale || 1
 
-            const targetOpacity =
-1
-
-            const targetBackgroundColor =
-"transparent"
-
-            const targetBorder =
-"none"
-
-            const targetRadius =
-"0px"
-
-            const targetShadow =
-                isCentralSlide && isCentralCustomized
-                    ? effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
-                    : effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
-
-            // Create border shadow effect
-            let borderShadow = ""
-            if (targetBorder && typeof targetBorder === "object") {
-                const borderWidth = (targetBorder as any).borderWidth || "1px"
-                const borderColor =
-                    (targetBorder as any).borderColor || "rgba(0,0,0,0.2)"
-                const widthValue =
-                    typeof borderWidth === "string"
-                        ? parseInt(borderWidth.replace("px", "")) || 1
-                        : parseInt(String(borderWidth)) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
-            } else if (typeof targetBorder === "string") {
-                const parts = targetBorder.split(" ")
-                const width = parts[0] || "1px"
-                const color = parts[2] || "rgba(0,0,0,0.2)"
-                const widthValue = parseInt(width.replace("px", "")) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${color}`
-            } else {
-                borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
-            }
-
-            // Combine existing shadow with border shadow
-            const finalShadow =
-                targetShadow && targetShadow !== "0px 0px 0px rgba(0,0,0,0)"
-                    ? `${borderShadow}, ${targetShadow}`
-                    : borderShadow
+            // Single shadow for all slides
+            const targetShadow = effects.shadow === "none" 
+                ? "0px 0px 0px rgba(0,0,0,0)" 
+                : effects.shadow === "small" 
+                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
+                    : effects.shadow === "medium" 
+                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
+                        : "0px 8px 32px rgba(0,0,0,0.2)"
 
             // Apply initial styling directly to DOM (immediate, no animation, can't be overridden)
             innerElement.style.transform = `scale(${targetScale})`
-            innerElement.style.opacity = String(targetOpacity)
-            innerElement.style.backgroundColor = targetBackgroundColor
-            innerElement.style.boxShadow = finalShadow
-            innerElement.style.borderRadius = targetRadius
+            innerElement.style.boxShadow = targetShadow
             innerElement.style.transformOrigin = "center"
 
             // Also set with GSAP for consistency, but with immediate render
             gsap.set(innerElement, {
                 scale: targetScale,
-                opacity: targetOpacity,
-                backgroundColor: targetBackgroundColor,
-                boxShadow: finalShadow,
-                borderRadius: targetRadius,
+                boxShadow: targetShadow,
                 transformOrigin: "center",
                 immediateRender: true,
                 duration: 0, // Force immediate
@@ -401,45 +360,19 @@ export default function Carousel({
             // Get the appropriate style values for central slide
             // Always apply current scale to central slide
             const targetScale = effects.current || 1.1
-            const targetOpacity = 1
-            const targetBackgroundColor = "transparent"
-            const targetBorder = "none"
-            const targetRadius = "0px"
-            const targetShadow = effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
-
-            // Create border shadow effect
-            let borderShadow = ""
-            if (targetBorder && typeof targetBorder === "object") {
-                const borderWidth = (targetBorder as any).borderWidth || "1px"
-                const borderColor =
-                    (targetBorder as any).borderColor || "rgba(0,0,0,0.2)"
-                const widthValue =
-                    typeof borderWidth === "string"
-                        ? parseInt(borderWidth.replace("px", "")) || 1
-                        : parseInt(String(borderWidth)) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
-            } else if (typeof targetBorder === "string") {
-                const parts = targetBorder.split(" ")
-                const width = parts[0] || "1px"
-                const color = parts[2] || "rgba(0,0,0,0.2)"
-                const widthValue = parseInt(width.replace("px", "")) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${color}`
-            } else {
-                borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
-            }
-
-            // Combine existing shadow with border shadow
-            const finalShadow =
-                targetShadow && targetShadow !== "0px 0px 0px rgba(0,0,0,0)"
-                    ? `${borderShadow}, ${targetShadow}`
-                    : borderShadow
+            
+            // Single shadow for all slides
+            const targetShadow = effects.shadow === "none" 
+                ? "0px 0px 0px rgba(0,0,0,0)" 
+                : effects.shadow === "small" 
+                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
+                    : effects.shadow === "medium" 
+                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
+                        : "0px 8px 32px rgba(0,0,0,0.2)"
 
             gsap.set(innerElement, {
                 scale: targetScale,
-                opacity: targetOpacity,
-                backgroundColor: targetBackgroundColor,
-                boxShadow: finalShadow,
-                borderRadius: targetRadius,
+                boxShadow: targetShadow,
                 transformOrigin: "center",
                 immediateRender: true,
             })
@@ -462,66 +395,25 @@ export default function Carousel({
             ) as HTMLElement
             if (!innerElement) return
 
-            // Get the appropriate style values based on whether it's active and central slide customization
+            // Get the appropriate style values based on whether it's active
             const targetScale = isActive
                 ? effects.current || 1.1
                 : effects.scale || 1
 
-            const targetOpacity = isActive
-                ? 1
-                : 1
-
-            const targetBackgroundColor = isActive
-                ? "transparent"
-                : "transparent"
-
-            const targetBorder = isActive
-                ? "none"
-                : "none"
-
-            // Get existing shadow
-            const existingShadow = effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
-
-            // Create border shadow effect
-            let borderShadow = ""
-            if (targetBorder && typeof targetBorder === "object") {
-                const borderWidth = (targetBorder as any).borderWidth || "1px"
-                const borderColor =
-                    (targetBorder as any).borderColor || "rgba(0,0,0,0.2)"
-                // Handle both string and number borderWidth values
-                const widthValue =
-                    typeof borderWidth === "string"
-                        ? parseInt(borderWidth.replace("px", "")) || 1
-                        : parseInt(String(borderWidth)) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
-            } else if (typeof targetBorder === "string") {
-                const parts = targetBorder.split(" ")
-                const width = parts[0] || "1px"
-                const color = parts[2] || "rgba(0,0,0,0.2)"
-                const widthValue = parseInt(width.replace("px", "")) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${color}`
-            } else {
-                borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
-            }
-
-            // Combine existing shadow with border shadow
-            const targetShadow =
-                existingShadow && existingShadow !== "0px 0px 0px rgba(0,0,0,0)"
-                    ? `${borderShadow}, ${existingShadow}`
-                    : borderShadow
-
-            const targetRadius = isActive
-                ? "0px"
-                : "0px"
+            // Single shadow for all slides
+            const targetShadow = effects.shadow === "none" 
+                ? "0px 0px 0px rgba(0,0,0,0)" 
+                : effects.shadow === "small" 
+                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
+                    : effects.shadow === "medium" 
+                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
+                        : "0px 8px 32px rgba(0,0,0,0.2)"
 
             // During initial setup, use gsap.set() for immediate styling
             if (isInitialSetupRef.current) {
                 gsap.set(innerElement, {
                     scale: targetScale,
-                    opacity: targetOpacity,
-                    backgroundColor: targetBackgroundColor,
                     boxShadow: targetShadow,
-                    borderRadius: targetRadius,
                     transformOrigin: "center",
                     immediateRender: true,
                 })
@@ -532,10 +424,7 @@ export default function Carousel({
                 // For subsequent animations, use gsap.to() with user timing
                 gsap.to(innerElement, {
                     scale: targetScale,
-                    opacity: targetOpacity,
-                    backgroundColor: targetBackgroundColor,
                     boxShadow: targetShadow,
-                    borderRadius: targetRadius,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                     transformOrigin: "center",
@@ -557,8 +446,10 @@ export default function Carousel({
             const dots = document.querySelectorAll("[data-dot-index]")
             dots.forEach((dot, index) => {
                 const isActive = index === activeIndex
-                const targetScale = isActive ? 1.2 : 1
-                const targetOpacity = dotsUI.opacity || 0.5
+                const targetScale = isActive ? (dotsUI.scale || 1.2) : 1
+                const targetOpacity = isActive
+                    ? (dotsUI.current || 1) 
+                    : (dotsUI.opacity || 0.5)
 
                 gsap.to(dot, {
                     scale: targetScale,
@@ -592,7 +483,6 @@ export default function Carousel({
             if (isPrevDisabled) {
                 // Set disabled state immediately
                 gsap.set(leftButton, {
-                    scale: 0.7,
                     opacity: 0.3,
                     immediateRender: true,
                     duration: 0,
@@ -600,7 +490,6 @@ export default function Carousel({
             } else {
                 // Set enabled state immediately
                 gsap.set(leftButton, {
-                    scale: 1,
                     opacity: 1,
                     immediateRender: true,
                     duration: 0,
@@ -618,7 +507,6 @@ export default function Carousel({
             if (isNextDisabled) {
                 // Set disabled state immediately
                 gsap.set(rightButton, {
-                    scale: 0.7,
                     opacity: 0.3,
                     immediateRender: true,
                     duration: 0,
@@ -626,7 +514,6 @@ export default function Carousel({
             } else {
                 // Set enabled state immediately
                 gsap.set(rightButton, {
-                    scale: 1,
                     opacity: 1,
                     immediateRender: true,
                     duration: 0,
@@ -653,7 +540,6 @@ export default function Carousel({
                 if (isPrevDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(leftButton, {
-                        scale: 0.7,
                         opacity: 0.3,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
@@ -662,7 +548,6 @@ export default function Carousel({
                     })
                 } else {
                     gsap.to(leftButton, {
-                        scale: 1,
                         opacity: 1,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
@@ -676,7 +561,6 @@ export default function Carousel({
                 if (isNextDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(rightButton, {
-                        scale: 0.7,
                         opacity: 0.3,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
@@ -686,7 +570,6 @@ export default function Carousel({
                 } else {
                     // For enabled buttons, animate to enabled state
                     gsap.to(rightButton, {
-                        scale: 1,
                         opacity: 1,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
@@ -2023,59 +1906,23 @@ export default function Carousel({
                 ? effects.current || 1.1
                 : effects.scale || 1
 
-            const targetOpacity =
-1
-
-            const targetBackgroundColor =
-"transparent"
-
-            const targetBorder =
-"none"
-
-            const targetRadius =
-"0px"
-
-            const targetShadow =
-                isCentralSlide && isCentralCustomized
-                    ? effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
-                    : effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
-
-            // Create border shadow effect
-            let borderShadow = ""
-            if (targetBorder && typeof targetBorder === "object") {
-                const borderWidth = (targetBorder as any).borderWidth || "1px"
-                const borderColor =
-                    (targetBorder as any).borderColor || "rgba(0,0,0,0.2)"
-                const widthValue =
-                    typeof borderWidth === "string"
-                        ? parseInt(borderWidth.replace("px", "")) || 1
-                        : parseInt(String(borderWidth)) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${borderColor}`
-            } else if (typeof targetBorder === "string") {
-                const parts = targetBorder.split(" ")
-                const width = parts[0] || "1px"
-                const color = parts[2] || "rgba(0,0,0,0.2)"
-                const widthValue = parseInt(width.replace("px", "")) || 1
-                borderShadow = `0 0 0 ${widthValue}px ${color}`
-            } else {
-                borderShadow = "0 0 0 1px rgba(0,0,0,0.2)"
-            }
-
-            // Combine existing shadow with border shadow
-            const finalShadow =
-                targetShadow && targetShadow !== "0px 0px 0px rgba(0,0,0,0)"
-                    ? `${borderShadow}, ${targetShadow}`
-                    : borderShadow
+            // Single shadow for all slides
+            const targetShadow = effects.shadow === "none" 
+                ? "0px 0px 0px rgba(0,0,0,0)" 
+                : effects.shadow === "small" 
+                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
+                    : effects.shadow === "medium" 
+                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
+                        : "0px 8px 32px rgba(0,0,0,0.2)"
 
             // Apply styling with smooth animation
             gsap.to(innerElement, {
                 scale: targetScale,
-                opacity: targetOpacity,
-                backgroundColor: targetBackgroundColor,
-                boxShadow: finalShadow,
-                borderRadius: targetRadius,
+                boxShadow: targetShadow,
                 duration: animation.duration || 0.4,
                 ease: getEasingString(animation.easing || "power1.inOut"),
+                transformOrigin: "center",
+                overwrite: true, // Overwrite any existing animations on this element
             })
         })
     }, [
@@ -2104,14 +1951,12 @@ export default function Carousel({
 
             if (isPrevDisabled) {
                 gsap.to(leftButton, {
-                    scale: 0.7,
                     opacity: 0.3,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
             } else {
                 gsap.to(leftButton, {
-                    scale: 1,
                     opacity: 1,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
@@ -2126,14 +1971,12 @@ export default function Carousel({
 
             if (isNextDisabled) {
                 gsap.to(rightButton, {
-                    scale: 0.7,
                     opacity: 0.3,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
             } else {
                 gsap.to(rightButton, {
-                    scale: 1,
                     opacity: 1,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
@@ -2432,12 +2275,12 @@ export default function Carousel({
                                         if ((loop as any).times && (loop as any).times.length > 0) {
                                             const middleIndex = Math.floor((loop as any).times.length / 2)
                                             const centerTime = (loop as any).times[middleIndex] || (loop as any).times[0]
-                                            if ((loop as any).refresh) {
-                                                ;(loop as any).refresh(true)
-                                            }
-                                            if (loop.time) {
-                                                loop.time(centerTime, true)
-                                            }
+                                        if ((loop as any).refresh) {
+                                            ;(loop as any).refresh(true)
+                                        }
+                                        if (loop.time) {
+                                            loop.time(centerTime, true)
+                                        }
                                             // Compute which slide is visually centered now
                                             let initIndex = 0
                                             if ((loop as any).closestIndex) {
@@ -2455,12 +2298,12 @@ export default function Carousel({
                                         }
                                     } else {
                                         // Finite mode: position ALL mounted slides based on alignment
-                                        const firstSlide = boxesRef.current[0]
-                                        if (firstSlide) {
-                                            const slideWidth = firstSlide.offsetWidth
+                                            const firstSlide = boxesRef.current[0]
+                                            if (firstSlide) {
+                                                const slideWidth = firstSlide.offsetWidth
                                             const containerWidth = firstSlide.parentElement?.offsetWidth || 0
                                             const gapValue = Math.max(gap ?? 20, 0)
-                                            boxesRef.current.forEach((slide, i) => {
+                                                boxesRef.current.forEach((slide, i) => {
                                                 if (!slide) return
                                                 let x = -i * (slideWidth + gapValue)
                                                 if (slideAlignment === "center") {
@@ -3075,9 +2918,9 @@ export default function Carousel({
                         // Ensure no CSS aspect ratio interferes when mode is not "aspect-ratio"
                         aspectRatio: undefined,
                         backgroundColor: "transparent",
-                        border: "none", // Remove regular border
-                        borderRadius: "10px", // Default value - GSAP will animate this
-                        boxShadow: "0 0 0 1px rgba(0,0,0,0.2)", // Default value - GSAP will animate this
+                        border: "none",
+                        borderRadius: "0px",
+                        boxShadow: "none",
                         transform: "none",
                         scale: `${Math.max(
                             i === activeSlideIndex
@@ -3144,35 +2987,6 @@ export default function Carousel({
                 // No transition - instant reveal once logic is complete
             }}
         >
-            {/* Loading indicator - only visible while initializing */}
-            {!isFullyInitialized && (
-                <div
-                    style={{
-                        position: "absolute",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        zIndex: 1000,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        opacity: 0.8,
-                        fontSize: "14px",
-                    }}
-                >
-                    <div
-                        style={{
-                            width: "16px",
-                            height: "16px",
-                            border: "2px solid rgba(255,255,255,0.3)",
-                            borderTop: "2px solid white",
-                            borderRadius: "50%",
-                            animation: "spin 1s linear infinite",
-                        }}
-                    />
-                    Initializing...
-                </div>
-            )}
 
             {/* CSS for spinner animation */}
             <style>{`
@@ -3378,19 +3192,33 @@ export default function Carousel({
                                     height: `${dotsUI.height || 10}px`,
                                     borderRadius: `${dotsUI.radius || 50}px`,
                                     border: "none",
-                                    backgroundColor:
-                                        dotsUI.fill || "#FFFFFF",
                                     cursor: "pointer",
                                     padding: 0,
                                     margin: 0,
+                                    position: "relative",
+                                    overflow: "hidden",
                                     // Initial state - GSAP will animate from here
-                                    opacity: dotsUI.opacity || 0.5,
+                                    opacity: index === activeSlideIndex ? (dotsUI.current || 1) : (dotsUI.opacity || 0.5),
                                     transform:
                                         index === activeSlideIndex
-                                            ? "scale(1.2)"
+                                            ? `scale(${dotsUI.scale || 1.2})`
                                             : "scale(1)",
                                 }}
-                            />
+                            >
+                                {/* Backdrop element for blur effect */}
+                                <div
+                                    style={{
+                                        position: "absolute",
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        backgroundColor: dotsUI.fill || "#FFFFFF",
+                                        backdropFilter: `blur(${dotsUI?.blur || 0}px)`,
+                                        borderRadius: `${dotsUI.radius || 50}px`,
+                                    }}
+                                />
+                            </button>
                         )
                     )}
                 </div>
@@ -3473,7 +3301,7 @@ addPropertyControls(Carousel, {
         title: "Alignment",
         options: ["center"],
         optionTitles: ["Center"],
-        defaultValue: "center",
+                defaultValue: "center",
         description: "Slides are centered in finite mode",
     },
     clickNavigation: {
@@ -3674,10 +3502,20 @@ addPropertyControls(Carousel, {
             current: {
                 type: ControlType.Number,
                 title: "Current",
-                min: 1,
-                max: 10,
-                step: 1,
+                min: 0,
+                max: 1,
+                step: 0.1,
                 defaultValue: 1,
+                displayStepper: true,
+                hidden: (props: any) => !props.enabled,
+            },
+            scale: {
+                type: ControlType.Number,
+                title: "Scale",
+                min: 0.5,
+                max: 2,
+                step: 0.1,
+                defaultValue: 1.2,
                 displayStepper: true,
                 hidden: (props: any) => !props.enabled,
             },
