@@ -131,10 +131,10 @@ export default function Carousel({
     direction = "right",
     throwAware = "No follow",
     gap = 20,
+    prevArrow = null,
+    nextArrow = null,
     arrows = {
         show: true,
-        prev: null,
-        next: null,
         fill: "#000000",
         fadeIn: false,
         distance: "space",
@@ -142,27 +142,23 @@ export default function Carousel({
         gap: 20,
         inset: 20,
         opacity: 0.7,
-        disabledStyle: "none",
-        disabledScale: 0.7,
-        disabledOpacity: 0.3,
     },
-    leftControl = null,
-    rightControl = null,
-    buttonsNavigation = true,
     finiteMode = false,
     fluid = true,
     slideAlignment = "center",
     dotsUI = {
         enabled: false,
-        size: 8,
-        gap: 12,
-        activeOpacity: 1,
-        inactiveOpacity: 0.3,
-        activeScale: 1.2,
-        backgroundColor: "#000000",
+        width: 10,
+        height: 10,
+        gap: 10,
+        fill: "#FFFFFF",
+        backdrop: "#000000",
+        radius: 50,
+        opacity: 0.5,
+        current: 1,
+        blur: 0,
         verticalAlign: "bottom",
         horizontalAlign: "center",
-        insetX: 0,
         insetY: 20,
     },
     effects = {
@@ -187,10 +183,10 @@ export default function Carousel({
     direction?: "left" | "right"
     throwAware?: "Follow" | "No follow"
         gap?: number
+    prevArrow?: React.ReactNode
+    nextArrow?: React.ReactNode
     arrows?: {
         show?: boolean
-        prev?: React.ReactNode
-        next?: React.ReactNode
         fill?: string
         fadeIn?: boolean
         distance?: "space" | "group"
@@ -198,27 +194,23 @@ export default function Carousel({
         gap?: number
         inset?: number
         opacity?: number
-        disabledStyle?: "none" | "styled"
-        disabledScale?: number
-        disabledOpacity?: number
     }
-    leftControl?: React.ReactNode
-    rightControl?: React.ReactNode
-    buttonsNavigation?: boolean
     finiteMode?: boolean
     fluid?: boolean
     slideAlignment?: "center"
     dotsUI?: {
         enabled?: boolean
-        size?: number
+        width?: number
+        height?: number
         gap?: number
-        activeOpacity?: number
-        inactiveOpacity?: number
-        activeScale?: number
-        backgroundColor?: string
+        fill?: string
+        backdrop?: string
+        radius?: number
+        opacity?: number
+        current?: number
+        blur?: number
         verticalAlign?: "top" | "center" | "bottom"
         horizontalAlign?: "left" | "center" | "right"
-        insetX?: number
         insetY?: number
     }
     effects?: {
@@ -565,10 +557,8 @@ export default function Carousel({
             const dots = document.querySelectorAll("[data-dot-index]")
             dots.forEach((dot, index) => {
                 const isActive = index === activeIndex
-                const targetScale = isActive ? dotsUI.activeScale || 1.2 : 1
-                const targetOpacity = isActive
-                    ? dotsUI.activeOpacity || 1
-                    : dotsUI.inactiveOpacity || 0.3
+                const targetScale = isActive ? 1.2 : 1
+                const targetOpacity = dotsUI.opacity || 0.5
 
                 gsap.to(dot, {
                     scale: targetScale,
@@ -602,8 +592,8 @@ export default function Carousel({
             if (isPrevDisabled) {
                 // Set disabled state immediately
                 gsap.set(leftButton, {
-                    scale: arrows.disabledScale ?? 1,
-                    opacity: arrows.disabledOpacity ?? 0,
+                    scale: 0.7,
+                    opacity: 0.3,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -628,8 +618,8 @@ export default function Carousel({
             if (isNextDisabled) {
                 // Set disabled state immediately
                 gsap.set(rightButton, {
-                    scale: arrows.disabledScale ?? 1,
-                    opacity: arrows.disabledOpacity ?? 0,
+                    scale: 0.7,
+                    opacity: 0.3,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -646,8 +636,6 @@ export default function Carousel({
     }, [
         finiteMode,
         activeSlideIndex,
-        arrows.disabledScale,
-        arrows.disabledOpacity,
         boxesRef,
     ])
 
@@ -664,11 +652,9 @@ export default function Carousel({
             if (leftButton) {
                 if (isPrevDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
-                    const disabledOpacity = arrows.disabledOpacity ?? 0
-
                     gsap.to(leftButton, {
-                        scale: arrows.disabledScale ?? 1,
-                        opacity: disabledOpacity,
+                        scale: 0.7,
+                        opacity: 0.3,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
                             animation.easing || "power1.inOut"
@@ -690,8 +676,8 @@ export default function Carousel({
                 if (isNextDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(rightButton, {
-                        scale: arrows.disabledScale ?? 1,
-                        opacity: arrows.disabledOpacity ?? 0,
+                        scale: 0.7,
+                        opacity: 0.3,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
                             animation.easing || "power1.inOut"
@@ -714,8 +700,6 @@ export default function Carousel({
             animation.duration,
             animation.easing,
             getEasingString,
-            arrows.disabledScale,
-            arrows.disabledOpacity,
         ]
     )
 
@@ -789,10 +773,10 @@ export default function Carousel({
         let justifyContent = "center"
 
         if (dotsUI.horizontalAlign === "left") {
-            left = `${dotsUI.insetX || 0}px`
+            left = "0px"
             justifyContent = "flex-start"
         } else if (dotsUI.horizontalAlign === "right") {
-            right = `${dotsUI.insetX || 0}px`
+            right = "0px"
             justifyContent = "flex-end"
         } else if (dotsUI.horizontalAlign === "center") {
             left = "50%"
@@ -2120,8 +2104,8 @@ export default function Carousel({
 
             if (isPrevDisabled) {
                 gsap.to(leftButton, {
-                    scale: arrows.disabledScale ?? 1,
-                    opacity: arrows.disabledOpacity ?? 0,
+                    scale: 0.7,
+                    opacity: 0.3,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2142,8 +2126,8 @@ export default function Carousel({
 
             if (isNextDisabled) {
                 gsap.to(rightButton, {
-                    scale: arrows.disabledScale ?? 1,
-                    opacity: arrows.disabledOpacity ?? 0,
+                    scale: 0.7,
+                    opacity: 0.3,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2332,7 +2316,7 @@ export default function Carousel({
                                                 // Animate buttons based on disabled state
                                                 if (
                                                     finiteMode &&
-                                                    buttonsNavigation
+                                                    arrows?.show
                                                 ) {
                                                     const isPrevDisabled =
                                                         index === 0
@@ -2425,7 +2409,7 @@ export default function Carousel({
                                 applyInitialStylingToAllSlides()
 
                                 // Apply initial styling to buttons immediately (no animation)
-                                if (finiteMode && buttonsNavigation) {
+                                if (finiteMode && arrows?.show) {
                                     applyInitialButtonStyling()
                                 }
 
@@ -3201,10 +3185,10 @@ export default function Carousel({
             {/* GSAP will handle all animations - no CSS transitions needed */}
 
             {/* Navigation Buttons - Absolutely Positioned */}
-            {buttonsNavigation && (
+            {arrows?.show && (
                 <>
                     {/* Previous Button */}
-                    {leftControl && (
+                    {prevArrow && (
                         <div
                             data-button="prev"
                             style={{
@@ -3248,12 +3232,12 @@ export default function Carousel({
                                       }
                             }
                         >
-                            {leftControl}
+                            {prevArrow}
                         </div>
                     )}
 
                     {/* Next Button */}
-                    {rightControl && (
+                    {nextArrow && (
                         <div
                             data-button="next"
                             style={{
@@ -3301,7 +3285,7 @@ export default function Carousel({
                                       }
                             }
                         >
-                            {rightControl}
+                            {nextArrow}
                         </div>
                     )}
                 </>
@@ -3368,7 +3352,7 @@ export default function Carousel({
 
             {/* Dots Navigation - Only show in finite mode when enabled */}
             {finiteMode && dotsUI.enabled && (
-                <div style={calculateDotsPosition()}>
+                <div style={{...calculateDotsPosition(), overflow: "visible"}}>
                     {Array.from(
                         { length: slideData?.actualSlideCount || 0 },
                         (_, index) => (
@@ -3390,23 +3374,20 @@ export default function Carousel({
                                     }
                                 }}
                                 style={{
-                                    width: `${dotsUI.size || 8}px`,
-                                    height: `${dotsUI.size || 8}px`,
-                                    borderRadius: "50%",
+                                    width: `${dotsUI.width || 10}px`,
+                                    height: `${dotsUI.height || 10}px`,
+                                    borderRadius: `${dotsUI.radius || 50}px`,
                                     border: "none",
                                     backgroundColor:
-                                        dotsUI.backgroundColor || "#000000",
+                                        dotsUI.fill || "#FFFFFF",
                                     cursor: "pointer",
                                     padding: 0,
                                     margin: 0,
                                     // Initial state - GSAP will animate from here
-                                    opacity:
-                                        index === activeSlideIndex
-                                            ? dotsUI.activeOpacity || 1
-                                            : dotsUI.inactiveOpacity || 0,
+                                    opacity: dotsUI.opacity || 0.5,
                                     transform:
                                         index === activeSlideIndex
-                                            ? `scale(${dotsUI.activeScale || 1.2})`
+                                            ? "scale(1.2)"
                                             : "scale(1)",
                                 }}
                             />
@@ -3478,7 +3459,7 @@ addPropertyControls(Carousel, {
         max: 1,
         step: 0.1,
         defaultValue: 0.5,
-        hidden: (props: any) => !props.draggable,
+        hidden: (props: any) => !props.draggable || props.finiteMode,
     },
     fluid: {
         type: ControlType.Boolean,
@@ -3495,116 +3476,6 @@ addPropertyControls(Carousel, {
         defaultValue: "center",
         description: "Slides are centered in finite mode",
     },
-    dotsUI: {
-        type: ControlType.Object,
-        title: "Dots",
-        hidden: (props: any) => !props.finiteMode,
-        controls: {
-            enabled: {
-                type: ControlType.Boolean,
-                title: "Enable",
-                defaultValue: false,
-            },
-            size: {
-                type: ControlType.Number,
-                title: "Size",
-                min: 4,
-                max: 20,
-                step: 1,
-                defaultValue: 8,
-
-                hidden: (props: any) => !props.enabled,
-            },
-            gap: {
-                type: ControlType.Number,
-                title: "Gap",
-                min: 4,
-                max: 30,
-                step: 1,
-                defaultValue: 12,
-
-                hidden: (props: any) => !props.enabled,
-            },
-            activeOpacity: {
-                type: ControlType.Number,
-                title: "Opacity",
-                min: 0.1,
-                max: 1,
-                step: 0.1,
-                defaultValue: 1,
-                description: "Active dot opacity",
-                hidden: (props: any) => !props.enabled,
-            },
-            inactiveOpacity: {
-                type: ControlType.Number,
-                title: "Inactive",
-                min: 0.1,
-                max: 1,
-                step: 0.1,
-                defaultValue: 0.3,
-                description: "Inactive dot opacity",
-                hidden: (props: any) => !props.enabled,
-            },
-            activeScale: {
-                type: ControlType.Number,
-                title: "Active Scale",
-                min: 0.5,
-                max: 2,
-                step: 0.1,
-                defaultValue: 1.2,
-                hidden: (props: any) => !props.enabled,
-            },
-            backgroundColor: {
-                type: ControlType.Color,
-                title: "Color",
-                defaultValue: "#000000",
-                hidden: (props: any) => !props.enabled,
-            },
-            verticalAlign: {
-                type: ControlType.Enum,
-                title: "Vertical",
-                options: ["top", "center", "bottom"],
-                optionTitles: ["Top", "Center", "Bottom"],
-                defaultValue: "bottom",
-                displaySegmentedControl: true,
-                segmentedControlDirection: "vertical",
-                hidden: (props: any) => !props.enabled,
-            },
-            horizontalAlign: {
-                type: ControlType.Enum,
-                title: "Horizontal",
-                options: ["left", "center", "right"],
-                optionTitles: ["Left", "Center", "Right"],
-                defaultValue: "center",
-                displaySegmentedControl: true,
-                segmentedControlDirection: "vertical",
-                hidden: (props: any) => !props.enabled,
-            },
-            insetX: {
-                type: ControlType.Number,
-                title: "X Inset",
-                min: -100,
-                max: 100,
-                step: 1,
-                defaultValue: 0,
-
-                hidden: (props: any) =>
-                    !props.enabled || props.horizontalAlign === "center",
-            },
-            insetY: {
-                type: ControlType.Number,
-                title: "Y Inset",
-                min: -100,
-                max: 100,
-                step: 1,
-                defaultValue: 20,
-
-                hidden: (props: any) =>
-                    !props.enabled || props.verticalAlign === "center",
-            },
-        },
-    },
-    
     clickNavigation: {
         type: ControlType.Boolean,
         title: "Click slide to advance",
@@ -3653,43 +3524,14 @@ addPropertyControls(Carousel, {
             },
         },
     },
-
-    buttonsNavigation: {
-        type: ControlType.Boolean,
-        title: "Buttons Nav",
-        defaultValue: true,
-    },
-    leftControl: {
-        // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
-        type: ControlType.ComponentInstance,
-        title: "Left Control",
-        hidden: (props: any) => !props.buttonsNavigation,
-    },
-    rightControl: {
-        // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
-        type: ControlType.ComponentInstance,
-        title: "Right Control",
-        hidden: (props: any) => !props.buttonsNavigation,
-    },
     arrows: {
         type: ControlType.Object,
         title: "Arrows",
-        hidden: (props: any) => !props.buttonsNavigation,
         controls: {
             show: {
                 type: ControlType.Boolean,
                 title: "Show",
                 defaultValue: true,
-            },
-            prev: {
-                // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
-                type: ControlType.ComponentInstance,
-                title: "Prev",
-            },
-            next: {
-                // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
-                type: ControlType.ComponentInstance,
-                title: "Next",
             },
             fill: {
                 type: ControlType.Color,
@@ -3743,44 +3585,148 @@ addPropertyControls(Carousel, {
                 defaultValue: 0.7,
                 description: "Finite Mode disabled arrows opacity",
             },
-            disabledStyle: {
-                type: ControlType.Enum,
-                title: "Style",
-                options: ["none", "styled"],
-                optionTitles: ["No styling", "Style Disabled state"],
-                defaultValue: "none",
-                displaySegmentedControl: true,
-                segmentedControlDirection: "vertical",
-                description: "Style disabled arrows in finite mode",
+        },
+    },
+    prevArrow: {
+        // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
+        type: ControlType.ComponentInstance,
+        title: "Prev Arrow",
+        hidden: (props: any) => !props.arrows?.show,
+    },
+    nextArrow: {
+        // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
+        type: ControlType.ComponentInstance,
+        title: "Next Arrow",
+        hidden: (props: any) => !props.arrows?.show,
+    },
+    dotsUI: {
+        type: ControlType.Object,
+        title: "Dots",
+        hidden: (props: any) => !props.finiteMode,
+        controls: {
+            enabled: {
+                type: ControlType.Boolean,
+                title: "Show",
+                defaultValue: false,
             },
-            disabledScale: {
+            width: {
                 type: ControlType.Number,
-                title: "Scale",
-                min: 0.1,
-                max: 1.5,
-                step: 0.1,
-                defaultValue: 0.7,
+                title: "Width",
+                min: 4,
+                max: 50,
+                step: 1,
+                defaultValue: 10,
                 displayStepper: true,
-                hidden: (props: any) => props.disabledStyle !== "styled",
-                description: "Scale factor for disabled arrows",
+                hidden: (props: any) => !props.enabled,
             },
-            disabledOpacity: {
+            height: {
+                type: ControlType.Number,
+                title: "Height",
+                min: 4,
+                max: 50,
+                step: 1,
+                defaultValue: 10,
+                displayStepper: true,
+                hidden: (props: any) => !props.enabled,
+            },
+            gap: {
+                type: ControlType.Number,
+                title: "Gap",
+                min: 0,
+                max: 50,
+                step: 1,
+                defaultValue: 10,
+                displayStepper: true,
+                hidden: (props: any) => !props.enabled,
+            },
+            fill: {
+                type: ControlType.Color,
+                title: "Fill",
+                defaultValue: "#FFFFFF",
+                hidden: (props: any) => !props.enabled,
+            },
+            backdrop: {
+                type: ControlType.Color,
+                title: "Backdrop",
+                defaultValue: "#000000",
+                hidden: (props: any) => !props.enabled,
+            },
+            radius: {
+                type: ControlType.Number,
+                title: "Radius",
+                min: 0,
+                max: 50,
+                step: 1,
+                defaultValue: 50,
+                displayStepper: true,
+                hidden: (props: any) => !props.enabled,
+            },
+            opacity: {
                 type: ControlType.Number,
                 title: "Opacity",
                 min: 0,
                 max: 1,
                 step: 0.1,
-                defaultValue: 0.3,
+                defaultValue: 0.5,
                 displayStepper: true,
-                hidden: (props: any) => props.disabledStyle !== "styled",
-                description: "Opacity for disabled arrows",
+                hidden: (props: any) => !props.enabled,
+            },
+            current: {
+                type: ControlType.Number,
+                title: "Current",
+                min: 1,
+                max: 10,
+                step: 1,
+                defaultValue: 1,
+                displayStepper: true,
+                hidden: (props: any) => !props.enabled,
+            },
+            blur: {
+                type: ControlType.Number,
+                title: "Blur",
+                min: 0,
+                max: 20,
+                step: 1,
+                defaultValue: 0,
+                displayStepper: true,
+                hidden: (props: any) => !props.enabled,
+            },
+            verticalAlign: {
+                type: ControlType.Enum,
+                title: "Vertical",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["Top", "Center", "Bottom"],
+                defaultValue: "bottom",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+                hidden: (props: any) => !props.enabled,
+            },
+            horizontalAlign: {
+                type: ControlType.Enum,
+                title: "Horizontal",
+                options: ["left", "center", "right"],
+                optionTitles: ["Left", "Center", "Right"],
+                defaultValue: "center",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+                hidden: (props: any) => !props.enabled,
+            },
+            insetY: {
+                type: ControlType.Number,
+                title: "Y Inset",
+                min: -100,
+                max: 100,
+                step: 1,
+                defaultValue: 20,
+                displayStepper: true,
+                hidden: (props: any) => !props.enabled || props.verticalAlign === "center",
             },
         },
     },
 
     animation: {
         type: ControlType.Object,
-        title: "Animation",
+        title: "Transition",
         controls: {
             duration: {
                 type: ControlType.Number,
