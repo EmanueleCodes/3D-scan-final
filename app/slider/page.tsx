@@ -116,7 +116,7 @@ interface HorizontalLoopTimeline {
  * - Responsive component support
  * - Seamless infinite loop with smart duplication
  * @framerSupportedLayoutWidth fixed
- * @framerSupportedLayoutHeight fixed
+ * @framerSupportedLayoutHeight any-prefer-fixed
  * @framerIntrinsicWidth 600
  * @framerIntrinsicHeight 400
  * @framerDisableUnlink
@@ -145,7 +145,6 @@ export default function Carousel({
     },
     finiteMode = false,
     fluid = true,
-    slideAlignment = "center",
     dotsUI = {
         enabled: false,
         width: 10,
@@ -166,6 +165,10 @@ export default function Carousel({
             scale: 1,
         current: 1.1,
         shadow: "none",
+    },
+    slideWidth = {
+        value: 100,
+        unit: "percent",
     },
     animation = {
         duration: 0.4,
@@ -198,7 +201,7 @@ export default function Carousel({
     }
     finiteMode?: boolean
     fluid?: boolean
-    slideAlignment?: "center"
+    // alignment removed; always center
     dotsUI?: {
         enabled?: boolean
         width?: number
@@ -219,6 +222,11 @@ export default function Carousel({
             scale?: number
         current?: number
         shadow?: "none" | "small" | "medium" | "large"
+    }
+    slideWidth?: {
+        value?: number
+        pixelValue?: number
+        unit?: "percent" | "pixels"
     }
     animation?: {
         duration?: number
@@ -444,11 +452,15 @@ export default function Carousel({
     const animateDots = useCallback(
         (activeIndex: number) => {
             const dots = document.querySelectorAll("[data-dot-index]")
+            const totalDots = dots.length
+            if (!totalDots) return
+            const normalizedActiveIndex = ((activeIndex % totalDots) + totalDots) % totalDots
+
             dots.forEach((dot, index) => {
-                const isActive = index === activeIndex
+                const isActive = index === normalizedActiveIndex
                 const targetScale = isActive ? (dotsUI.scale || 1.2) : 1
                 const targetOpacity = isActive
-                    ? (dotsUI.current || 1) 
+                    ? (dotsUI.current || 1)
                     : (dotsUI.opacity || 0.5)
 
                 gsap.to(dot, {
@@ -2153,7 +2165,9 @@ export default function Carousel({
                                                     finiteMode &&
                                                     dotsUI.enabled
                                                 ) {
-                                                    animateDots(index)
+                                                    const totalDots = slideData?.actualSlideCount || 0
+                                                    const normalizedIndex = totalDots ? index % totalDots : index
+                                                    animateDots(normalizedIndex)
                                                 }
 
                                                 // Animate buttons based on disabled state
@@ -2177,7 +2191,7 @@ export default function Carousel({
                                         })
                                     },
                                 },
-                                slideAlignment
+                                "center"
                             )
                         } else {
                             // Infinite mode: use horizontal loop
@@ -2215,7 +2229,9 @@ export default function Carousel({
 
                                             // Animate dots
                                             if (dotsUI.enabled) {
-                                                animateDots(index)
+                                                const totalDots = slideData?.validContent?.length || 0
+                                                const normalizedIndex = totalDots ? ((index % totalDots) + totalDots) % totalDots : index
+                                                animateDots(normalizedIndex)
                                             }
                                         } catch (error) {}
                                     })
@@ -2306,11 +2322,7 @@ export default function Carousel({
                                                 boxesRef.current.forEach((slide, i) => {
                                                 if (!slide) return
                                                 let x = -i * (slideWidth + gapValue)
-                                                if (slideAlignment === "center") {
-                                                    x += (containerWidth - slideWidth) / 2
-                                                } else if (slideAlignment === "right") {
-                                                    x += containerWidth - slideWidth
-                                                }
+                                                x += (containerWidth - slideWidth) / 2
                                                 gsap.set(slide, { x })
                                             })
                                         }
@@ -2895,8 +2907,10 @@ export default function Carousel({
                     flexShrink: 0,
                     // Dynamic height based on mode
                     height: `${boxHeights.current[i] || 300}px`, // Use calculated height
-                    // Always use full width
-                    width: "100%",
+                    // Use slideWidth prop with unit
+                    width: slideWidth.unit === "percent" 
+                        ? `${slideWidth.value}%` 
+                        : `${slideWidth.pixelValue || 300}px`,
                     minWidth: "100px", // Minimum width
                     maxWidth: "none", // No max-width constraint
                     marginRight: `${Math.max(gap ?? 20, 0)}px`, // Ensure gap is non-negative
@@ -3180,11 +3194,30 @@ export default function Carousel({
                                     position: "relative",
                                     overflow: "hidden",
                                     // Initial state - GSAP will animate from here
-                                    opacity: index === activeSlideIndex ? (dotsUI.current || 1) : (dotsUI.opacity || 0.5),
-                                    transform:
-                                        index === activeSlideIndex
+                                    opacity: (() => {
+                                        const totalDots = finiteMode
+                                            ? (slideData?.actualSlideCount || 0)
+                                            : (slideData?.validContent?.length || 0)
+                                        const normalized = totalDots
+                                            ? (finiteMode
+                                                ? activeSlideIndex
+                                                : ((activeSlideIndex % totalDots) + totalDots) % totalDots)
+                                            : 0
+                                        return index === normalized ? (dotsUI.current || 1) : (dotsUI.opacity || 0.5)
+                                    })(),
+                                    transform: (() => {
+                                        const totalDots = finiteMode
+                                            ? (slideData?.actualSlideCount || 0)
+                                            : (slideData?.validContent?.length || 0)
+                                        const normalized = totalDots
+                                            ? (finiteMode
+                                                ? activeSlideIndex
+                                                : ((activeSlideIndex % totalDots) + totalDots) % totalDots)
+                                            : 0
+                                        return index === normalized
                                             ? `scale(${dotsUI.scale || 1.2})`
-                                            : "scale(1)",
+                                            : "scale(1)"
+                                    })(),
                                 }}
                             >
                                 {/* Backdrop element for blur effect */}
@@ -3278,14 +3311,7 @@ addPropertyControls(Carousel, {
         hidden: (props: any) => props.finiteMode || !props.draggable,
        
     },
-    slideAlignment: {
-        type: ControlType.Enum,
-        title: "Alignment",
-        options: ["center"],
-        optionTitles: ["Center"],
-                defaultValue: "center",
-        description: "Slides are centered in finite mode",
-    },
+    // alignment removed: always centered
     clickNavigation: {
         type: ControlType.Boolean,
         title: "Click slide to advance",
@@ -3299,6 +3325,41 @@ addPropertyControls(Carousel, {
                 step: 5,
                 defaultValue: 20,
         description: "Space between slides",
+            },
+            slideWidth: {
+                type: ControlType.Object,
+                title: "Slide Width",
+                controls: {
+                    unit: {
+                        type: ControlType.Enum,
+                        title: "Unit",
+                        options: ["percent", "pixels"],
+                        optionTitles: ["%", "px"],
+                        defaultValue: "percent",
+                        displaySegmentedControl: true,
+                        segmentedControlDirection: "horizontal",
+                    },
+                    value: {
+                        type: ControlType.Number,
+                        title: "Value",
+                        min: 1,
+                        max: 100,
+                        step: 1,
+                        defaultValue: 100,
+                        hidden: (props: any) => props.unit === "pixels",
+                        description: "Width as percentage (1-100%)",
+                    },
+                    pixelValue: {
+                        type: ControlType.Number,
+                        title: "Value",
+                        min: 50,
+                        max: 2000,
+                        step: 10,
+                        defaultValue: 300,
+                        hidden: (props: any) => props.unit === "percent",
+                        description: "Width in pixels (50-2000px)",
+                    },
+                },
             },
     effects: {
         type: ControlType.Object,
@@ -3334,6 +3395,7 @@ addPropertyControls(Carousel, {
             },
         },
     },
+    
     arrows: {
         type: ControlType.Object,
         title: "Arrows",
