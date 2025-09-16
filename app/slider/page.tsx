@@ -131,12 +131,17 @@ export default function Carousel({
     direction = "right",
     throwAware = "No follow",
     gap = 20,
-    buttonsUI = {
-        verticalAlign: "center",
-        horizontalAlign: "center",
+    arrows = {
+        show: true,
+        prev: null,
+        next: null,
+        fill: "#000000",
+        fadeIn: false,
+        distance: "space",
+        position: "center",
         gap: 20,
-        insetX: 20,
-        insetY: 20,
+        inset: 20,
+        opacity: 0.7,
         disabledStyle: "none",
         disabledScale: 0.7,
         disabledOpacity: 0.3,
@@ -160,34 +165,10 @@ export default function Carousel({
         insetX: 0,
         insetY: 20,
     },
-    slidesUI = {
-        central: "Same style",
-        slideSizing: {
-            mode: "fill-width",
-            aspectRatio: "16:9",
-            customAspectRatio: "16:9",
-            aspectRatioFillPercentage: 100,
-            fixedWidth: 300,
-            fixedHeight: 200,
-            relativeWidth: 80,
-            relativeHeight: 60,
-        },
-        allSlides: {
-            backgroundColor: "rgba(0,0,0,0.1)",
-            border: "1px solid rgba(0,0,0,0.2)",
-            radius: "10px",
-            shadow: "0px 0px 0px rgba(0,0,0,0)",
+    effects = {
             scale: 1,
-            opacity: 1,
-        },
-        centralSlide: {
-            backgroundColor: "rgba(0,0,0,0.1)",
-            border: "1px solid rgba(0,0,0,0.2)",
-            radius: "10px",
-            shadow: "0px 0px 0px rgba(0,0,0,0)",
-            scale: 1.1,
-            opacity: 1,
-        },
+        current: 1.1,
+        shadow: "none",
     },
     animation = {
         duration: 0.4,
@@ -205,13 +186,18 @@ export default function Carousel({
     interval?: number
     direction?: "left" | "right"
     throwAware?: "Follow" | "No follow"
-    gap?: number
-    buttonsUI?: {
-        verticalAlign?: "top" | "center" | "bottom"
-        horizontalAlign?: "center" | "space-between"
         gap?: number
-        insetX?: number
-        insetY?: number
+    arrows?: {
+        show?: boolean
+        prev?: React.ReactNode
+        next?: React.ReactNode
+        fill?: string
+        fadeIn?: boolean
+        distance?: "space" | "group"
+        position?: "center" | "top-left" | "top-middle" | "top-right" | "bottom-left" | "bottom-middle" | "bottom-right"
+        gap?: number
+        inset?: number
+        opacity?: number
         disabledStyle?: "none" | "styled"
         disabledScale?: number
         disabledOpacity?: number
@@ -235,40 +221,10 @@ export default function Carousel({
         insetX?: number
         insetY?: number
     }
-    slidesUI?: {
-        central: "Same style" | "Customize style"
-        slideSizing?: {
-            mode:
-                | "fill"
-                | "fill-width"
-                | "fill-height"
-                | "aspect-ratio"
-                | "fixed-dimensions"
-                | "relative-dimensions"
-            aspectRatio?: "16:9" | "4:3" | "1:1" | "3:2" | "21:9" | "custom"
-            customAspectRatio?: string
-            aspectRatioFillPercentage?: number
-            fixedWidth?: number
-            fixedHeight?: number
-            relativeWidth?: number
-            relativeHeight?: number
-        }
-        allSlides: {
-            backgroundColor?: string
-            border?: string | { width?: string; style?: string; color?: string }
-            radius?: string
-            shadow?: string
+    effects?: {
             scale?: number
-            opacity?: number
-        }
-        centralSlide: {
-            backgroundColor?: string
-            border?: string | { width?: string; style?: string; color?: string }
-            radius?: string
-            shadow?: string
-            scale?: number
-            opacity?: number
-        }
+        current?: number
+        shadow?: "none" | "small" | "medium" | "large"
     }
     animation?: {
         duration?: number
@@ -362,39 +318,29 @@ export default function Carousel({
                 isCentralSlide = i === activeSlideIndex
             }
 
-            const isCentralCustomized = slidesUI.central === "Customize style"
+            const isCentralCustomized = false
 
             // Get the appropriate style values
-            const targetScale =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.scale || 1.1
-                    : slidesUI.allSlides.scale || 1
+            const targetScale = isCentralSlide
+                ? effects.current || 1.1
+                : effects.scale || 1
 
             const targetOpacity =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.opacity || 1
-                    : slidesUI.allSlides.opacity || 1
+1
 
             const targetBackgroundColor =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)"
-                    : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"
+"transparent"
 
             const targetBorder =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.border
-                    : slidesUI.allSlides.border
+"none"
 
             const targetRadius =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.radius || "10px"
-                    : slidesUI.allSlides.radius || "10px"
+"0px"
 
             const targetShadow =
                 isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.shadow ||
-                      "0px 0px 0px rgba(0,0,0,0)"
-                    : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)"
+                    ? effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
+                    : effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
 
             // Create border shadow effect
             let borderShadow = ""
@@ -443,7 +389,7 @@ export default function Carousel({
                 duration: 0, // Force immediate
             })
         })
-    }, [slidesUI, finiteMode, activeSlideIndex])
+    }, [effects, finiteMode, activeSlideIndex])
 
     /**
      * Apply initial central slide styling using gsap.set
@@ -461,25 +407,13 @@ export default function Carousel({
             if (!innerElement) return
 
             // Get the appropriate style values for central slide
-            const isCentralCustomized = slidesUI.central === "Customize style"
-            const targetScale = isCentralCustomized
-                ? slidesUI.centralSlide.scale || 1.1
-                : slidesUI.allSlides.scale || 1.1
-            const targetOpacity = isCentralCustomized
-                ? slidesUI.centralSlide.opacity || 1
-                : slidesUI.allSlides.opacity || 1
-            const targetBackgroundColor = isCentralCustomized
-                ? slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)"
-                : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"
-            const targetBorder = isCentralCustomized
-                ? slidesUI.centralSlide.border
-                : slidesUI.allSlides.border
-            const targetRadius = isCentralCustomized
-                ? slidesUI.centralSlide.radius || "10px"
-                : slidesUI.allSlides.radius || "10px"
-            const targetShadow = isCentralCustomized
-                ? slidesUI.centralSlide.shadow || "0px 0px 0px rgba(0,0,0,0)"
-                : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)"
+            // Always apply current scale to central slide
+            const targetScale = effects.current || 1.1
+            const targetOpacity = 1
+            const targetBackgroundColor = "transparent"
+            const targetBorder = "none"
+            const targetRadius = "0px"
+            const targetShadow = effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
 
             // Create border shadow effect
             let borderShadow = ""
@@ -518,7 +452,7 @@ export default function Carousel({
                 immediateRender: true,
             })
         },
-        [slidesUI]
+        [effects]
     )
 
     /**
@@ -537,38 +471,24 @@ export default function Carousel({
             if (!innerElement) return
 
             // Get the appropriate style values based on whether it's active and central slide customization
-            const isCentralCustomized = slidesUI.central === "Customize style"
             const targetScale = isActive
-                ? isCentralCustomized
-                    ? slidesUI.centralSlide.scale || 1.1
-                    : slidesUI.allSlides.scale || 1.1
-                : slidesUI.allSlides.scale || 1
+                ? effects.current || 1.1
+                : effects.scale || 1
 
             const targetOpacity = isActive
-                ? isCentralCustomized
-                    ? slidesUI.centralSlide.opacity || 1
-                    : slidesUI.allSlides.opacity || 1
-                : slidesUI.allSlides.opacity || 1
+                ? 1
+                : 1
 
             const targetBackgroundColor = isActive
-                ? isCentralCustomized
-                    ? slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)"
-                    : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"
-                : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"
+                ? "transparent"
+                : "transparent"
 
             const targetBorder = isActive
-                ? isCentralCustomized
-                    ? slidesUI.centralSlide.border
-                    : slidesUI.allSlides.border
-                : slidesUI.allSlides.border
+                ? "none"
+                : "none"
 
             // Get existing shadow
-            const existingShadow = isActive
-                ? isCentralCustomized
-                    ? slidesUI.centralSlide.shadow ||
-                      "0px 0px 0px rgba(0,0,0,0)"
-                    : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0)"
-                : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0)"
+            const existingShadow = effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
 
             // Create border shadow effect
             let borderShadow = ""
@@ -599,10 +519,8 @@ export default function Carousel({
                     : borderShadow
 
             const targetRadius = isActive
-                ? isCentralCustomized
-                    ? slidesUI.centralSlide.radius || "10px"
-                    : slidesUI.allSlides.radius || "10px"
-                : slidesUI.allSlides.radius || "10px"
+                ? "0px"
+                : "0px"
 
             // During initial setup, use gsap.set() for immediate styling
             if (isInitialSetupRef.current) {
@@ -633,7 +551,7 @@ export default function Carousel({
                 })
             }
         },
-        [slidesUI, animation.duration, animation.easing, getEasingString]
+        [effects, animation.duration, animation.easing, getEasingString]
     )
 
     /**
@@ -684,8 +602,8 @@ export default function Carousel({
             if (isPrevDisabled) {
                 // Set disabled state immediately
                 gsap.set(leftButton, {
-                    scale: buttonsUI.disabledScale ?? 1,
-                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    scale: arrows.disabledScale ?? 1,
+                    opacity: arrows.disabledOpacity ?? 0,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -710,8 +628,8 @@ export default function Carousel({
             if (isNextDisabled) {
                 // Set disabled state immediately
                 gsap.set(rightButton, {
-                    scale: buttonsUI.disabledScale ?? 1,
-                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    scale: arrows.disabledScale ?? 1,
+                    opacity: arrows.disabledOpacity ?? 0,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -728,8 +646,8 @@ export default function Carousel({
     }, [
         finiteMode,
         activeSlideIndex,
-        buttonsUI.disabledScale,
-        buttonsUI.disabledOpacity,
+        arrows.disabledScale,
+        arrows.disabledOpacity,
         boxesRef,
     ])
 
@@ -746,10 +664,10 @@ export default function Carousel({
             if (leftButton) {
                 if (isPrevDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
-                    const disabledOpacity = buttonsUI.disabledOpacity ?? 0
+                    const disabledOpacity = arrows.disabledOpacity ?? 0
 
                     gsap.to(leftButton, {
-                        scale: buttonsUI.disabledScale ?? 1,
+                        scale: arrows.disabledScale ?? 1,
                         opacity: disabledOpacity,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
@@ -772,8 +690,8 @@ export default function Carousel({
                 if (isNextDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(rightButton, {
-                        scale: buttonsUI.disabledScale ?? 1,
-                        opacity: buttonsUI.disabledOpacity ?? 0,
+                        scale: arrows.disabledScale ?? 1,
+                        opacity: arrows.disabledOpacity ?? 0,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
                             animation.easing || "power1.inOut"
@@ -796,8 +714,8 @@ export default function Carousel({
             animation.duration,
             animation.easing,
             getEasingString,
-            buttonsUI.disabledScale,
-            buttonsUI.disabledOpacity,
+            arrows.disabledScale,
+            arrows.disabledOpacity,
         ]
     )
 
@@ -906,6 +824,30 @@ export default function Carousel({
     ])
 
     /**
+     * Convert position to vertical and horizontal alignment for backward compatibility
+     */
+    const getPositionAlignment = useCallback((position: string) => {
+        switch (position) {
+            case "center":
+                return { verticalAlign: "center", horizontalAlign: "center" }
+            case "top-left":
+                return { verticalAlign: "top", horizontalAlign: "space-between" }
+            case "top-middle":
+                return { verticalAlign: "top", horizontalAlign: "center" }
+            case "top-right":
+                return { verticalAlign: "top", horizontalAlign: "space-between" }
+            case "bottom-left":
+                return { verticalAlign: "bottom", horizontalAlign: "space-between" }
+            case "bottom-middle":
+                return { verticalAlign: "bottom", horizontalAlign: "center" }
+            case "bottom-right":
+                return { verticalAlign: "bottom", horizontalAlign: "space-between" }
+            default:
+                return { verticalAlign: "center", horizontalAlign: "center" }
+        }
+    }, [])
+
+    /**
      * Calculate slide dimensions based on sizing mode with proper validation and responsive behavior
      */
     const calculateSlideDimensions = useCallback(
@@ -937,13 +879,8 @@ export default function Carousel({
             const safeContainerWidth = Math.max(containerWidth, 100) // Minimum 100px width
             const safeContainerHeight = Math.max(containerHeight, 100) // Minimum 100px height
 
-            const mode = slidesUI.slideSizing?.mode || "fill-width"
-
-            switch (mode) {
-                case "fill-width":
-                    // For fill-width, slides should truly fill the available width
-                    // Calculate how many slides can reasonably fit, then make each slide fill proportionally
-                    const slideGap = Math.max(gap ?? 20, 0)
+            // Always use full-width sizing with auto-height detection
+            const slideGap = Math.max(gap ?? 20, 0)
 
                     // Determine optimal number of visible slides based on container width
                     let slidesToShow = 1
@@ -975,138 +912,21 @@ export default function Carousel({
                             adjustedAvailableWidth / slidesToShow
                         return {
                             width: adjustedSlideWidth,
-                            // Ignore aspect ratio in fill-width mode: base height on container only
-                            height: safeContainerHeight * 0.85,
+                    // Auto-height: use container height as base
+                    height: safeContainerHeight,
                             objectFit: "cover" as const,
                         }
                     }
 
                     return {
                         width: finalSlideWidth,
-                        // Ignore aspect ratio in fill-width mode: base height on container only
-                        height: safeContainerHeight * 0.85,
+                // Auto-height: use container height as base
+                height: safeContainerHeight,
                         objectFit: "cover" as const,
                     }
 
-                case "aspect-ratio":
-                    const aspectRatio =
-                        slidesUI.slideSizing?.aspectRatio || "16:9"
-                    let ratio = 16 / 9 // default
-
-                    if (aspectRatio === "4:3") ratio = 4 / 3
-                    else if (aspectRatio === "1:1") ratio = 1
-                    else if (aspectRatio === "3:2") ratio = 3 / 2
-                    else if (aspectRatio === "21:9") ratio = 21 / 9
-                    else if (aspectRatio === "custom") {
-                        const customRatio =
-                            slidesUI.slideSizing?.customAspectRatio || "16:9"
-                        try {
-                            const [w, h] = customRatio.split(":").map(Number)
-                            if (w > 0 && h > 0) {
-                                ratio = w / h
-                            }
-                        } catch {
-                            ratio = 16 / 9 // Fallback to default if custom ratio is invalid
-                        }
-                    }
-
-                    // NEW LOGIC: Fill the smaller dimension to user-specified percentage, calculate the other based on aspect ratio
-                    // Use full container dimensions (not safe dimensions with minimums)
-                    const containerAspectRatio =
-                        containerWidth / containerHeight
-                    const slideAspectRatio = ratio
-                    const fillPercentage =
-                        (slidesUI.slideSizing?.aspectRatioFillPercentage ||
-                            100) / 100
-
-                    let aspectSlideWidth: number
-                    let aspectSlideHeight: number
-
-                    if (containerAspectRatio > slideAspectRatio) {
-                        // Container is wider than slide aspect ratio
-                        // Fill height to user-specified percentage, calculate width based on aspect ratio
-                        aspectSlideHeight = containerHeight * fillPercentage // Fill percentage of container height
-                        aspectSlideWidth = aspectSlideHeight * slideAspectRatio
-                    } else {
-                        // Container is taller than slide aspect ratio
-                        // Fill width to user-specified percentage, calculate height based on aspect ratio
-                        aspectSlideWidth = containerWidth * fillPercentage // Fill percentage of container width
-                        aspectSlideHeight = aspectSlideWidth / slideAspectRatio
-                    }
-
-                    // Ensure minimum dimensions
-                    const minDimension = 100
-                    if (aspectSlideWidth < minDimension) {
-                        aspectSlideWidth = minDimension
-                        aspectSlideHeight = aspectSlideWidth / slideAspectRatio
-                    }
-                    if (aspectSlideHeight < minDimension) {
-                        aspectSlideHeight = minDimension
-                        aspectSlideWidth = aspectSlideHeight * slideAspectRatio
-                    }
-
-                    return {
-                        width: aspectSlideWidth,
-                        height: aspectSlideHeight,
-                        objectFit: "cover" as const,
-                    }
-
-                case "relative-dimensions":
-                    const relativeWidth =
-                        (slidesUI.slideSizing?.relativeWidth || 80) / 100
-                    const relativeHeight =
-                        (slidesUI.slideSizing?.relativeHeight || 60) / 100
-
-                    return {
-                        width: containerWidth * relativeWidth,
-                        height: containerHeight * relativeHeight,
-                        objectFit: "cover" as const,
-                    }
-
-                case "fixed-dimensions":
-                    const fixedWidth = slidesUI.slideSizing?.fixedWidth || 300
-                    const fixedHeight = slidesUI.slideSizing?.fixedHeight || 200
-
-                    // Use exact dimensions from property controls
-                    return {
-                        width: fixedWidth,
-                        height: fixedHeight,
-                        objectFit: "cover" as const,
-                    }
-
-                case "fill":
-                    return {
-                        width: containerWidth, // 100% of actual container width (not safe)
-                        height: containerHeight, // 100% of actual container height (not safe)
-                        objectFit: "fill" as const,
-                    }
-
-                case "fill-width":
-                    const fillWidth = slidesUI.slideSizing?.fixedHeight || 300
-                    return {
-                        width: containerWidth, // 100% of actual container width (not safe)
-                        height: fillWidth, // Use specified height
-                        objectFit: "cover" as const,
-                    }
-
-                case "fill-height":
-                    const fillHeight = slidesUI.slideSizing?.fixedWidth || 200
-                    return {
-                        width: fillHeight, // Use specified width
-                        height: containerHeight, // 100% of actual container height (not safe)
-                        objectFit: "cover" as const,
-                    }
-
-                default:
-                    // Fallback with responsive sizing
-                    return {
-                        width: Math.min(250, safeContainerWidth * 0.6),
-                        height: Math.min(180, safeContainerHeight * 0.6),
-                        objectFit: "cover" as const,
-                    }
-            }
         },
-        [slidesUI.slideSizing, finiteMode]
+        [gap, finiteMode]
     )
 
     /**
@@ -1893,7 +1713,7 @@ export default function Carousel({
                             } catch (error) {}
                         } else {
                             // Still within threshold - allow cursor following
-                            align()
+                    align()
                         }
                     } else {
                         // FLUID MODE: Original behavior - natural cursor following
@@ -2030,14 +1850,14 @@ export default function Carousel({
                         } else {
                             // FLUID MODE: Original behavior
                             syncIndex()
-                            
-                            // Update autoplay direction based on drag direction if throwAware is enabled
+
+                        // Update autoplay direction based on drag direction if throwAware is enabled
                             if (throwAware === "Follow") {
-                                const mouseDistance =
-                                    dragEndMouseXRef.current -
-                                    dragStartMouseXRef.current
-                                currentAutoplayDirectionRef.current =
-                                    mouseDistance > 0 ? "left" : "right"
+                            const mouseDistance =
+                                dragEndMouseXRef.current -
+                                dragStartMouseXRef.current
+                            currentAutoplayDirectionRef.current =
+                                mouseDistance > 0 ? "left" : "right"
                             }
                         }
 
@@ -2187,7 +2007,7 @@ export default function Carousel({
         return () => clearTimeout(fallbackTimeout)
     }, [isFullyInitialized])
 
-    // Update slide visuals when slidesUI props change
+    // Update slide visuals when effects props change
     useEffect(() => {
         if (!isFullyInitialized || !boxesRef.current) return
 
@@ -2210,39 +2030,29 @@ export default function Carousel({
                 isCentralSlide = i === activeSlideIndex
             }
 
-            const isCentralCustomized = slidesUI.central === "Customize style"
+            const isCentralCustomized = false
 
             // Get the appropriate style values
-            const targetScale =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.scale || 1.1
-                    : slidesUI.allSlides.scale || 1
+            const targetScale = isCentralSlide
+                ? effects.current || 1.1
+                : effects.scale || 1
 
             const targetOpacity =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.opacity || 1
-                    : slidesUI.allSlides.opacity || 1
+1
 
             const targetBackgroundColor =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.backgroundColor || "rgba(0,0,0,0.1)"
-                    : slidesUI.allSlides.backgroundColor || "rgba(0,0,0,0.1)"
+"transparent"
 
             const targetBorder =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.border
-                    : slidesUI.allSlides.border
+"none"
 
             const targetRadius =
-                isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.radius || "10px"
-                    : slidesUI.allSlides.radius || "10px"
+"0px"
 
             const targetShadow =
                 isCentralSlide && isCentralCustomized
-                    ? slidesUI.centralSlide.shadow ||
-                      "0px 0px 0px rgba(0,0,0,0)"
-                    : slidesUI.allSlides.shadow || "0px 0px 0px rgba(0,0,0,0)"
+                    ? effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
+                    : effects.shadow === "none" ? "0px 0px 0px rgba(0,0,0,0)" : effects.shadow === "small" ? "0px 2px 8px rgba(0,0,0,0.1)" : effects.shadow === "medium" ? "0px 4px 16px rgba(0,0,0,0.15)" : "0px 8px 32px rgba(0,0,0,0.2)"
 
             // Create border shadow effect
             let borderShadow = ""
@@ -2283,7 +2093,7 @@ export default function Carousel({
             })
         })
     }, [
-        slidesUI,
+        effects,
         finiteMode,
         activeSlideIndex,
         animation.duration,
@@ -2308,8 +2118,8 @@ export default function Carousel({
 
             if (isPrevDisabled) {
                 gsap.to(leftButton, {
-                    scale: buttonsUI.disabledScale ?? 1,
-                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    scale: arrows.disabledScale ?? 1,
+                    opacity: arrows.disabledOpacity ?? 0,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2330,8 +2140,8 @@ export default function Carousel({
 
             if (isNextDisabled) {
                 gsap.to(rightButton, {
-                    scale: buttonsUI.disabledScale ?? 1,
-                    opacity: buttonsUI.disabledOpacity ?? 0,
+                    scale: arrows.disabledScale ?? 1,
+                    opacity: arrows.disabledOpacity ?? 0,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2345,7 +2155,6 @@ export default function Carousel({
             }
         }
     }, [
-        buttonsUI,
         finiteMode,
         activeSlideIndex,
         animation.duration,
@@ -2705,7 +2514,7 @@ export default function Carousel({
                 gap,
                 autoplay,
                 direction,
-                slidesUI.slideSizing?.mode,
+                // Always use full-width mode
                 containerReady,
             ],
         }
@@ -3144,17 +2953,8 @@ export default function Carousel({
 
         // For fill modes and fixed dimensions, use the specified dimensions instead of calculated ones
         let finalWidth = slideWidth
-        let finalHeight = slideHeight
-        if (slidesUI.slideSizing?.mode === "fill-height") {
-            finalWidth = slidesUI.slideSizing?.fixedWidth || 200
-            finalHeight = containerHeight // Will be overridden by CSS to 100%
-        } else if (slidesUI.slideSizing?.mode === "fill-width") {
-            finalWidth = containerWidth // Will be overridden by CSS to 100%
-            finalHeight = slidesUI.slideSizing?.fixedHeight || 300
-        } else if (slidesUI.slideSizing?.mode === "fixed-dimensions") {
-            finalWidth = slidesUI.slideSizing?.fixedWidth || 300
-            finalHeight = slidesUI.slideSizing?.fixedHeight || 200
-        }
+        // Always use full-width with auto-height
+        const finalHeight = slideHeight
 
         // Generate same width and height for all slides - simpler and more stable
         boxWidths.current = Array.from({ length: finalCount }, () => finalWidth)
@@ -3221,40 +3021,11 @@ export default function Carousel({
                     zIndex: 1, // Ensure slides stay below arrows (zIndex: 21)
                     flexShrink: 0,
                     // Dynamic height based on mode
-                    height:
-                        slidesUI.slideSizing?.mode === "fill-height"
-                            ? "100%" // Fill height mode: use full height
-                            : slidesUI.slideSizing?.mode === "fill-width"
-                              ? `${slidesUI.slideSizing?.fixedHeight || 300}px` // Fill width mode: use specified height
-                              : slidesUI.slideSizing?.mode === "aspect-ratio"
-                                ? `${boxHeights.current[i] || 300}px` // Aspect ratio mode: use calculated height
-                                : slidesUI.slideSizing?.mode ===
-                                    "fixed-dimensions"
-                                  ? `${slidesUI.slideSizing?.fixedHeight || 200}px` // Fixed dimensions mode: use exact height
-                                  : slidesUI.slideSizing?.mode ===
-                                      "relative-dimensions"
-                                    ? `${boxHeights.current[i] || 300}px` // Relative dimensions mode: use calculated height
-                                    : "85%", // Other modes: use 85%
-                    // Dynamic width based on mode
-                    width:
-                        slidesUI.slideSizing?.mode === "fill-width"
-                            ? "100%" // Fill width mode: use full width
-                            : slidesUI.slideSizing?.mode === "fill-height"
-                              ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Fill height mode: use specified width
-                              : slidesUI.slideSizing?.mode === "aspect-ratio"
-                                ? `${boxWidths.current[i] || 400}px` // Aspect ratio mode: use calculated width
-                                : slidesUI.slideSizing?.mode ===
-                                    "fixed-dimensions"
-                                  ? `${slidesUI.slideSizing?.fixedWidth || 300}px` // Fixed dimensions mode: use exact width
-                                  : slidesUI.slideSizing?.mode ===
-                                      "relative-dimensions"
-                                    ? `${boxWidths.current[i] || 400}px` // Relative dimensions mode: use calculated width
-                                    : `${boxWidths.current[i] || 400}px`, // Other modes: use calculated width
-                    minWidth:
-                        slidesUI.slideSizing?.mode === "fill-height"
-                            ? `${slidesUI.slideSizing?.fixedWidth || 200}px` // Use specified width as minimum
-                            : "100px", // Other modes: use 100px minimum
-                    maxWidth: "none", // Remove max-width constraint for fill-width mode
+                    height: `${boxHeights.current[i] || 300}px`, // Use calculated height
+                    // Always use full width
+                    width: "100%",
+                    minWidth: "100px", // Minimum width
+                    maxWidth: "none", // No max-width constraint
                     marginRight: `${Math.max(gap ?? 20, 0)}px`, // Ensure gap is non-negative
                     display: "flex", // Ensure slide container is flex
                     flexDirection: "column" as const,
@@ -3272,39 +3043,18 @@ export default function Carousel({
                         width: "100%",
                         height: "100%",
                         // Ensure no CSS aspect ratio interferes when mode is not "aspect-ratio"
-                        aspectRatio:
-                            slidesUI.slideSizing?.mode === "aspect-ratio"
-                                ? undefined
-                                : "auto",
-                        backgroundColor:
-                            i === activeSlideIndex
-                                ? slidesUI.centralSlide?.backgroundColor ||
-                                  slidesUI.allSlides.backgroundColor ||
-                                  "rgba(0,0,0,0.1)"
-                                : slidesUI.allSlides.backgroundColor ||
-                                  "rgba(0,0,0,0.1)",
+                        aspectRatio: undefined,
+                        backgroundColor: "transparent",
                         border: "none", // Remove regular border
                         borderRadius: "10px", // Default value - GSAP will animate this
                         boxShadow: "0 0 0 1px rgba(0,0,0,0.2)", // Default value - GSAP will animate this
                         transform: `scale(${Math.max(
                             i === activeSlideIndex
-                                ? slidesUI.centralSlide?.scale ||
-                                      slidesUI.allSlides.scale ||
-                                      1
-                                : slidesUI.allSlides.scale || 1,
+                                ? effects.current || 1.1
+                                : effects.scale || 1,
                             0.1
                         )})`, // Ensure scale is positive
-                        opacity: Math.max(
-                            Math.min(
-                                i === activeSlideIndex
-                                    ? slidesUI.centralSlide?.opacity ||
-                                          slidesUI.allSlides.opacity ||
-                                          1
-                                    : slidesUI.allSlides.opacity || 1,
-                                1
-                            ),
-                            0
-                        ), // Clamp opacity between 0 and 1
+                        opacity: 1, // Always full opacity
                         fontSize: "clamp(16px, 4vw, 36px)", // Responsive font size
                         fontWeight: "medium",
                         overflow: "hidden",
@@ -3413,33 +3163,29 @@ export default function Carousel({
                             style={{
                                 zIndex: 9999,
                                 position: "absolute",
-                                top:
-                                    buttonsUI.verticalAlign === "top"
-                                        ? `${buttonsUI.insetY ?? 20}px`
-                                        : buttonsUI.verticalAlign === "bottom"
-                                          ? "auto"
-                                          : "50%",
-                                bottom:
-                                    buttonsUI.verticalAlign === "bottom"
-                                        ? `${buttonsUI.insetY ?? 20}px`
-                                        : "auto",
-                                left:
-                                    buttonsUI.horizontalAlign ===
-                                    "space-between"
-                                        ? `${buttonsUI.insetX ?? 20}px`
-                                        : buttonsUI.horizontalAlign === "center"
-                                          ? `calc(50% - ${buttonsUI.gap ?? 20}px)`
+                                ...(() => {
+                                    const { verticalAlign, horizontalAlign } = getPositionAlignment(arrows.position || "center")
+                                    const gap = arrows.distance === "group" ? arrows.gap ?? 20 : 0
+                                    const inset = arrows.inset ?? 20
+                                    
+                                    return {
+                                        top: verticalAlign === "top" ? `${inset}px` : verticalAlign === "bottom" ? "auto" : "50%",
+                                        bottom: verticalAlign === "bottom" ? `${inset}px` : "auto",
+                                        left: horizontalAlign === "space-between" 
+                                            ? `${inset}px` 
+                                            : horizontalAlign === "center" 
+                                                ? `calc(50% - ${gap}px)` 
                                           : "50%",
                                 right: "auto",
-                                transform:
-                                    buttonsUI.horizontalAlign === "center" &&
-                                    buttonsUI.verticalAlign === "center"
+                                        transform: horizontalAlign === "center" && verticalAlign === "center"
                                         ? "translateX(-100%) translateY(-50%)"
-                                        : buttonsUI.horizontalAlign === "center"
+                                            : horizontalAlign === "center"
                                           ? "translateX(-100%)"
-                                          : buttonsUI.verticalAlign === "center"
+                                                : verticalAlign === "center"
                                             ? "translateY(-50%)"
                                             : "none",
+                                    }
+                                })(),
 
                                 cursor:
                                     finiteMode && activeSlideIndex === 0
@@ -3466,33 +3212,29 @@ export default function Carousel({
                             style={{
                                 zIndex: 9999,
                                 position: "absolute",
-                                top:
-                                    buttonsUI.verticalAlign === "top"
-                                        ? `${buttonsUI.insetY ?? 20}px`
-                                        : buttonsUI.verticalAlign === "bottom"
-                                          ? "auto"
-                                          : "50%",
-                                bottom:
-                                    buttonsUI.verticalAlign === "bottom"
-                                        ? `${buttonsUI.insetY ?? 20}px`
-                                        : "auto",
+                                ...(() => {
+                                    const { verticalAlign, horizontalAlign } = getPositionAlignment(arrows.position || "center")
+                                    const gap = arrows.distance === "group" ? arrows.gap ?? 20 : 0
+                                    const inset = arrows.inset ?? 20
+                                    
+                                    return {
+                                        top: verticalAlign === "top" ? `${inset}px` : verticalAlign === "bottom" ? "auto" : "50%",
+                                        bottom: verticalAlign === "bottom" ? `${inset}px` : "auto",
                                 left: "auto",
-                                right:
-                                    buttonsUI.horizontalAlign ===
-                                    "space-between"
-                                        ? `${buttonsUI.insetX ?? 20}px`
-                                        : buttonsUI.horizontalAlign === "center"
-                                          ? `calc(50% - ${buttonsUI.gap ?? 20}px)`
+                                        right: horizontalAlign === "space-between" 
+                                            ? `${inset}px` 
+                                            : horizontalAlign === "center" 
+                                                ? `calc(50% - ${gap}px)` 
                                           : "50%",
-                                transform:
-                                    buttonsUI.horizontalAlign === "center" &&
-                                    buttonsUI.verticalAlign === "center"
+                                        transform: horizontalAlign === "center" && verticalAlign === "center"
                                         ? "translateX(100%) translateY(-50%)"
-                                        : buttonsUI.horizontalAlign === "center"
+                                            : horizontalAlign === "center"
                                           ? "translateX(100%)"
-                                          : buttonsUI.verticalAlign === "center"
+                                                : verticalAlign === "center"
                                             ? "translateY(-50%)"
                                             : "none",
+                                    }
+                                })(),
 
                                 cursor:
                                     finiteMode &&
@@ -3551,7 +3293,7 @@ export default function Carousel({
                     position: "relative" as const,
                     display: "flex",
                     alignItems: "center",
-                    overflow: "hidden",
+                    overflow: "visible",
                 }}
             >
                 <div
@@ -3559,7 +3301,7 @@ export default function Carousel({
                         position: "absolute",
                         top: 0,
                         left: 0,
-                        overflow: "hidden",
+                        overflow: "visible",
                         width: "100%",
                         height: "100%",
                         display: "flex",
@@ -3820,176 +3562,20 @@ addPropertyControls(Carousel, {
         type: ControlType.Boolean,
         title: "Click slide to advance",
         defaultValue: true,
-    },
-    gap: {
-        type: ControlType.Number,
+            },
+            gap: {
+                type: ControlType.Number,
         title: "Gap",
-        min: 0,
-        max: 100,
-        step: 5,
-        defaultValue: 20,
+                min: 0,
+                max: 100,
+                step: 5,
+                defaultValue: 20,
         description: "Space between slides",
-    },
-    slidesUI: {
+            },
+    effects: {
         type: ControlType.Object,
-        title: "Slides UI",
+        title: "Effects",
         controls: {
-            central: {
-                type: ControlType.Enum,
-                title: "Central",
-                options: ["Same style", "Customize style"],
-                optionTitles: ["Same style", "Customize style"],
-                defaultValue: "Same style",
-                displaySegmentedControl: true,
-                segmentedControlDirection: "vertical",
-            },
-            slideSizing: {
-                type: ControlType.Object,
-                title: "Slide Sizing",
-                controls: {
-                    mode: {
-                        type: ControlType.Enum,
-                        title: "Mode",
-                        options: [
-                            "fill",
-                            "fill-width",
-                            "fill-height",
-                            "aspect-ratio",
-                            "fixed-dimensions",
-                            "relative-dimensions",
-                        ],
-                        optionTitles: [
-                            "Fill",
-                            "Fill Width",
-                            "Fill Height",
-                            "Aspect Ratio",
-                            "Fixed Dimensions",
-                            "Relative Dimensions",
-                        ],
-                        defaultValue: "fill-width",
-                        displaySegmentedControl: true,
-                        segmentedControlDirection: "vertical",
-                    },
-                    aspectRatio: {
-                        type: ControlType.Enum,
-                        title: "Ratio",
-                        options: [
-                            "16:9",
-                            "4:3",
-                            "1:1",
-                            "3:2",
-                            "21:9",
-                            "custom",
-                        ],
-                        optionTitles: [
-                            "16:9",
-                            "4:3",
-                            "1:1",
-                            "3:2",
-                            "21:9",
-                            "Custom",
-                        ],
-                        defaultValue: "16:9",
-                        displaySegmentedControl: true,
-                        segmentedControlDirection: "vertical",
-                        hidden: (props: any) => props?.mode !== "aspect-ratio",
-                    },
-                    customAspectRatio: {
-                        type: ControlType.String,
-                        title: "Custom Ratio",
-                        placeholder: "16:9",
-                        defaultValue: "16:9",
-                        hidden: (props: any) =>
-                            props?.mode !== "aspect-ratio" ||
-                            props?.aspectRatio !== "custom",
-                    },
-                    aspectRatioFillPercentage: {
-                        type: ControlType.Number,
-                        title: "Fill %",
-                        min: 10,
-                        max: 100,
-                        step: 5,
-                        defaultValue: 100,
-                        displayStepper: true,
-                        hidden: (props: any) => props?.mode !== "aspect-ratio",
-                        description:
-                            "Percentage of the minimum dimension to fill (e.g., 90% leaves 10% padding)",
-                    },
-                    fixedWidth: {
-                        type: ControlType.Number,
-                        title: "Width",
-                        min: 100,
-                        max: 800,
-                        step: 10,
-                        defaultValue: 300,
-                        hidden: (props: any) =>
-                            props?.mode !== "fixed-dimensions" &&
-                            props?.mode !== "fill-height",
-                    },
-                    fixedHeight: {
-                        type: ControlType.Number,
-                        title: "Height",
-                        min: 100,
-                        max: 600,
-                        step: 10,
-                        defaultValue: 200,
-                        hidden: (props: any) =>
-                            props?.mode !== "fixed-dimensions" &&
-                            props?.mode !== "fill-width",
-                    },
-                    relativeWidth: {
-                        type: ControlType.Number,
-                        title: "Width %",
-                        min: 10,
-                        max: 100,
-                        step: 5,
-                        defaultValue: 80,
-                        displayStepper: true,
-                        hidden: (props: any) =>
-                            props?.mode !== "relative-dimensions",
-                        description: "Percentage of container width",
-                    },
-                    relativeHeight: {
-                        type: ControlType.Number,
-                        title: "Height %",
-                        min: 10,
-                        max: 100,
-                        step: 5,
-                        defaultValue: 60,
-                        displayStepper: true,
-                        hidden: (props: any) =>
-                            props?.mode !== "relative-dimensions",
-                        description: "Percentage of container height",
-                    },
-                },
-            },
-            allSlides: {
-                type: ControlType.Object,
-                title: "All Slides",
-                controls: {
-                    backgroundColor: {
-                        type: ControlType.Color,
-                        title: "Background",
-                        defaultValue: "rgba(0,0,0,0.1)",
-                    },
-                    border: {
-                        // @ts-ignore - ControlType.Border exists but may not be in types
-                        type: ControlType.Border,
-                        title: "Border",
-                        defaultValue: "1px solid rgba(0,0,0,0.2)",
-                    },
-                    radius: {
-                        // @ts-ignore - ControlType.BorderRadius exists but may not be in types
-                        type: ControlType.BorderRadius,
-                        title: "Radius",
-                        defaultValue: "10px",
-                    },
-                    shadow: {
-                        // @ts-ignore - ControlType.BoxShadow exists but may not be in types
-                        type: ControlType.BoxShadow,
-                        title: "Shadow",
-                        defaultValue: "0px 0px 0px rgba(0,0,0,0)",
-                    },
                     scale: {
                         type: ControlType.Number,
                         title: "Scale",
@@ -3997,62 +3583,26 @@ addPropertyControls(Carousel, {
                         max: 2,
                         step: 0.1,
                         defaultValue: 1,
+                description: "Scale for all slides",
                     },
-                    opacity: {
+            current: {
                         type: ControlType.Number,
-                        title: "Opacity",
-                        min: 0,
-                        max: 1,
-                        step: 0.1,
-                        defaultValue: 1,
-                    },
-                },
-            },
-            centralSlide: {
-                type: ControlType.Object,
-                title: "Central Slide",
-                hidden: (props: any) => props.central !== "Customize style",
-                controls: {
-                    backgroundColor: {
-                        type: ControlType.Color,
-                        title: "Background",
-                        defaultValue: "rgba(0,0,0,0.1)",
-                    },
-                    border: {
-                        // @ts-ignore - ControlType.Border exists but may not be in types
-                        type: ControlType.Border,
-                        title: "Border",
-                        defaultValue: "1px solid rgba(0,0,0,0.2)",
-                    },
-                    radius: {
-                        // @ts-ignore - ControlType.BorderRadius exists but may not be in types
-                        type: ControlType.BorderRadius,
-                        title: "Radius",
-                        defaultValue: "10px",
-                    },
-                    shadow: {
-                        // @ts-ignore - ControlType.BoxShadow exists but may not be in types
-                        type: ControlType.BoxShadow,
-                        title: "Shadow",
-                        defaultValue: "0px 0px 0px rgba(0,0,0,0)",
-                    },
-                    scale: {
-                        type: ControlType.Number,
-                        title: "Scale",
+                title: "Current",
                         min: 0.1,
                         max: 2,
                         step: 0.1,
                         defaultValue: 1.1,
-                    },
-                    opacity: {
-                        type: ControlType.Number,
-                        title: "Opacity",
-                        min: 0,
-                        max: 1,
-                        step: 0.1,
-                        defaultValue: 1,
-                    },
-                },
+                description: "Scale for active slide",
+            },
+            shadow: {
+                type: ControlType.Enum,
+                title: "Shadow",
+                options: ["none", "small", "medium", "large"],
+                optionTitles: ["None", "Small", "Medium", "Large"],
+                defaultValue: "none",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+                description: "Shadow effect for slides",
             },
         },
     },
@@ -4074,28 +3624,51 @@ addPropertyControls(Carousel, {
         title: "Right Control",
         hidden: (props: any) => !props.buttonsNavigation,
     },
-    buttonsUI: {
+    arrows: {
         type: ControlType.Object,
-        title: "Buttons UI",
+        title: "Arrows",
         hidden: (props: any) => !props.buttonsNavigation,
         controls: {
-            verticalAlign: {
+            show: {
+                type: ControlType.Boolean,
+                title: "Show",
+                defaultValue: true,
+            },
+            prev: {
+                // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
+                type: ControlType.ComponentInstance,
+                title: "Prev",
+            },
+            next: {
+                // @ts-ignore - ControlType.ComponentInstance exists but may not be in types
+                type: ControlType.ComponentInstance,
+                title: "Next",
+            },
+            fill: {
+                type: ControlType.Color,
+                title: "Fill",
+                defaultValue: "#000000",
+            },
+            fadeIn: {
+                type: ControlType.Boolean,
+                title: "Fade In",
+                defaultValue: false,
+            },
+            distance: {
                 type: ControlType.Enum,
-                title: "Vertical",
-                options: ["top", "center", "bottom"],
-                optionTitles: ["Top", "Center", "Bottom"],
-                defaultValue: "center",
+                title: "Distance",
+                options: ["space", "group"],
+                optionTitles: ["Space", "Group"],
+                defaultValue: "space",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
             },
-            horizontalAlign: {
+            position: {
                 type: ControlType.Enum,
-                title: "Horizontal",
-                options: ["center", "space-between"],
-                optionTitles: ["Center", "Space Between"],
+                title: "Position",
+                options: ["center", "top-left", "top-middle", "top-right", "bottom-left", "bottom-middle", "bottom-right"],
+                optionTitles: ["Center", "Top Left", "Top Middle", "Top Right", "Bottom Left", "Bottom Middle", "Bottom Right"],
                 defaultValue: "center",
-                displaySegmentedControl: true,
-                segmentedControlDirection: "vertical",
             },
             gap: {
                 type: ControlType.Number,
@@ -4104,25 +3677,24 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
-                hidden: (props: any) => props.horizontalAlign !== "center",
+                hidden: (props: any) => props.distance !== "group",
             },
-            insetX: {
+            inset: {
                 type: ControlType.Number,
-                title: "X Inset",
-                min: -100,
+                title: "Inset",
+                min: 0,
                 max: 100,
                 step: 5,
                 defaultValue: 20,
-                hidden: (props: any) => props.horizontalAlign === "center",
             },
-            insetY: {
+            opacity: {
                 type: ControlType.Number,
-                title: "Y Inset",
-                min: -100,
-                max: 100,
-                step: 5,
-                defaultValue: 20,
-                hidden: (props: any) => props.verticalAlign === "center",
+                title: "Opacity",
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: 0.7,
+                description: "Finite Mode disabled arrows opacity",
             },
             disabledStyle: {
                 type: ControlType.Enum,
@@ -4132,7 +3704,6 @@ addPropertyControls(Carousel, {
                 defaultValue: "none",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
-
                 description: "Style disabled arrows in finite mode",
             },
             disabledScale: {
