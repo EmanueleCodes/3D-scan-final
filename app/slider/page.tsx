@@ -151,7 +151,7 @@ export default function Carousel({
     buttonsNavigation = true,
     finiteMode = false,
     fluid = true,
-    slideAlignment = "left",
+    slideAlignment = "center",
     dotsUI = {
         enabled: false,
         size: 8,
@@ -207,7 +207,7 @@ export default function Carousel({
     buttonsNavigation?: boolean
     finiteMode?: boolean
     fluid?: boolean
-    slideAlignment?: "left" | "center" | "right"
+    slideAlignment?: "center"
     dotsUI?: {
         enabled?: boolean
         size?: number
@@ -964,28 +964,23 @@ export default function Carousel({
 
         // Position slides horizontally - start with slide 0 in active position
         // Use the same calculation as toIndex but with slide 0 as the active slide
-        // Add a small delay to ensure slides are fully rendered
-        setTimeout(() => {
+        // Do it immediately on the next frame to avoid any centered flash
+        requestAnimationFrame(() => {
+            console.log('Initial positioning - items:', items.length)
+            const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+            const slideWidth = items[0]?.offsetWidth || 0
+
+            // Clear any existing transforms immediately
+            gsap.set(items, { x: 0, xPercent: 0, transform: "none" })
+
             items.forEach((item, i) => {
-                // Calculate where slide i should be when slide 0 is active
-                // This is the same as toIndex(0) but for each individual slide
                 let initialX = -(i - 0) * (item.offsetWidth + (config.gap || 0))
-
                 if (alignment === "center") {
-                    // Center slide 0 within the container
-                    const containerWidth = items[0]?.parentElement?.offsetWidth || 0
-                    const slideWidth = items[0].offsetWidth
                     initialX += (containerWidth - slideWidth) / 2
-                } else if (alignment === "right") {
-                    // Align slide 0 to the right edge
-                    const containerWidth = items[0]?.parentElement?.offsetWidth || 0
-                    const slideWidth = items[0].offsetWidth
-                    initialX += containerWidth - slideWidth
                 }
-
                 gsap.set(item, { x: initialX })
             })
-        }, 10)
+        })
 
         // Initial positioning is now handled above, no need for duplicate timeline animations
 
@@ -1010,6 +1005,8 @@ export default function Carousel({
                     targetX += containerWidth - slideWidth
                 }
                 // For "left" alignment, targetX remains as calculated
+
+                console.log(`toIndex(${index}): offsetWidth=${items[0].offsetWidth}, gap=${config.gap}, targetX=${targetX}`)
 
                 const tween = gsap.to(items, {
                     x: targetX,
@@ -1108,7 +1105,9 @@ export default function Carousel({
         }
 
         // Center the first slide on initial load if in center alignment mode
-        if (alignment === "center") {
+        // Guard: do not run this per-slide overwrite in finiteMode because it
+        // would force every slide to the same x on first render.
+        if (!finiteMode && alignment === "center") {
             // Use a small delay to ensure container dimensions are available
             setTimeout(() => {
                 const containerWidth = items[0]?.parentElement?.offsetWidth || 0
@@ -1118,7 +1117,7 @@ export default function Carousel({
                     gsap.set(items, { x: centerOffset })
                 }
             }, 10)
-        } else if (alignment === "right") {
+        } else if (!finiteMode && alignment === "right") {
             // Right align the first slide on initial load
             setTimeout(() => {
                 const containerWidth = items[0]?.parentElement?.offsetWidth || 0
@@ -2199,8 +2198,7 @@ export default function Carousel({
 
             // Use requestAnimationFrame for better timing coordination
             const initFrame = requestAnimationFrame(() => {
-                // NEW APPROACH: Pass all static slides to GSAP
-                // All 6 slides are static containers with cycling content
+                // Collect mounted slides
                 const allSlides = boxesRef.current.filter(Boolean)
 
                 // DYNAMIC FIX: Ensure we have enough slides to fill the container
@@ -2283,6 +2281,8 @@ export default function Carousel({
 
                         if (finiteMode) {
                             // Finite mode: create a simple timeline without infinite loop
+                            console.log('Creating finite timeline with slides:', finalValidSlides.length)
+                            console.log('All slides in DOM:', boxesRef.current.length)
 
                             loop = createFiniteTimeline(
                                 finalValidSlides,
@@ -2411,6 +2411,14 @@ export default function Carousel({
                                 startAutoplay()
                             }
 
+                            // Force-set the initial index using the same code path as navigation
+                            try {
+                                if ((loop as any).toIndex) {
+                                    ;(loop as any).toIndex(0, { duration: 0, ease: "none" })
+                                    gsap.ticker.flush()
+                                }
+                            } catch (e) {}
+
                             // Initialize visual states for all slides and dots
                             setTimeout(() => {
                                 // Apply initial styling to ALL slides immediately (no animation)
@@ -2431,51 +2439,69 @@ export default function Carousel({
                                 }
                             }, 100) // Small delay to ensure DOM is ready
 
-                            // CENTERING FIX: Ensure centering happens after everything is set up
+                            // CENTERING FIX: Ensure initial positioning happens after everything is set up
                             // Use a small delay to ensure DOM is fully ready
                             setTimeout(() => {
-                                if (
-                                    loop &&
-                                    loop.times &&
-                                    loop.times.length > 0
-                                ) {
-                                    // Only apply centering logic for infinite mode or when alignment is center
-                                    if (!finiteMode || slideAlignment === "center") {
-                                        // Calculate the middle index for dynamic number of slides
-                                        // Center on the middle slide for proper initial display
-                                        const middleIndex = Math.floor(
-                                            loop.times.length / 2
-                                        )
-                                        const centerTime =
-                                            loop.times[middleIndex] || loop.times[0]
-
-                                        // Force refresh and re-center using the loop reference
-                                        if ((loop as any).refresh) {
-                                            ;(loop as any).refresh(true)
-                                        }
-
-                                        // Set timeline to center position
-                                        if (loop.time) {
-                                            loop.time(centerTime, true)
-                                        }
-
-                                        if (loop.closestIndex) {
-                                            loop.closestIndex(true)
+                                if (loop) {
+                                    if (!finiteMode) {
+                                        // Infinite mode: use loop.times centering
+                                        if ((loop as any).times && (loop as any).times.length > 0) {
+                                            const middleIndex = Math.floor((loop as any).times.length / 2)
+                                            const centerTime = (loop as any).times[middleIndex] || (loop as any).times[0]
+                                            if ((loop as any).refresh) {
+                                                ;(loop as any).refresh(true)
+                                            }
+                                            if (loop.time) {
+                                                loop.time(centerTime, true)
+                                            }
+                                            // Compute which slide is visually centered now
+                                            let initIndex = 0
+                                            if ((loop as any).closestIndex) {
+                                                try {
+                                                    initIndex = (loop as any).closestIndex(true)
+                                                } catch (e) {
+                                                    initIndex = 0
+                                                }
+                                            }
+                                            // Sync React state so initial styles (scale) apply to the correct slide
+                                            try {
+                                                setActiveSlideIndex(initIndex)
+                                                setActiveElement(finalValidSlides[initIndex] || null)
+                                            } catch (e) {}
                                         }
                                     } else {
-                                        // For finite mode with left/right alignment, just refresh without centering
-                                        if ((loop as any).refresh) {
-                                            ;(loop as any).refresh(true)
-                                        }
-                                        
-                                        // Ensure we're at the first slide (index 0) for left alignment
-                                        if (slideAlignment === "left" && loop.toIndex) {
-                                            loop.toIndex(0, { duration: 0, immediateRender: true })
+                                        // Finite mode: position ALL mounted slides based on alignment
+                                        const firstSlide = boxesRef.current[0]
+                                        if (firstSlide) {
+                                            const slideWidth = firstSlide.offsetWidth
+                                            const containerWidth = firstSlide.parentElement?.offsetWidth || 0
+                                            const gapValue = Math.max(gap ?? 20, 0)
+                                            boxesRef.current.forEach((slide, i) => {
+                                                if (!slide) return
+                                                let x = -i * (slideWidth + gapValue)
+                                                if (slideAlignment === "center") {
+                                                    x += (containerWidth - slideWidth) / 2
+                                                } else if (slideAlignment === "right") {
+                                                    x += containerWidth - slideWidth
+                                                }
+                                                gsap.set(slide, { x })
+                                            })
                                         }
                                     }
                                 }
 
                                 // Mark as fully initialized after all centering is complete
+                                
+                                // Debug: Check slide positions after all initialization
+                                setTimeout(() => {
+                                    console.log('After initialization - checking slide positions:')
+                                    boxesRef.current.forEach((slide, i) => {
+                                        if (slide) {
+                                            const actualX = gsap.getProperty(slide, "x") as number
+                                            console.log(`Slide ${i} final position: x=${actualX}`)
+                                        }
+                                    })
+                                }, 200)
 
                                 setIsFullyInitialized(true)
 
@@ -2919,8 +2945,10 @@ export default function Carousel({
                 validContent,
             }
         } else {
-            // Fallback: use minimum slides if container width not available
-            const finalCount = actualSlideCount * 2
+            // Fallback: container width not available yet
+            // Finite mode: render exactly the content count (no duplication)
+            // Infinite mode: use at least 2x for seamless loop
+            const finalCount = finiteMode ? actualSlideCount : actualSlideCount * 2
             return { finalCount, actualSlideCount, validContent }
         }
     }, [content, finiteMode, gap])
@@ -2941,8 +2969,8 @@ export default function Carousel({
             // Use reasonable fallback dimensions that work well in canvas
             const fallbackWidth = 400
             const fallbackHeight = 300
-            // Ensure we have at least 6 slides for canvas mode to show the carousel properly
-            const canvasFinalCount = Math.max(finalCount, 6)
+            // Finite mode should render exactly the content count (no duplication)
+            const canvasFinalCount = finiteMode ? finalCount : Math.max(finalCount, 6)
             boxWidths.current = Array.from(
                 { length: canvasFinalCount },
                 () => fallbackWidth
@@ -2993,7 +3021,9 @@ export default function Carousel({
         gap,
     ]) // Include container width and gap
 
-    const boxes = Array.from({ length: slideData.finalCount }, (_, i) => {
+    // Reset refs each render so removed slides don't linger in boxesRef
+    boxesRef.current = []
+    const boxes = Array.from({ length: finiteMode ? (slideData?.actualSlideCount || 0) : slideData.finalCount }, (_, i) => {
         const { validContent, finalCount } = slideData
         const actualSlideCount = Math.max(validContent.length, 1)
 
@@ -3064,7 +3094,8 @@ export default function Carousel({
                         border: "none", // Remove regular border
                         borderRadius: "10px", // Default value - GSAP will animate this
                         boxShadow: "0 0 0 1px rgba(0,0,0,0.2)", // Default value - GSAP will animate this
-                        transform: `scale(${Math.max(
+                        transform: "none",
+                        scale: `${Math.max(
                             i === activeSlideIndex
                                 ? effects.current || 1.1
                                 : effects.scale || 1,
@@ -3459,10 +3490,10 @@ addPropertyControls(Carousel, {
     slideAlignment: {
         type: ControlType.Enum,
         title: "Alignment",
-        options: ["left", "center", "right"],
-        optionTitles: ["Left", "Center", "Right"],
-        defaultValue: "left",
-        description: "How slides align within the carousel container",
+        options: ["center"],
+        optionTitles: ["Center"],
+        defaultValue: "center",
+        description: "Slides are centered in finite mode",
     },
     dotsUI: {
         type: ControlType.Object,
