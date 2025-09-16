@@ -964,25 +964,28 @@ export default function Carousel({
 
         // Position slides horizontally - start with slide 0 in active position
         // Use the same calculation as toIndex but with slide 0 as the active slide
-        items.forEach((item, i) => {
-            // Calculate where slide i should be when slide 0 is active
-            // This is the same as toIndex(0) but for each individual slide
-            let initialX = -(i - 0) * (item.offsetWidth + (config.gap || 0))
+        // Add a small delay to ensure slides are fully rendered
+        setTimeout(() => {
+            items.forEach((item, i) => {
+                // Calculate where slide i should be when slide 0 is active
+                // This is the same as toIndex(0) but for each individual slide
+                let initialX = -(i - 0) * (item.offsetWidth + (config.gap || 0))
 
-            if (alignment === "center") {
-                // Center slide 0 within the container
-                const containerWidth = items[0]?.parentElement?.offsetWidth || 0
-                const slideWidth = items[0].offsetWidth
-                initialX += (containerWidth - slideWidth) / 2
-            } else if (alignment === "right") {
-                // Align slide 0 to the right edge
-                const containerWidth = items[0]?.parentElement?.offsetWidth || 0
-                const slideWidth = items[0].offsetWidth
-                initialX += containerWidth - slideWidth
-            }
+                if (alignment === "center") {
+                    // Center slide 0 within the container
+                    const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+                    const slideWidth = items[0].offsetWidth
+                    initialX += (containerWidth - slideWidth) / 2
+                } else if (alignment === "right") {
+                    // Align slide 0 to the right edge
+                    const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+                    const slideWidth = items[0].offsetWidth
+                    initialX += containerWidth - slideWidth
+                }
 
-            gsap.set(item, { x: initialX })
-        })
+                gsap.set(item, { x: initialX })
+            })
+        }, 10)
 
         // Initial positioning is now handled above, no need for duplicate timeline animations
 
@@ -2436,26 +2439,39 @@ export default function Carousel({
                                     loop.times &&
                                     loop.times.length > 0
                                 ) {
-                                    // Calculate the middle index for dynamic number of slides
-                                    // Center on the middle slide for proper initial display
-                                    const middleIndex = Math.floor(
-                                        loop.times.length / 2
-                                    )
-                                    const centerTime =
-                                        loop.times[middleIndex] || loop.times[0]
+                                    // Only apply centering logic for infinite mode or when alignment is center
+                                    if (!finiteMode || slideAlignment === "center") {
+                                        // Calculate the middle index for dynamic number of slides
+                                        // Center on the middle slide for proper initial display
+                                        const middleIndex = Math.floor(
+                                            loop.times.length / 2
+                                        )
+                                        const centerTime =
+                                            loop.times[middleIndex] || loop.times[0]
 
-                                    // Force refresh and re-center using the loop reference
-                                    if ((loop as any).refresh) {
-                                        ;(loop as any).refresh(true)
-                                    }
+                                        // Force refresh and re-center using the loop reference
+                                        if ((loop as any).refresh) {
+                                            ;(loop as any).refresh(true)
+                                        }
 
-                                    // Set timeline to center position
-                                    if (loop.time) {
-                                        loop.time(centerTime, true)
-                                    }
+                                        // Set timeline to center position
+                                        if (loop.time) {
+                                            loop.time(centerTime, true)
+                                        }
 
-                                    if (loop.closestIndex) {
-                                        loop.closestIndex(true)
+                                        if (loop.closestIndex) {
+                                            loop.closestIndex(true)
+                                        }
+                                    } else {
+                                        // For finite mode with left/right alignment, just refresh without centering
+                                        if ((loop as any).refresh) {
+                                            ;(loop as any).refresh(true)
+                                        }
+                                        
+                                        // Ensure we're at the first slide (index 0) for left alignment
+                                        if (slideAlignment === "left" && loop.toIndex) {
+                                            loop.toIndex(0, { duration: 0, immediateRender: true })
+                                        }
                                     }
                                 }
 
