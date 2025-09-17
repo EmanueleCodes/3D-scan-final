@@ -839,21 +839,23 @@ export default function Carousel({
                             adjustedAvailableWidth / slidesToShow
                         return {
                             width: adjustedSlideWidth,
-                    // Auto-height: use container height as base
-                    height: safeContainerHeight,
+                    // Auto-height: use container height as base or adaptive
+                    height: adaptiveHeight ? "auto" : safeContainerHeight,
+                    minHeight: adaptiveHeight ? "300px" : safeContainerHeight,
                             objectFit: "cover" as const,
                         }
                     }
 
                     return {
                         width: finalSlideWidth,
-                // Auto-height: use container height as base
-                height: safeContainerHeight,
+                // Auto-height: use container height as base or adaptive
+                height: adaptiveHeight ? "auto" : safeContainerHeight,
+                minHeight: adaptiveHeight ? "300px" : safeContainerHeight,
                         objectFit: "cover" as const,
                     }
 
         },
-        [gap, finiteMode]
+        [gap, finiteMode, adaptiveHeight]
     )
 
 
@@ -2989,7 +2991,7 @@ export default function Carousel({
             validContent
         )
         const slideWidth = Math.max(dimensions.width, 50)
-        const slideHeight = Math.max(dimensions.height, 50)
+        const slideHeight = typeof dimensions.height === 'number' ? Math.max(dimensions.height, 50) : 300
 
         // For fill modes and fixed dimensions, use the specified dimensions instead of calculated ones
         let finalWidth = slideWidth
@@ -3064,7 +3066,8 @@ export default function Carousel({
                         zIndex: 1, // Ensure slides stay below arrows (zIndex: 21)
                         flexShrink: 0,
                         // Dynamic height based on mode
-                        height: `${boxHeights.current[i] || 300}px`, // Use calculated height
+                        height: adaptiveHeight ? "auto" : `${boxHeights.current[i] || 300}px`, // Use calculated height
+                        minHeight: adaptiveHeight ? "300px" : `${boxHeights.current[i] || 300}px`, // Ensure minimum height
                         // Use slideWidth prop with unit
                         width: slideWidth.unit === "percent" 
                             ? `${slideWidth.value}%` 
@@ -3153,7 +3156,8 @@ export default function Carousel({
                 justifyContent: "center",
                 alignItems: "center",
                 flexDirection: "column" as const,
-                height: "100%",
+                height: adaptiveHeight ? "auto" : "100%",
+                minHeight: adaptiveHeight ? "400px" : "400px",
                 width: "100%",
                 margin: 0,
                 overflow: "visible",
@@ -3287,8 +3291,9 @@ export default function Carousel({
             <div
                 ref={wrapperRef}
                 style={{
-                    height: "100%",
-                    maxHeight: "100%",
+                    height: adaptiveHeight ? "auto" : "100%",
+                    minHeight: adaptiveHeight ? "400px" : "400px",
+                    maxHeight: adaptiveHeight ? "none" : "100%",
                     width: "100%",
                     maxWidth: "100%",
                     position: "relative" as const,
