@@ -23,6 +23,7 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react"
+import ReactDOM from "react-dom/client"
 import {
     gsap,
     useGSAP,
@@ -151,7 +152,9 @@ export default function Carousel({
         height: 10,
         gap: 10,
         fill: "#FFFFFF",
+        padding: 0,
         backdrop: "#000000",
+        backdropRadius: 20,
         radius: 50,
         opacity: 0.5,
         current: 1,
@@ -177,7 +180,7 @@ export default function Carousel({
         elasticPeriod: 0.3,
         backIntensity: 1.7,
     },
-    adaptiveHeight = true,
+    adaptiveHeight = false,
 }: {
     dragFactor?: number
     draggable?: boolean
@@ -209,7 +212,9 @@ export default function Carousel({
         height?: number
         gap?: number
         fill?: string
+        padding?: number
         backdrop?: string
+        backdropRadius?: number
         radius?: number
         opacity?: number
         current?: number
@@ -222,7 +227,7 @@ export default function Carousel({
     effects?: {
             scale?: number
         current?: number
-        shadow?: "none" | "small" | "medium" | "large"
+        shadow?: string
     }
     slideWidth?: {
         value?: number
@@ -273,6 +278,30 @@ export default function Carousel({
     const currentAutoplayDirectionRef = useRef<"left" | "right">(
         direction
     ) // Current autoplay direction
+
+    // Store original heights of content components for adaptive height
+    const originalContentHeights = useRef<number[]>([])
+    const tallestSlideHeight = useRef<number>(400) // Default to 400px if no content
+    const [heightsMeasured, setHeightsMeasured] = useState(true) // Simplify: treat heights as ready and let CSS handle sizing
+    const [isMeasuringHeights, setIsMeasuringHeights] = useState(false) // Track if we're currently measuring
+    const measurementInProgress = useRef(false) // Prevent multiple simultaneous measurements
+    const measurementStarted = useRef(false) // Track if we've ever started measurement
+    
+    // Initialize heights with proper async measurement - only run once
+    const heightRetryCount = useRef(0)
+    const MAX_HEIGHT_MEASURE_RETRIES = 15
+
+    const initializeHeights = useCallback(async () => {
+        // Simplified mode: no off-DOM measurement; CSS drives heights
+            return
+    }, [])
+    
+    // Run initialization when component mounts - with delay to ensure content is ready
+    useEffect(() => {
+        // No-op in simplified mode
+    }, [])
+
+    // Removed old measureOriginalContentHeights function - now using initializeHeights
 
     /**
      * Construct easing string with parameters for elastic and back easing functions
@@ -330,24 +359,13 @@ export default function Carousel({
                 ? effects.current || 1.1
                 : effects.scale || 1
 
-            // Single shadow for all slides
-            const targetShadow = effects.shadow === "none" 
-                ? "0px 0px 0px rgba(0,0,0,0)" 
-                : effects.shadow === "small" 
-                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
-                    : effects.shadow === "medium" 
-                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
-                        : "0px 8px 32px rgba(0,0,0,0.2)"
-
             // Apply initial styling directly to DOM (immediate, no animation, can't be overridden)
             innerElement.style.transform = `scale(${targetScale})`
-            innerElement.style.boxShadow = targetShadow
             innerElement.style.transformOrigin = "center"
 
             // Also set with GSAP for consistency, but with immediate render
             gsap.set(innerElement, {
                 scale: targetScale,
-                boxShadow: targetShadow,
                 transformOrigin: "center",
                 immediateRender: true,
                 duration: 0, // Force immediate
@@ -373,19 +391,9 @@ export default function Carousel({
             // Get the appropriate style values for central slide
             // Always apply current scale to central slide
             const targetScale = effects.current || 1.1
-            
-            // Single shadow for all slides
-            const targetShadow = effects.shadow === "none" 
-                ? "0px 0px 0px rgba(0,0,0,0)" 
-                : effects.shadow === "small" 
-                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
-                    : effects.shadow === "medium" 
-                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
-                        : "0px 8px 32px rgba(0,0,0,0.2)"
 
             gsap.set(innerElement, {
                 scale: targetScale,
-                boxShadow: targetShadow,
                 transformOrigin: "center",
                 immediateRender: true,
             })
@@ -413,20 +421,10 @@ export default function Carousel({
                 ? effects.current || 1.1
                 : effects.scale || 1
 
-            // Single shadow for all slides
-            const targetShadow = effects.shadow === "none" 
-                ? "0px 0px 0px rgba(0,0,0,0)" 
-                : effects.shadow === "small" 
-                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
-                    : effects.shadow === "medium" 
-                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
-                        : "0px 8px 32px rgba(0,0,0,0.2)"
-
             // During initial setup, use gsap.set() for immediate styling
             if (isInitialSetupRef.current) {
                 gsap.set(innerElement, {
                     scale: targetScale,
-                    boxShadow: targetShadow,
                     transformOrigin: "center",
                     immediateRender: true,
                 })
@@ -437,7 +435,6 @@ export default function Carousel({
                 // For subsequent animations, use gsap.to() with user timing
                 gsap.to(innerElement, {
                     scale: targetScale,
-                    boxShadow: targetShadow,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                     transformOrigin: "center",
@@ -651,35 +648,44 @@ export default function Carousel({
                 return targetContentIndex
             }
 
-            const totalSlides = boxesRef.current.length
             const contentCount = content.length || 1
-            const currentIndex = activeSlideIndex
-
-            // Find all instances of this content in the slide array
-            const possibleIndices: number[] = []
-            for (let i = 0; i < totalSlides; i++) {
-                if (i % contentCount === targetContentIndex) {
-                    possibleIndices.push(i)
+            
+            // Get the actual current slide position from GSAP timeline
+            let currentIndex = activeSlideIndex
+            if (loopRef.current && loopRef.current.closestIndex) {
+                try {
+                    // Use closestIndex to get the actual current slide position
+                    currentIndex = loopRef.current.closestIndex()
+                } catch (error) {
+                    // Fallback to activeSlideIndex if GSAP method fails
                 }
             }
 
-            if (possibleIndices.length === 0) {
-                return targetContentIndex
-            }
+            // Calculate the current content index (which content we're currently viewing)
+            const currentContentIndex = currentIndex % contentCount
+            
+            // Calculate how many slides to move based on dot index difference
+            let slidesToMove = targetContentIndex - currentContentIndex
+            
+            // Don't wrap around - use the direct difference
+            // If we're at dot 1 and click dot 3, move +2
+            // If we're at dot 3 and click dot 1, move -2
+            // This ensures we always move the correct number of slides
+            
+            // Calculate the target slide index
+            const targetSlideIndex = currentIndex + slidesToMove
+            
+            // Debug logging
+            console.log('Dot navigation debug:', {
+                targetContentIndex,
+                currentIndex,
+                currentContentIndex,
+                slidesToMove,
+                targetSlideIndex,
+                contentCount
+            })
 
-            // Find the closest instance to the current position
-            let closestIndex = possibleIndices[0]
-            let minDistance = Math.abs(possibleIndices[0] - currentIndex)
-
-            for (const index of possibleIndices) {
-                const distance = Math.abs(index - currentIndex)
-                if (distance < minDistance) {
-                    minDistance = distance
-                    closestIndex = index
-                }
-            }
-
-            return closestIndex
+            return targetSlideIndex
         },
         [finiteMode, activeSlideIndex, content.length]
     )
@@ -741,7 +747,7 @@ export default function Carousel({
             gap: `${dotsUI.gap || 12}px`,
             justifyContent,
             alignItems: "center",
-            zIndex: 100,
+            zIndex: 1000,
         }
     }, [
         dotsUI,
@@ -806,7 +812,7 @@ export default function Carousel({
             const safeContainerWidth = Math.max(containerWidth, 100) // Minimum 100px width
             const safeContainerHeight = Math.max(containerHeight, 100) // Minimum 100px height
 
-            // Always use full-width sizing with auto-height detection
+            // Always use full-width sizing; height equals container height
             const slideGap = Math.max(gap ?? 20, 0)
 
                     // Determine optimal number of visible slides based on container width
@@ -839,18 +845,16 @@ export default function Carousel({
                             adjustedAvailableWidth / slidesToShow
                         return {
                             width: adjustedSlideWidth,
-                    // Auto-height: use container height as base or adaptive
-                    height: adaptiveHeight ? "auto" : safeContainerHeight,
-                    minHeight: adaptiveHeight ? "300px" : safeContainerHeight,
+                        height: safeContainerHeight,
+                        minHeight: safeContainerHeight,
                             objectFit: "cover" as const,
                         }
                     }
 
                     return {
                         width: finalSlideWidth,
-                // Auto-height: use container height as base or adaptive
-                height: adaptiveHeight ? "auto" : safeContainerHeight,
-                minHeight: adaptiveHeight ? "300px" : safeContainerHeight,
+                        height: safeContainerHeight,
+                        minHeight: safeContainerHeight,
                         objectFit: "cover" as const,
                     }
 
@@ -1973,19 +1977,9 @@ export default function Carousel({
                 ? effects.current || 1.1
                 : effects.scale || 1
 
-            // Single shadow for all slides
-            const targetShadow = effects.shadow === "none" 
-                ? "0px 0px 0px rgba(0,0,0,0)" 
-                : effects.shadow === "small" 
-                    ? "0px 2px 8px rgba(0,0,0,0.1)" 
-                    : effects.shadow === "medium" 
-                        ? "0px 4px 16px rgba(0,0,0,0.15)" 
-                        : "0px 8px 32px rgba(0,0,0,0.2)"
-
             // Apply styling with smooth animation
             gsap.to(innerElement, {
                 scale: targetScale,
-                boxShadow: targetShadow,
                 duration: animation.duration || 0.4,
                 ease: getEasingString(animation.easing || "power1.inOut"),
                 transformOrigin: "center",
@@ -2011,6 +2005,10 @@ export default function Carousel({
         
         setCanvasMode(isCanvasMode)
     }, [])
+
+    // Remove the old useEffect - now using useLayoutEffect for immediate measurement
+
+    // Log when heights are measured - removed duplicate logging
 
     // Resize detection for Framer canvas mode - only triggers on actual resize
     useEffect(() => {
@@ -3001,13 +2999,15 @@ export default function Carousel({
 
         // Generate same width and height for all slides - simpler and more stable
         boxWidths.current = Array.from({ length: finalCount }, () => finalWidth)
-        boxHeights.current = Array.from(
-            { length: finalCount },
-            () => finalHeight
-        )
+        
+        // Fixed: use container height for all slides
+            boxHeights.current = Array.from(
+                { length: finalCount },
+                () => finalHeight
+            )
 
         return { finalCount, actualSlideCount, validContent }
-    }, [calculateRequiredSlides, calculateSlideDimensions])
+    }, [calculateRequiredSlides, calculateSlideDimensions, adaptiveHeight, originalContentHeights, content.length, heightsMeasured])
 
     // DYNAMIC FIX: Recalculate slides when container size changes
     const slideData = useMemo(() => {
@@ -3039,19 +3039,21 @@ export default function Carousel({
                     validContent[contentIndex],
                     `slide-${i}`
                 )
+                
+                // Apply shadow to the content if it's a React element
+                if (React.isValidElement(slideContent)) {
+                    const existingStyle = (slideContent.props as any)?.style || {}
+                    slideContent = React.cloneElement(slideContent as React.ReactElement, {
+                        style: {
+                            ...existingStyle,
+                            boxShadow: effects.shadow || "none",
+                        }
+                    })
+                }
             }
         } catch (error) {
             slideContent = null
         }
-
-        // Generate different gray shades for each slide based on content index with validation
-        const grayShade =
-            actualSlideCount > 1
-                ? Math.floor(
-                      (contentIndex / Math.max(actualSlideCount - 1, 1)) * 150
-                  ) + 75 // Range from 75 to 225
-                : 150 // Single color for single slide
-        const backgroundColor = `rgb(${grayShade}, ${grayShade}, ${grayShade})`
 
         return (
             <div
@@ -3066,8 +3068,8 @@ export default function Carousel({
                         zIndex: 1, // Ensure slides stay below arrows (zIndex: 21)
                         flexShrink: 0,
                         // Dynamic height based on mode
-                        height: adaptiveHeight ? "auto" : `${boxHeights.current[i] || 300}px`, // Use calculated height
-                        minHeight: adaptiveHeight ? "300px" : `${boxHeights.current[i] || 300}px`, // Ensure minimum height
+                        height: `${boxHeights.current[i] || 300}px`,
+                        minHeight: `${boxHeights.current[i] || 300}px`,
                         // Use slideWidth prop with unit
                         width: slideWidth.unit === "percent" 
                             ? `${slideWidth.value}%` 
@@ -3100,7 +3102,7 @@ export default function Carousel({
                         backgroundColor: "transparent",
                         border: "none",
                         borderRadius: "0px",
-                        boxShadow: "none",
+                       
                         transform: "none",
                         scale: `${Math.max(
                             i === activeSlideIndex
@@ -3111,7 +3113,7 @@ export default function Carousel({
                         opacity: 1, // Always full opacity
                         fontSize: "clamp(16px, 4vw, 36px)", // Responsive font size
                         fontWeight: "medium",
-                        overflow: "hidden",
+                        overflow: "visible",
                         color: "#3D3D3D",
                         textAlign: "center",
                         lineHeight: "1.2",
@@ -3148,7 +3150,6 @@ export default function Carousel({
 
     return (
         <div
-            key={forceRender > 0 ? `carousel-${forceRender}` : undefined}
             style={{
                 color: "white",
                 textAlign: "center" as const,
@@ -3156,17 +3157,16 @@ export default function Carousel({
                 justifyContent: "center",
                 alignItems: "center",
                 flexDirection: "column" as const,
-                height: adaptiveHeight ? "auto" : "100%",
-                minHeight: adaptiveHeight ? "400px" : "400px",
+                height: "100%",
+                minHeight: "0px",
                 width: "100%",
                 margin: 0,
                 overflow: "visible",
                 position: "relative",
                 zIndex: 0,
-                // Hide until fully initialized to prevent layout shifts
-                opacity: isFullyInitialized ? 1 : 0,
-                visibility: isFullyInitialized ? "visible" : "hidden",
-                // No transition - instant reveal once logic is complete
+                // Always visible
+                opacity: 1,
+                visibility: "visible",
             }}
         >
 
@@ -3177,6 +3177,21 @@ export default function Carousel({
                     100% { transform: rotate(360deg); }
                 }
             `}</style>
+
+            {/* Loading indicator while measuring heights */}
+            {adaptiveHeight && isMeasuringHeights && (
+                <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    color: 'white',
+                    fontSize: '14px',
+                    zIndex: 1000,
+                }}>
+                    Measuring heights...
+                </div>
+            )}
 
             {/* GSAP will handle all animations - no CSS transitions needed */}
 
@@ -3291,9 +3306,9 @@ export default function Carousel({
             <div
                 ref={wrapperRef}
                 style={{
-                    height: adaptiveHeight ? "auto" : "100%",
-                    minHeight: adaptiveHeight ? "400px" : "400px",
-                    maxHeight: adaptiveHeight ? "none" : "100%",
+                    height: "100%",
+                    minHeight: "0px",
+                    maxHeight: "100%",
                     width: "100%",
                     maxWidth: "100%",
                     position: "relative" as const,
@@ -3332,14 +3347,31 @@ export default function Carousel({
 
             {/* Dots Navigation - Show when enabled */}
             {dotsUI.enabled && (
-                <div style={{...calculateDotsPosition(), overflow: "visible"}}>
+                <div 
+                    style={{...calculateDotsPosition(), overflow: "visible", backgroundColor: dotsUI.backdrop || "transparent", borderRadius: dotsUI.backdropRadius, padding: dotsUI.padding || 0, pointerEvents: "auto"}}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                >
                     {Array.from(
                         { length: finiteMode ? (slideData?.actualSlideCount || 0) : (slideData?.validContent?.length || 0) },
                         (_, index) => (
                             <button
                                 key={index}
                                 data-dot-index={index}
-                                onClick={() => {
+                                onMouseDown={(e) => {
+                                    // Prevent draggable from interfering with dot clicks
+                                    e.stopPropagation()
+                                }}
+                                onTouchStart={(e) => {
+                                    // Prevent draggable from interfering with dot touches
+                                    e.stopPropagation()
+                                }}
+                                onClick={(e) => {
+                                    // Prevent event bubbling to avoid draggable interference
+                                    e.stopPropagation()
+                                    e.preventDefault()
+                                    
                                     if (
                                         loopRef.current &&
                                         loopRef.current.toIndex
@@ -3362,6 +3394,7 @@ export default function Carousel({
                                     border: "none",
                                     cursor: "pointer",
                                     padding: 0,
+                                    pointerEvents: "auto",
                                     margin: 0,
                                     position: "relative",
                                     overflow: "hidden",
@@ -3496,7 +3529,6 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
-        description: "Space between slides",
             },
             slideWidth: {
                 type: ControlType.Object,
@@ -3514,7 +3546,7 @@ addPropertyControls(Carousel, {
                     value: {
                         type: ControlType.Number,
                         title: "Value",
-                        min: 1,
+                        min: 20,
                         max: 100,
                         step: 1,
                         defaultValue: 100,
@@ -3556,14 +3588,11 @@ addPropertyControls(Carousel, {
                 description: "Scale for active slide",
             },
             shadow: {
-                type: ControlType.Enum,
+                //@ts-ignore
+                type: ControlType.BoxShadow,
                 title: "Shadow",
-                options: ["none", "small", "medium", "large"],
-                optionTitles: ["None", "Small", "Medium", "Large"],
                 defaultValue: "none",
-                displaySegmentedControl: true,
-                segmentedControlDirection: "vertical",
-                description: "Shadow effect for slides",
+                description: "Shadow for all slides",
             },
         },
     },
@@ -3581,6 +3610,7 @@ addPropertyControls(Carousel, {
                 type: ControlType.Boolean,
                 title: "Fade In",
                 defaultValue: false,
+                hidden: (props: any) => !props.show,
             },
             distance: {
                 type: ControlType.Enum,
@@ -3590,6 +3620,7 @@ addPropertyControls(Carousel, {
                 defaultValue: "space",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
+                hidden: (props: any) => !props.show,
             },
             verticalAlign: {
                 type: ControlType.Enum,
@@ -3599,6 +3630,7 @@ addPropertyControls(Carousel, {
                 defaultValue: "center",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "horizontal",
+                hidden: (props: any) => !props.show,
             },
             gap: {
                 type: ControlType.Number,
@@ -3607,7 +3639,8 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
-                hidden: (props: any) => props.distance !== "group",
+                hidden: (props: any) => props.distance !== "group" || !props.show,
+               
             },
             inset: {
                 type: ControlType.Number,
@@ -3616,7 +3649,8 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
-                hidden: (props: any) => props.distance !== "space",
+                hidden: (props: any) => props.distance !== "space" || !props.show,
+               
             },
             opacity: {
                 type: ControlType.Number,
@@ -3626,6 +3660,7 @@ addPropertyControls(Carousel, {
                 step: 0.1,
                 defaultValue: 0.7,
                 description: "Finite Mode disabled arrows opacity",
+                hidden: (props: any) => !props.show,
             },
         },
     },
@@ -3690,6 +3725,24 @@ addPropertyControls(Carousel, {
                 type: ControlType.Color,
                 title: "Backdrop",
                 defaultValue: "#000000",
+                hidden: (props: any) => !props.enabled,
+            },
+            padding:{
+                type: ControlType.Number,
+                title: "Padding",
+                min: 0,
+                max: 50,
+                step: 1,
+                defaultValue: 0,
+                hidden: (props: any) => !props.enabled,
+            },
+            backdropRadius: {
+                type: ControlType.Number,
+                title: "Out Radius",
+                min: 0,
+                max: 50,
+                step: 1,
+                defaultValue: 40,
                 hidden: (props: any) => !props.enabled,
             },
             radius: {
@@ -3891,12 +3944,7 @@ addPropertyControls(Carousel, {
             },
         },
     },
-    adaptiveHeight: {
-        type: ControlType.Boolean,
-        title: "Adaptive Height",
-        defaultValue: true,
-        description: "When enabled, height adapts to content. When disabled, uses fixed 400px height.",
-    },
+    // Removed adaptiveHeight from UI; slides now always use container height
 })
 
 Carousel.displayName = "Adriano's Carousel"
