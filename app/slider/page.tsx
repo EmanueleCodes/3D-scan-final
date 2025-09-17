@@ -138,7 +138,7 @@ export default function Carousel({
         fill: "#000000",
         fadeIn: false,
         distance: "space",
-        position: "center",
+        verticalAlign: "center",
         gap: 20,
         inset: 20,
         opacity: 0.7,
@@ -194,7 +194,7 @@ export default function Carousel({
         fill?: string
         fadeIn?: boolean
         distance?: "space" | "group"
-        position?: "center" | "top-left" | "top-middle" | "top-right" | "bottom-left" | "bottom-middle" | "bottom-right"
+        verticalAlign?: "top" | "center" | "bottom"
         gap?: number
         inset?: number
         opacity?: number
@@ -243,6 +243,8 @@ export default function Carousel({
     const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null) // Reference to autoplay timer
     const resizeObserverRef = useRef<ResizeObserver | null>(null) // Reference to ResizeObserver
     const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null) // Debounce timeout for resize
+    const [forceRender, setForceRender] = useState(0) // Force re-render trigger
+    const [canvasMode, setCanvasMode] = useState(false) // Track if we're in canvas mode
 
     // Stable box widths - generated once and reused to prevent animation issues
     // CRITICAL: Box widths must remain stable across React re-renders to prevent
@@ -259,6 +261,7 @@ export default function Carousel({
     const [activeSlideIndex, setActiveSlideIndex] = useState(0) // Current slide index for dots
     const [containerReady, setContainerReady] = useState(false) // Track when container has proper dimensions
     const [isFullyInitialized, setIsFullyInitialized] = useState(false) // Track when all GSAP setup and centering is complete
+    const [isDragging, setIsDragging] = useState(false) // Track dragging state for cursor updates
 
     // Refs for tracking drag state without causing re-renders
     const isDraggingRef = useRef(false) // Track if user is currently dragging
@@ -637,6 +640,49 @@ export default function Carousel({
     )
 
     /**
+     * Find the closest slide index for a given content index in infinite mode
+     * This ensures we navigate to the nearest instance of the target content
+     */
+    const findClosestSlideIndex = useCallback(
+        (targetContentIndex: number) => {
+            if (finiteMode) {
+                return targetContentIndex
+            }
+
+            const totalSlides = boxesRef.current.length
+            const contentCount = content.length || 1
+            const currentIndex = activeSlideIndex
+
+            // Find all instances of this content in the slide array
+            const possibleIndices: number[] = []
+            for (let i = 0; i < totalSlides; i++) {
+                if (i % contentCount === targetContentIndex) {
+                    possibleIndices.push(i)
+                }
+            }
+
+            if (possibleIndices.length === 0) {
+                return targetContentIndex
+            }
+
+            // Find the closest instance to the current position
+            let closestIndex = possibleIndices[0]
+            let minDistance = Math.abs(possibleIndices[0] - currentIndex)
+
+            for (const index of possibleIndices) {
+                const distance = Math.abs(index - currentIndex)
+                if (distance < minDistance) {
+                    minDistance = distance
+                    closestIndex = index
+                }
+            }
+
+            return closestIndex
+        },
+        [finiteMode, activeSlideIndex, content.length]
+    )
+
+    /**
      * Calculate dots positioning based on alignment settings
      */
     const calculateDotsPosition = useCallback(() => {
@@ -807,6 +853,7 @@ export default function Carousel({
         },
         [gap, finiteMode]
     )
+
 
     /**
      * Creates a finite timeline animation using GSAP
@@ -1552,6 +1599,7 @@ export default function Carousel({
                             this.isClick = false
                             this.allowDrag = true
                             isDraggingRef.current = true
+                            setIsDragging(true)
                         }
                     }
 
@@ -1590,6 +1638,7 @@ export default function Carousel({
                                 // Stop drag detection - we've navigated
                                 this.allowDrag = false
                                 isDraggingRef.current = false
+                                setIsDragging(false)
                                 return
                             } catch (error) {}
                         } else {
@@ -1688,6 +1737,7 @@ export default function Carousel({
                         // Reset state for clicks
                         isDraggingRef.current = false
                         isThrowingRef.current = false
+                        setIsDragging(false)
 
                         // Resume autoplay if it was playing before
                         if (wasPlaying) {
@@ -1705,6 +1755,7 @@ export default function Carousel({
                     } else if (this.allowDrag) {
                         // This was a real drag
                         isDraggingRef.current = false
+                        setIsDragging(false)
 
                         if (!fluid) {
                             // NON-FLUID MODE: If we reach release, check if we dragged enough for slide change
@@ -1769,6 +1820,7 @@ export default function Carousel({
                         // This was a click but click nav is enabled - let the click handler deal with it
                         isDraggingRef.current = false
                         isThrowingRef.current = false
+                        setIsDragging(false)
 
                         // Reset for next interaction immediately for clicks
                         this.isClick = true
@@ -1815,10 +1867,9 @@ export default function Carousel({
             // Force a complete refresh to ensure all calculations are correct
             refresh(true)
 
-            // Set timeline to start at the center of the first content group
-            // For 3 content items, start at the middle (index 1)
-            const middleIndex = Math.floor(length / 2)
-            const centerTime = times[middleIndex] || times[0]
+            // Set timeline to start at the first content item (index 0)
+            const firstContentIndex = 0
+            const centerTime = times[firstContentIndex] || times[0]
 
             // Set the timeline to the center position immediately
             tl.time(centerTime, true)
@@ -1946,6 +1997,107 @@ export default function Carousel({
         isFullyInitialized,
         getEasingString,
     ])
+
+    // Detect canvas mode once on mount
+    useEffect(() => {
+        // Detect if we're in Framer canvas mode
+        const isCanvasMode = window.location.href.includes('framer.com') || 
+                            window.location.href.includes('localhost') ||
+                            document.querySelector('[data-framer-name]') !== null
+        
+        setCanvasMode(isCanvasMode)
+    }, [])
+
+    // Resize detection for Framer canvas mode - only triggers on actual resize
+    useEffect(() => {
+        if (!wrapperRef.current) return
+
+        // Use MutationObserver to detect style changes (Framer resizing)
+        const mutationObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                    // Debounce the resize detection
+                    if (resizeTimeoutRef.current) {
+                        clearTimeout(resizeTimeoutRef.current)
+                    }
+                    
+                    resizeTimeoutRef.current = setTimeout(() => {
+                        if (wrapperRef.current) {
+                            const rect = wrapperRef.current.getBoundingClientRect()
+                            if (rect.width > 0 && rect.height > 0) {
+                                const prevWidth = containerDimensions.current.width
+                                const prevHeight = containerDimensions.current.height
+                                
+                                // Only update if there's a significant change
+                                if (
+                                    Math.abs(rect.width - prevWidth) > 20 ||
+                                    Math.abs(rect.height - prevHeight) > 20
+                                ) {
+                                    containerDimensions.current = {
+                                        width: rect.width,
+                                        height: rect.height,
+                                    }
+                                    
+                                    // In canvas mode, re-initialize the timeline for proper centering
+                                    if (canvasMode && loopRef.current) {
+                                        // Pause current timeline
+                                        loopRef.current.pause()
+                                        
+                                        // Re-initialize after a short delay to ensure DOM is updated
+                                        setTimeout(() => {
+                                            if (wrapperRef.current && boxesRef.current.length > 0) {
+                                                // Recreate the timeline with new dimensions
+                                                if (finiteMode) {
+                                                    loopRef.current = createFiniteTimeline(
+                                                        boxesRef.current,
+                                                        {
+                                                            gap: gap || 20,
+                                                            center: true,
+                                                            draggable: draggable,
+                                                            paused: false,
+                                                        }
+                                                    )
+                                                } else {
+                                                    loopRef.current = createHorizontalLoop(
+                                                        boxesRef.current,
+                                                        {
+                                                            gap: gap || 20,
+                                                            center: true,
+                                                            draggable: draggable,
+                                                            paused: false,
+                                                        }
+                                                    )
+                                                }
+                                                
+                                                // Center on the first slide
+                                                if (loopRef.current) {
+                                                    loopRef.current.toIndex(0, { duration: 0 })
+                                                }
+                                            }
+                                        }, 50)
+                                    }
+                                    
+                                    // Force re-render only on actual resize
+                                    setForceRender(prev => prev + 1)
+                                }
+                            }
+                        }
+                    }, 200) // Increased debounce time
+                }
+            })
+        })
+
+        // Observe the wrapper element for style changes
+        mutationObserver.observe(wrapperRef.current, {
+            attributes: true,
+            attributeFilter: ['style']
+        })
+
+        return () => {
+            mutationObserver.disconnect()
+        }
+    }, [canvasMode, finiteMode, gap, draggable])
+
 
     // Update button visuals when buttonsUI props change
     useEffect(() => {
@@ -2287,10 +2439,12 @@ export default function Carousel({
                             setTimeout(() => {
                                 if (loop) {
                                     if (!finiteMode) {
-                                        // Infinite mode: use loop.times centering
+                                        // Infinite mode: center on the first content item (index 0)
                                         if ((loop as any).times && (loop as any).times.length > 0) {
-                                            const middleIndex = Math.floor((loop as any).times.length / 2)
-                                            const centerTime = (loop as any).times[middleIndex] || (loop as any).times[0]
+                                            // Find the first instance of content index 0
+                                            const contentCount = slideData?.validContent?.length || 1
+                                            const firstContentIndex = 0
+                                            const centerTime = (loop as any).times[firstContentIndex] || (loop as any).times[0]
                                         if ((loop as any).refresh) {
                                             ;(loop as any).refresh(true)
                                         }
@@ -2641,6 +2795,7 @@ export default function Carousel({
 
                         // Force a re-render to recalculate slide count
                         setContainerReady(false)
+                        setForceRender(prev => prev + 1) // Trigger re-render
                         setTimeout(() => setContainerReady(true), 10)
 
                         // Resume animations after a short delay
@@ -2836,8 +2991,9 @@ export default function Carousel({
 
         // For fill modes and fixed dimensions, use the specified dimensions instead of calculated ones
         let finalWidth = slideWidth
-        // Always use full-width with auto-height
-        const finalHeight = slideHeight
+        let finalHeight = slideHeight
+
+        // Use calculated height for all slides
 
         // Generate same width and height for all slides - simpler and more stable
         boxWidths.current = Array.from({ length: finalCount }, () => finalWidth)
@@ -2902,22 +3058,22 @@ export default function Carousel({
                 }}
                 className="box"
                 // Click navigation is now handled through the draggable system
-                style={{
-                    zIndex: 1, // Ensure slides stay below arrows (zIndex: 21)
-                    flexShrink: 0,
-                    // Dynamic height based on mode
-                    height: `${boxHeights.current[i] || 300}px`, // Use calculated height
-                    // Use slideWidth prop with unit
-                    width: slideWidth.unit === "percent" 
-                        ? `${slideWidth.value}%` 
-                        : `${slideWidth.pixelValue || 300}px`,
-                    minWidth: "100px", // Minimum width
-                    maxWidth: "none", // No max-width constraint
-                    marginRight: `${Math.max(gap ?? 20, 0)}px`, // Ensure gap is non-negative
-                    display: "flex", // Ensure slide container is flex
-                    flexDirection: "column" as const,
-                    position: "relative" as const,
-                }}
+                    style={{
+                        zIndex: 1, // Ensure slides stay below arrows (zIndex: 21)
+                        flexShrink: 0,
+                        // Dynamic height based on mode
+                        height: `${boxHeights.current[i] || 300}px`, // Use calculated height
+                        // Use slideWidth prop with unit
+                        width: slideWidth.unit === "percent" 
+                            ? `${slideWidth.value}%` 
+                            : `${slideWidth.pixelValue || 300}px`,
+                        minWidth: "100px", // Minimum width
+                        maxWidth: "none", // No max-width constraint
+                        marginRight: `${Math.max(gap ?? 20, 0)}px`, // Ensure gap is non-negative
+                        display: "flex", // Ensure slide container is flex
+                        flexDirection: "column" as const,
+                        position: "relative" as const,
+                    }}
             >
                 <div
                     className="box__inner"
@@ -2926,7 +3082,12 @@ export default function Carousel({
                         alignItems: "center",
                         justifyContent: "center",
                         position: "relative" as const,
-                        cursor: clickNavigation ? "pointer" : "default",
+                        cursor: (() => {
+                            if (isDragging) return "grabbing"
+                            if (draggable && !finiteMode) return "grab"
+                            if (clickNavigation) return "pointer"
+                            return "default"
+                        })(),
                         width: "100%",
                         height: "100%",
                         // Ensure no CSS aspect ratio interferes when mode is not "aspect-ratio"
@@ -2982,6 +3143,7 @@ export default function Carousel({
 
     return (
         <div
+            key={forceRender > 0 ? `carousel-${forceRender}` : undefined}
             style={{
                 color: "white",
                 textAlign: "center" as const,
@@ -3023,26 +3185,24 @@ export default function Carousel({
                                 zIndex: 9999,
                                 position: "absolute",
                                 ...(() => {
-                                    const { verticalAlign, horizontalAlign } = getPositionAlignment(arrows.position || "center")
                                     const gap = arrows.distance === "group" ? arrows.gap ?? 20 : 0
                                     const inset = arrows.inset ?? 20
+                                    const verticalAlign = arrows.verticalAlign || "center"
                                     
                                     return {
                                         top: verticalAlign === "top" ? `${inset}px` : verticalAlign === "bottom" ? "auto" : "50%",
                                         bottom: verticalAlign === "bottom" ? `${inset}px` : "auto",
-                                        left: horizontalAlign === "space-between" 
+                                        left: arrows.distance === "space" 
                                             ? `${inset}px` 
-                                            : horizontalAlign === "center" 
-                                                ? `calc(50% - ${gap}px)` 
-                                          : "50%",
-                                right: "auto",
-                                        transform: horizontalAlign === "center" && verticalAlign === "center"
-                                        ? "translateX(-100%) translateY(-50%)"
-                                            : horizontalAlign === "center"
-                                          ? "translateX(-100%)"
+                                            : `calc(50% - ${gap}px)`,
+                                        right: "auto",
+                                        transform: arrows.distance === "group" && verticalAlign === "center"
+                                            ? "translateX(-100%) translateY(-50%)"
+                                            : arrows.distance === "group"
+                                                ? "translateX(-100%)"
                                                 : verticalAlign === "center"
-                                            ? "translateY(-50%)"
-                                            : "none",
+                                                    ? "translateY(-50%)"
+                                                    : "none",
                                     }
                                 })(),
 
@@ -3065,26 +3225,24 @@ export default function Carousel({
                                 zIndex: 9999,
                                 position: "absolute",
                                 ...(() => {
-                                    const { verticalAlign, horizontalAlign } = getPositionAlignment(arrows.position || "center")
                                     const gap = arrows.distance === "group" ? arrows.gap ?? 20 : 0
                                     const inset = arrows.inset ?? 20
+                                    const verticalAlign = arrows.verticalAlign || "center"
                                     
                                     return {
                                         top: verticalAlign === "top" ? `${inset}px` : verticalAlign === "bottom" ? "auto" : "50%",
                                         bottom: verticalAlign === "bottom" ? `${inset}px` : "auto",
-                                left: "auto",
-                                        right: horizontalAlign === "space-between" 
+                                        left: "auto",
+                                        right: arrows.distance === "space" 
                                             ? `${inset}px` 
-                                            : horizontalAlign === "center" 
-                                                ? `calc(50% - ${gap}px)` 
-                                          : "50%",
-                                        transform: horizontalAlign === "center" && verticalAlign === "center"
-                                        ? "translateX(100%) translateY(-50%)"
-                                            : horizontalAlign === "center"
-                                          ? "translateX(100%)"
+                                            : `calc(50% - ${gap}px)`,
+                                        transform: arrows.distance === "group" && verticalAlign === "center"
+                                            ? "translateX(100%) translateY(-50%)"
+                                            : arrows.distance === "group"
+                                                ? "translateX(100%)"
                                                 : verticalAlign === "center"
-                                            ? "translateY(-50%)"
-                                            : "none",
+                                                    ? "translateY(-50%)"
+                                                    : "none",
                                     }
                                 })(),
 
@@ -3135,6 +3293,11 @@ export default function Carousel({
                     display: "flex",
                     alignItems: "center",
                     overflow: "visible",
+                    cursor: (() => {
+                        if (isDragging) return "grabbing"
+                        if (draggable && !finiteMode) return "grab"
+                        return "default"
+                    })(),
                 }}
             >
                 <div
@@ -3174,7 +3337,9 @@ export default function Carousel({
                                         loopRef.current &&
                                         loopRef.current.toIndex
                                     ) {
-                                        loopRef.current.toIndex(index, {
+                                        // Find the closest instance of this content in infinite mode
+                                        const targetSlideIndex = findClosestSlideIndex(index)
+                                        loopRef.current.toIndex(targetSlideIndex, {
                                             duration: animation.duration,
                                             ease: getEasingString(
                                                 animation.easing ||
@@ -3359,9 +3524,9 @@ addPropertyControls(Carousel, {
                         hidden: (props: any) => props.unit === "percent",
                         description: "Width in pixels (50-2000px)",
                     },
-                },
-            },
-    effects: {
+                 },
+             },
+     effects: {
         type: ControlType.Object,
         title: "Effects",
         controls: {
@@ -3405,11 +3570,6 @@ addPropertyControls(Carousel, {
                 title: "Show",
                 defaultValue: true,
             },
-            fill: {
-                type: ControlType.Color,
-                title: "Fill",
-                defaultValue: "#000000",
-            },
             fadeIn: {
                 type: ControlType.Boolean,
                 title: "Fade In",
@@ -3424,12 +3584,14 @@ addPropertyControls(Carousel, {
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
             },
-            position: {
+            verticalAlign: {
                 type: ControlType.Enum,
-                title: "Position",
-                options: ["center", "top-left", "top-middle", "top-right", "bottom-left", "bottom-middle", "bottom-right"],
-                optionTitles: ["Center", "Top Left", "Top Middle", "Top Right", "Bottom Left", "Bottom Middle", "Bottom Right"],
+                title: "Vertical Align",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["Top", "Center", "Bottom"],
                 defaultValue: "center",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "horizontal",
             },
             gap: {
                 type: ControlType.Number,
@@ -3447,6 +3609,7 @@ addPropertyControls(Carousel, {
                 max: 100,
                 step: 5,
                 defaultValue: 20,
+                hidden: (props: any) => props.distance !== "space",
             },
             opacity: {
                 type: ControlType.Number,
