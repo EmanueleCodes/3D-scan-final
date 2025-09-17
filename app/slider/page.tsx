@@ -177,6 +177,7 @@ export default function Carousel({
         elasticPeriod: 0.3,
         backIntensity: 1.7,
     },
+    adaptiveHeight = true,
 }: {
     dragFactor?: number
     draggable?: boolean
@@ -235,6 +236,7 @@ export default function Carousel({
         elasticPeriod?: number
         backIntensity?: number
     }
+    adaptiveHeight?: boolean
 }) {
     // React refs for DOM elements
     const wrapperRef = useRef<HTMLDivElement>(null) // Reference to the wrapper container
@@ -3883,6 +3885,12 @@ addPropertyControls(Carousel, {
                     "Intensity parameter for back easing (higher = more overshoot)",
             },
         },
+    },
+    adaptiveHeight: {
+        type: ControlType.Boolean,
+        title: "Adaptive Height",
+        defaultValue: true,
+        description: "When enabled, height adapts to content. When disabled, uses fixed 400px height.",
     },
 })
 
