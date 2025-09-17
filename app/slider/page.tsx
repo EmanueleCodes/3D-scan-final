@@ -23,7 +23,6 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react"
-import ReactDOM from "react-dom/client"
 import {
     gsap,
     useGSAP,
@@ -269,6 +268,7 @@ export default function Carousel({
     const [containerReady, setContainerReady] = useState(false) // Track when container has proper dimensions
     const [isFullyInitialized, setIsFullyInitialized] = useState(false) // Track when all GSAP setup and centering is complete
     const [isDragging, setIsDragging] = useState(false) // Track dragging state for cursor updates
+    const [isCentered, setIsCentered] = useState(false) // Track when slides are properly centered
 
     // Refs for tracking drag state without causing re-renders
     const isDraggingRef = useRef(false) // Track if user is currently dragging
@@ -876,7 +876,7 @@ export default function Carousel({
     function createFiniteTimeline(
         items: HTMLElement[],
         config: LoopConfig,
-        alignment: "left" | "center" | "right" = "left"
+        alignment: "left" | "center" | "right" = "center"
     ): HorizontalLoopTimeline | null {
         // Early return if no items provided
         if (!items.length) return null
@@ -896,24 +896,20 @@ export default function Carousel({
             return sum + width + gap
         }, 0)
 
-        // Position slides horizontally - start with slide 0 in active position
-        // Use the same calculation as toIndex but with slide 0 as the active slide
-        // Do it immediately on the next frame to avoid any centered flash
-        requestAnimationFrame(() => {
-            console.log('Initial positioning - items:', items.length)
-            const containerWidth = items[0]?.parentElement?.offsetWidth || 0
-            const slideWidth = items[0]?.offsetWidth || 0
+        // Position slides horizontally immediately - start with slide 0 in active position
+        console.log('Initial positioning - items:', items.length)
+        const slideWidth = items[0]?.offsetWidth || 0
 
-            // Clear any existing transforms immediately
-            gsap.set(items, { x: 0, xPercent: 0, transform: "none" })
+        // Clear any existing transforms immediately
+        gsap.set(items, { x: 0, xPercent: 0, transform: "none" })
 
-            items.forEach((item, i) => {
-                let initialX = -(i - 0) * (item.offsetWidth + (config.gap || 0))
-                if (alignment === "center") {
-                    initialX += (containerWidth - slideWidth) / 2
-                }
-                gsap.set(item, { x: initialX })
-            })
+        // Position all slides immediately with proper centering
+        items.forEach((item, i) => {
+            let initialX = -(i - 0) * (item.offsetWidth + (config.gap || 0))
+            if (alignment === "center") {
+                initialX += (containerWidth - slideWidth) / 2
+            }
+            gsap.set(item, { x: initialX })
         })
 
         // Initial positioning is now handled above, no need for duplicate timeline animations
@@ -1061,6 +1057,14 @@ export default function Carousel({
                     gsap.set(items, { x: rightOffset })
                 }
             }, 10)
+        } else if (finiteMode && alignment === "center") {
+            // Finite mode centering - ensure first slide is centered immediately
+            const containerWidth = items[0]?.parentElement?.offsetWidth || 0
+            const slideWidth = items[0].offsetWidth
+            if (containerWidth > 0 && slideWidth > 0) {
+                const centerOffset = (containerWidth - slideWidth) / 2
+                gsap.set(items, { x: centerOffset })
+            }
         }
 
         // Fallback click handler for when draggable is disabled but click navigation is enabled
@@ -2042,6 +2046,9 @@ export default function Carousel({
                                     
                                     // In canvas mode, re-initialize the timeline for proper centering
                                     if (canvasMode && loopRef.current) {
+                                        // Reset centered state during resize
+                                        setIsCentered(false)
+                                        
                                         // Pause current timeline
                                         loopRef.current.pause()
                                         
@@ -2075,6 +2082,11 @@ export default function Carousel({
                                                 if (loopRef.current) {
                                                     loopRef.current.toIndex(0, { duration: 0 })
                                                 }
+                                                
+                                                // Set centered state after re-initialization
+                                                setTimeout(() => {
+                                                    setIsCentered(true)
+                                                }, 100)
                                             }
                                         }, 50)
                                     }
@@ -2163,6 +2175,42 @@ export default function Carousel({
         if (!isFullyInitialized || !dotsUI.enabled) return
         animateDots(activeSlideIndex)
     }, [dotsUI, activeSlideIndex, isFullyInitialized, animateDots])
+
+    // Trigger centering when mode changes
+    useEffect(() => {
+        if (!isFullyInitialized || !loopRef.current) return
+        
+        // Small delay to ensure DOM is updated after re-render
+        const timeoutId = setTimeout(() => {
+            if (loopRef.current && loopRef.current.center) {
+                try {
+                    loopRef.current.center()
+                } catch (error) {
+                    console.warn('Failed to center carousel after mode change:', error)
+                }
+            }
+        }, 100)
+
+        return () => clearTimeout(timeoutId)
+    }, [finiteMode, isFullyInitialized])
+
+    // Handle height changes without re-rendering
+    useEffect(() => {
+        if (!isFullyInitialized || !loopRef.current) return
+        
+        // Small delay to ensure DOM is updated
+        const timeoutId = setTimeout(() => {
+            if (loopRef.current && loopRef.current.center) {
+                try {
+                    loopRef.current.center()
+                } catch (error) {
+                    console.warn('Failed to center carousel after height change:', error)
+                }
+            }
+        }, 50)
+
+        return () => clearTimeout(timeoutId)
+    }, [containerDimensions.current.height, isFullyInitialized])
 
     /**
      * Initialize the horizontal loop using useGSAP
@@ -2282,7 +2330,7 @@ export default function Carousel({
                                 {
                                     paused: true,
                                     draggable: draggable,
-                                    center: wrapperRef.current || true,
+                                    center: true,
                                     gap: currentGap,
                                     onChange: (
                                         element: HTMLElement,
@@ -2416,6 +2464,9 @@ export default function Carousel({
                                 }
                             } catch (e) {}
 
+                            // Set centered state immediately after timeline is ready
+                            setIsCentered(true)
+
                             // Initialize visual states for all slides and dots
                             setTimeout(() => {
                                 // Apply initial styling to ALL slides immediately (no animation)
@@ -2436,73 +2487,27 @@ export default function Carousel({
                                 }
                             }, 100) // Small delay to ensure DOM is ready
 
-                            // CENTERING FIX: Ensure initial positioning happens after everything is set up
-                            // Use a small delay to ensure DOM is fully ready
+                            // Initialize visual states for all slides and dots
                             setTimeout(() => {
-                                if (loop) {
-                                    if (!finiteMode) {
-                                        // Infinite mode: center on the first content item (index 0)
-                                        if ((loop as any).times && (loop as any).times.length > 0) {
-                                            // Find the first instance of content index 0
-                                            const contentCount = slideData?.validContent?.length || 1
-                                            const firstContentIndex = 0
-                                            const centerTime = (loop as any).times[firstContentIndex] || (loop as any).times[0]
-                                        if ((loop as any).refresh) {
-                                            ;(loop as any).refresh(true)
-                                        }
-                                        if (loop.time) {
-                                            loop.time(centerTime, true)
-                                        }
-                                            // Compute which slide is visually centered now
-                                            let initIndex = 0
-                                            if ((loop as any).closestIndex) {
-                                                try {
-                                                    initIndex = (loop as any).closestIndex(true)
-                                                } catch (e) {
-                                                    initIndex = 0
-                                                }
-                                            }
-                                            // Sync React state so initial styles (scale) apply to the correct slide
-                                            try {
-                                                setActiveSlideIndex(initIndex)
-                                                setActiveElement(finalValidSlides[initIndex] || null)
-                                            } catch (e) {}
-                                        }
-                                    } else {
-                                        // Finite mode: position ALL mounted slides based on alignment
-                                            const firstSlide = boxesRef.current[0]
-                                            if (firstSlide) {
-                                                const slideWidth = firstSlide.offsetWidth
-                                            const containerWidth = firstSlide.parentElement?.offsetWidth || 0
-                                            const gapValue = Math.max(gap ?? 20, 0)
-                                                boxesRef.current.forEach((slide, i) => {
-                                                if (!slide) return
-                                                let x = -i * (slideWidth + gapValue)
-                                                x += (containerWidth - slideWidth) / 2
-                                                gsap.set(slide, { x })
-                                            })
-                                        }
-                                    }
+                                // Apply initial styling to ALL slides immediately (no animation)
+                                applyInitialStylingToAllSlides()
+
+                                // Apply initial styling to buttons immediately (no animation)
+                                if (finiteMode && arrows?.show) {
+                                    applyInitialButtonStyling()
                                 }
 
-                                // Mark as fully initialized after all centering is complete
-                                
-                                // Debug: Check slide positions after all initialization
-                                setTimeout(() => {
-                                    console.log('After initialization - checking slide positions:')
-                                    boxesRef.current.forEach((slide, i) => {
-                                        if (slide) {
-                                            const actualX = gsap.getProperty(slide, "x") as number
-                                            console.log(`Slide ${i} final position: x=${actualX}`)
-                                        }
-                                    })
-                                }, 200)
+                                // Set initial visual state for dots
+                                if (dotsUI.enabled) {
+                                    animateDots(0) // First dot is active by default
+                                }
 
+                                // Mark as fully initialized
                                 setIsFullyInitialized(true)
 
                                 // Allow animations for subsequent interactions
                                 isInitialSetupRef.current = false
-                            }, 100)
+                            }, 50) // Reduced delay since centering is now immediate
 
                             // Return cleanup function - useGSAP will handle this automatically
                             return () => {
@@ -2724,15 +2729,6 @@ export default function Carousel({
         } catch (error) {}
     }
 
-    /**
-     * Toggle overflow visibility
-     *
-     * This allows users to see slides that extend beyond the visible area,
-     * which is useful for debugging or showing the full slider content.
-     */
-    const handleToggleOverflow = () => {
-        setShowOverflow(!showOverflow)
-    }
 
     /**
      * Generate Slide Elements
@@ -3080,6 +3076,7 @@ export default function Carousel({
                         display: "flex", // Ensure slide container is flex
                         flexDirection: "column" as const,
                         position: "relative" as const,
+                        overflowY:"visible"
                     }}
             >
                 <div
@@ -3116,7 +3113,7 @@ export default function Carousel({
                         overflow: "visible",
                         color: "#3D3D3D",
                         textAlign: "center",
-                        lineHeight: "1.2",
+                        lineHeight: "1.2"
                     }}
                 >
                     {slideContent || (
@@ -3150,6 +3147,7 @@ export default function Carousel({
 
     return (
         <div
+            key={`carousel-${finiteMode ? 'finite' : 'infinite'}`}
             style={{
                 color: "white",
                 textAlign: "center" as const,
@@ -3161,39 +3159,19 @@ export default function Carousel({
                 minHeight: "0px",
                 width: "100%",
                 margin: 0,
-                overflow: "visible",
+                overflow:"visible",
+                overflowY: "visible",
                 position: "relative",
+                overflowX: "hidden",
+                // Ensure shadows are not clipped by adding clip-path
+                clipPath: "inset(-20px 0 -20px 0)",
                 zIndex: 0,
-                // Always visible
-                opacity: 1,
-                visibility: "visible",
+                // Only show when properly centered
+                opacity: isCentered ? 1 : 0,
+                visibility: isCentered ? "visible" : "hidden",
             }}
         >
 
-            {/* CSS for spinner animation */}
-            <style>{`
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-            `}</style>
-
-            {/* Loading indicator while measuring heights */}
-            {adaptiveHeight && isMeasuringHeights && (
-                <div style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    color: 'white',
-                    fontSize: '14px',
-                    zIndex: 1000,
-                }}>
-                    Measuring heights...
-                </div>
-            )}
-
-            {/* GSAP will handle all animations - no CSS transitions needed */}
 
             {/* Navigation Buttons - Absolutely Positioned */}
             {arrows?.show && (
@@ -3280,28 +3258,6 @@ export default function Carousel({
                 </>
             )}
 
-            {/* Toggle Overflow Button - Commented Out */}
-            {/* <button
-                    style={{
-                        padding: "0.5rem 1rem",
-                        backgroundColor: "transparent",
-                        color: "white",
-                        border: "2px solid #808080",
-                        borderRadius: "5px",
-                        cursor: "pointer",
-                        fontSize: "1rem",
-                        transition: "all 0.3s ease",
-                    }}
-                onClick={handleToggleOverflow}
-                    onMouseEnter={(e) =>
-                        (e.currentTarget.style.backgroundColor = "#333")
-                    }
-                    onMouseLeave={(e) =>
-                        (e.currentTarget.style.backgroundColor = "transparent")
-                    }
-                >
-                toggle overflow
-            </button> */}
 
             <div
                 ref={wrapperRef}
@@ -3337,8 +3293,6 @@ export default function Carousel({
                         isolation: "isolate", // Create a new stacking context to contain transforms
                         zIndex: 1, // Ensure this container stays below arrows
                         // Add small margin to accommodate scaled content without affecting GSAP calculations
-                        margin: "0% 0",
-                        // Gap is handled by margin-right on each slide for consistent infinite loop spacing
                     }}
                 >
                     {boxes}
@@ -3500,6 +3454,13 @@ addPropertyControls(Carousel, {
         defaultValue: true,
         hidden: (props: any) => props.finiteMode,
     },
+    fluid: {
+        type: ControlType.Boolean,
+        title: "Throwing",
+        defaultValue: true,
+        hidden: (props: any) => props.finiteMode || !props.draggable,
+       
+    },
     dragFactor: {
         type: ControlType.Number,
         title: "Drag Resistence",
@@ -3507,14 +3468,7 @@ addPropertyControls(Carousel, {
         max: 1,
         step: 0.1,
         defaultValue: 0.5,
-        hidden: (props: any) => !props.draggable || props.finiteMode,
-    },
-    fluid: {
-        type: ControlType.Boolean,
-        title: "Throwing",
-        defaultValue: true,
-        hidden: (props: any) => props.finiteMode || !props.draggable,
-       
+        hidden: (props: any) => !props.draggable || props.finiteMode || !props.fluid,
     },
     // alignment removed: always centered
     clickNavigation: {
