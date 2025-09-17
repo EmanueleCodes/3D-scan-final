@@ -2464,10 +2464,7 @@ export default function Carousel({
                                 }
                             } catch (e) {}
 
-                            // Set centered state immediately after timeline is ready
-                            setIsCentered(true)
-
-                            // Initialize visual states for all slides and dots
+                            // Initialize visual states for all slides and dots BEFORE showing component
                             setTimeout(() => {
                                 // Apply initial styling to ALL slides immediately (no animation)
                                 applyInitialStylingToAllSlides()
@@ -2477,37 +2474,21 @@ export default function Carousel({
                                     applyInitialButtonStyling()
                                 }
 
-                                // Note: We don't need to call animateSlideVisuals here anymore
-                                // because applyInitialStylingToAllSlides handles all the initial styling
-                                // The slides will animate normally during navigation
-
                                 // Set initial visual state for dots
                                 if (dotsUI.enabled) {
                                     animateDots(0) // First dot is active by default
                                 }
+
+                                // Only show component after all visual styling is complete
+                                setIsCentered(true)
                             }, 100) // Small delay to ensure DOM is ready
 
-                            // Initialize visual states for all slides and dots
+                            // Mark as fully initialized after visual styling is complete
                             setTimeout(() => {
-                                // Apply initial styling to ALL slides immediately (no animation)
-                                applyInitialStylingToAllSlides()
-
-                                // Apply initial styling to buttons immediately (no animation)
-                                if (finiteMode && arrows?.show) {
-                                    applyInitialButtonStyling()
-                                }
-
-                                // Set initial visual state for dots
-                                if (dotsUI.enabled) {
-                                    animateDots(0) // First dot is active by default
-                                }
-
-                                // Mark as fully initialized
                                 setIsFullyInitialized(true)
-
                                 // Allow animations for subsequent interactions
                                 isInitialSetupRef.current = false
-                            }, 50) // Reduced delay since centering is now immediate
+                            }, 150) // Slightly longer delay to ensure all styling is applied
 
                             // Return cleanup function - useGSAP will handle this automatically
                             return () => {
@@ -3162,9 +3143,7 @@ export default function Carousel({
                 overflow:"visible",
                 overflowY: "visible",
                 position: "relative",
-                overflowX: "hidden",
-                // Ensure shadows are not clipped by adding clip-path
-                clipPath: "inset(-20px 0 -20px 0)",
+                overflowX:"clip",
                 zIndex: 0,
                 // Only show when properly centered
                 opacity: isCentered ? 1 : 0,
