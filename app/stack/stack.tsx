@@ -103,8 +103,9 @@ export default function CardStack({
     const handleDragEnd = (info: PanInfo) => {
         const { offset } = info
 
-        // Check if dragged far enough horizontally
-        if (Math.abs(offset.x) > swipeThreshold) {
+        // Check if dragged far enough in any direction (2D distance)
+        const distance = Math.sqrt(offset.x * offset.x + offset.y * offset.y)
+        if (distance > swipeThreshold) {
             // Move top card to bottom (reorder existing cards)
             setCards((prevCards) => {
                 const [topCard, ...restCards] = prevCards
@@ -181,8 +182,8 @@ export default function CardStack({
                 return (
                     <motion.div
                         key={card.id}
-                        drag={isTopCard && !isCanvas ? "x" : false}
-                        dragConstraints={{ left: 0, right: 0 }}
+                        drag={isTopCard && !isCanvas ? true : false}
+                        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
                         dragElastic={0.7}
                         onDragEnd={
                             isTopCard && !isCanvas
