@@ -140,7 +140,8 @@ export default function Carousel({
         distance: "space",
         verticalAlign: "center",
         gap: 20,
-        inset: 20,
+        insetX: 20,
+        insetY: 20,
         opacity: 0.7,
     },
     finiteMode = false,
@@ -199,7 +200,8 @@ export default function Carousel({
         distance?: "space" | "group"
         verticalAlign?: "top" | "center" | "bottom"
         gap?: number
-        inset?: number
+        insetX?: number
+        insetY?: number
         opacity?: number
     }
     finiteMode?: boolean
@@ -269,6 +271,8 @@ export default function Carousel({
     const [isFullyInitialized, setIsFullyInitialized] = useState(false) // Track when all GSAP setup and centering is complete
     const [isDragging, setIsDragging] = useState(false) // Track dragging state for cursor updates
     const [isCentered, setIsCentered] = useState(false) // Track when slides are properly centered
+    const [arrowsVisible, setArrowsVisible] = useState(false) // Track when arrows should be visible
+    const arrowsRef = useRef<HTMLDivElement>(null) // Reference to arrows container
 
     // Refs for tracking drag state without causing re-renders
     const isDraggingRef = useRef(false) // Track if user is currently dragging
@@ -675,15 +679,6 @@ export default function Carousel({
             // Calculate the target slide index
             const targetSlideIndex = currentIndex + slidesToMove
             
-            // Debug logging
-            console.log('Dot navigation debug:', {
-                targetContentIndex,
-                currentIndex,
-                currentContentIndex,
-                slidesToMove,
-                targetSlideIndex,
-                contentCount
-            })
 
             return targetSlideIndex
         },
@@ -897,7 +892,6 @@ export default function Carousel({
         }, 0)
 
         // Position slides horizontally immediately - start with slide 0 in active position
-        console.log('Initial positioning - items:', items.length)
         const slideWidth = items[0]?.offsetWidth || 0
 
         // Clear any existing transforms immediately
@@ -935,9 +929,6 @@ export default function Carousel({
                     targetX += containerWidth - slideWidth
                 }
                 // For "left" alignment, targetX remains as calculated
-
-                console.log(`toIndex(${index}): offsetWidth=${items[0].offsetWidth}, gap=${config.gap}, targetX=${targetX}`)
-
                 const tween = gsap.to(items, {
                     x: targetX,
                     duration: options?.duration || animation.duration,
@@ -2010,6 +2001,36 @@ export default function Carousel({
         setCanvasMode(isCanvasMode)
     }, [])
 
+    // Handle arrow fade-in effect using Intersection Observer
+    useEffect(() => {
+        if (!arrows?.show || !arrows?.fadeIn || !arrowsRef.current) {
+            setArrowsVisible(false)
+            return
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        setArrowsVisible(true)
+                    } else {
+                        setArrowsVisible(false)
+                    }
+                })
+            },
+            {
+                threshold: 1, // Trigger when 10% of the arrows are visible
+                rootMargin: '0px 0px 20% 0px' // Start fading in when arrows are 10% from viewport
+            }
+        )
+
+        observer.observe(arrowsRef.current)
+
+        return () => {
+            observer.disconnect()
+        }
+    }, [arrows?.show, arrows?.fadeIn])
+
     // Remove the old useEffect - now using useLayoutEffect for immediate measurement
 
     // Log when heights are measured - removed duplicate logging
@@ -2186,7 +2207,6 @@ export default function Carousel({
                 try {
                     loopRef.current.center()
                 } catch (error) {
-                    console.warn('Failed to center carousel after mode change:', error)
                 }
             }
         }, 100)
@@ -2204,7 +2224,6 @@ export default function Carousel({
                 try {
                     loopRef.current.center()
                 } catch (error) {
-                    console.warn('Failed to center carousel after height change:', error)
                 }
             }
         }, 50)
@@ -2322,9 +2341,6 @@ export default function Carousel({
 
                         if (finiteMode) {
                             // Finite mode: create a simple timeline without infinite loop
-                            console.log('Creating finite timeline with slides:', finalValidSlides.length)
-                            console.log('All slides in DOM:', boxesRef.current.length)
-
                             loop = createFiniteTimeline(
                                 finalValidSlides,
                                 {
@@ -3141,9 +3157,7 @@ export default function Carousel({
                 width: "100%",
                 margin: 0,
                 overflow:"visible",
-                overflowY: "visible",
                 position: "relative",
-                overflowX:"clip",
                 zIndex: 0,
                 // Only show when properly centered
                 opacity: isCentered ? 1 : 0,
@@ -3154,6 +3168,7 @@ export default function Carousel({
 
             {/* Navigation Buttons - Absolutely Positioned */}
             {arrows?.show && (
+                <div ref={arrowsRef}>
                 <>
                     {/* Previous Button */}
                     {prevArrow && (
@@ -3162,16 +3177,19 @@ export default function Carousel({
                             style={{
                                 zIndex: 9999,
                                 position: "absolute",
+                                opacity: arrows?.fadeIn ? (arrowsVisible ? 1 : 0) : 1,
+                                transition: arrows?.fadeIn ? "opacity 0.5s ease-in-out" : "none",
                                 ...(() => {
                                     const gap = arrows.distance === "group" ? arrows.gap ?? 20 : 0
-                                    const inset = arrows.inset ?? 20
+                                    const insetX = arrows.insetX ?? 20
+                                    const insetY = arrows.insetY ?? 20
                                     const verticalAlign = arrows.verticalAlign || "center"
                                     
                                     return {
-                                        top: verticalAlign === "top" ? `${inset}px` : verticalAlign === "bottom" ? "auto" : "50%",
-                                        bottom: verticalAlign === "bottom" ? `${inset}px` : "auto",
+                                        top: verticalAlign === "top" ? `${insetY}px` : verticalAlign === "bottom" ? "auto" : "50%",
+                                        bottom: verticalAlign === "bottom" ? `${insetY}px` : "auto",
                                         left: arrows.distance === "space" 
-                                            ? `${inset}px` 
+                                            ? `${insetX}px` 
                                             : `calc(50% - ${gap}px)`,
                                         right: "auto",
                                         transform: arrows.distance === "group" && verticalAlign === "center"
@@ -3202,17 +3220,20 @@ export default function Carousel({
                             style={{
                                 zIndex: 9999,
                                 position: "absolute",
+                                opacity: arrows?.fadeIn ? (arrowsVisible ? 1 : 0) : 1,
+                                transition: arrows?.fadeIn ? "opacity 0.5s ease-in-out" : "none",
                                 ...(() => {
                                     const gap = arrows.distance === "group" ? arrows.gap ?? 20 : 0
-                                    const inset = arrows.inset ?? 20
+                                    const insetX = arrows.insetX ?? 20
+                                    const insetY = arrows.insetY ?? 20
                                     const verticalAlign = arrows.verticalAlign || "center"
                                     
                                     return {
-                                        top: verticalAlign === "top" ? `${inset}px` : verticalAlign === "bottom" ? "auto" : "50%",
-                                        bottom: verticalAlign === "bottom" ? `${inset}px` : "auto",
+                                        top: verticalAlign === "top" ? `${insetY}px` : verticalAlign === "bottom" ? "auto" : "50%",
+                                        bottom: verticalAlign === "bottom" ? `${insetY}px` : "auto",
                                         left: "auto",
                                         right: arrows.distance === "space" 
-                                            ? `${inset}px` 
+                                            ? `${insetX}px` 
                                             : `calc(50% - ${gap}px)`,
                                         transform: arrows.distance === "group" && verticalAlign === "center"
                                             ? "translateX(100%) translateY(-50%)"
@@ -3235,6 +3256,7 @@ export default function Carousel({
                         </div>
                     )}
                 </>
+                </div>
             )}
 
 
@@ -3250,6 +3272,7 @@ export default function Carousel({
                     display: "flex",
                     alignItems: "center",
                     overflow: "visible",
+                    overflowX:"clip",
                     cursor: (() => {
                         if (isDragging) return "grabbing"
                         if (draggable && !finiteMode) return "grab"
@@ -3575,15 +3598,23 @@ addPropertyControls(Carousel, {
                 hidden: (props: any) => props.distance !== "group" || !props.show,
                
             },
-            inset: {
+            insetX: {
                 type: ControlType.Number,
-                title: "Inset",
-                min: 0,
+                title: "X Inset",
+                min: -100,
                 max: 100,
                 step: 5,
                 defaultValue: 20,
                 hidden: (props: any) => props.distance !== "space" || !props.show,
-               
+            },
+            insetY: {
+                type: ControlType.Number,
+                title: "Y Inset",
+                min: -100,
+                max: 100,
+                step: 5,
+                defaultValue: 20,
+                hidden: (props: any) => !props.show || props.verticalAlign === "center",
             },
             opacity: {
                 type: ControlType.Number,
