@@ -85,6 +85,15 @@ export default function CardStack({
         }))
     )
 
+    // Track if currently dragging
+    const [isDragging, setIsDragging] = useState(false)
+    
+    // Track if pointer is pressed down
+    const [isPressed, setIsPressed] = useState(false)
+    
+    // Track if card should return to center
+    const [shouldReturnToCenter, setShouldReturnToCenter] = useState(false)
+
     // Update cards when cardCount or content changes
     React.useEffect(() => {
         setCards((prevCards) => {
@@ -99,8 +108,25 @@ export default function CardStack({
         })
     }, [actualCardCount])
 
+    // Handle pointer press down
+    const handlePointerDown = () => {
+        setIsPressed(true)
+    }
+
+    // Handle pointer release
+    const handlePointerUp = () => {
+        setIsPressed(false)
+    }
+
+    // Handle drag start
+    const handleDragStart = () => {
+        setIsDragging(true)
+    }
+
     // Handle drag end - check if card should move to bottom
     const handleDragEnd = (info: PanInfo) => {
+        setIsDragging(false)
+        setIsPressed(false) // Also reset press state when drag ends
         const { offset } = info
 
         // Check if dragged far enough in any direction (2D distance)
@@ -111,6 +137,11 @@ export default function CardStack({
                 const [topCard, ...restCards] = prevCards
                 return [...restCards, topCard] // Simply move to end, keep same ID
             })
+        } else {
+            // If distance < swipeThreshold, return card to center
+            setShouldReturnToCenter(true)
+            // Reset the flag after a short delay
+            setTimeout(() => setShouldReturnToCenter(false), 1000)
         }
     }
 
@@ -132,12 +163,16 @@ export default function CardStack({
 
         const depthOffset = index * depthSpacing
 
+        // If this is the top card and should return to center, override position
+        const isTopCard = index === 0
+        const shouldReturn = isTopCard && shouldReturnToCenter
+
         return {
             zIndex: cards.length - index,
             scale: scaleValue,
-            x: xOffsetValue,
-            y: -stackOffset,
-            rotate: rotationValue,
+            x: shouldReturn ? 0 : xOffsetValue,
+            y: shouldReturn ? 0 : -stackOffset,
+            rotate: shouldReturn ? 0 : rotationValue,
             z: -depthOffset, // Add proper 3D depth
             opacity: 1, // All cards always visible
         }
@@ -183,8 +218,18 @@ export default function CardStack({
                     <motion.div
                         key={card.id}
                         drag={isTopCard && !isCanvas ? true : false}
-                        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-                        dragElastic={0.7}
+                        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}                        dragElastic={0.7}
+                        dragMomentum={false}
+                        dragTransition={{ bounceStiffness: 300, bounceDamping: 20 }}
+                        onMouseDown={
+                            isTopCard && !isCanvas ? handlePointerDown : undefined
+                        }
+                        onMouseUp={
+                            isTopCard && !isCanvas ? handlePointerUp : undefined
+                        }
+                        onDragStart={
+                            isTopCard && !isCanvas ? handleDragStart : undefined
+                        }
                         onDragEnd={
                             isTopCard && !isCanvas
                                 ? (_, info) => handleDragEnd(info)
@@ -220,7 +265,9 @@ export default function CardStack({
                             fontWeight: "300",
                             fontFamily: "system-ui",
                             color: "#9967FF",
-                            cursor: isTopCard && !isCanvas ? "grab" : "default",
+                            cursor: isTopCard && !isCanvas 
+                                ? (isPressed ? "grabbing" : "grab") 
+                                : "default",
                             userSelect: "none",
                             boxShadow: cardShadow,
                             backgroundImage:
@@ -413,6 +460,7 @@ addPropertyControls(CardStack, {
         max: 1000,
         defaultValue: 250,
         unit: "px",
+        step:10,
     },
     tiltAngleStart: {
         type: ControlType.Number,
