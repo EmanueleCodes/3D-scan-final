@@ -330,6 +330,7 @@ export default function CardStack({
                                                     position: "absolute",
                                                     top: 0,
                                                     left: 0,
+                                                    // @ts-ignore
                                                     ...cardComponent.props
                                                         ?.style,
                                                 },

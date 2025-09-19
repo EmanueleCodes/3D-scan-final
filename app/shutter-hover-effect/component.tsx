@@ -27,16 +27,15 @@ interface ShutterHoverEffectProps {
     tag?: string
     style?: React.CSSProperties
     staggerAmount: number
-    speed:number,
-    enabled:boolean,
-    direction:string,
+    speed: number
+    enabled: boolean
+    direction: string
 }
 
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
- * @framerSupportedLayoutHeight any-prefer-fixed
+ * @framerSupportedLayoutHeight any
  * @framerIntrinsicWidth 400
- * @framerIntrinsicHeight 200
  * @framerDisableUnlink
  */
 export default function ShutterHoverEffect(props: ShutterHoverEffectProps) {
@@ -58,39 +57,55 @@ export default function ShutterHoverEffect(props: ShutterHoverEffectProps) {
     const TAG = tag
 
     const calculateStaggerAmount = () => {
-        return -0.04444*speed + 0.0544
+        return -0.04444 * speed + 0.0544
     }
 
-    // Create independent waves with speed scaling
-    const createWave = (startDelay: number, waveStagger: number, direction: 'forward' | 'backward', speedMultiplier: number) => {
+    // Create independent waves with consistent speed and variable delays
+    const createWave = (
+        startDelay: number,
+        waveStagger: number,
+        direction: "forward" | "backward",
+        speedMultiplier: number
+    ) => {
         const tl = gsap.timeline()
-        
-        // Scale all timings by the speed multiplier
-        const scaledStartDelay = startDelay * speedMultiplier
-        const scaledWaveStagger = waveStagger * speedMultiplier
-        
+
+        // Start delay is not affected by speed - only stagger timing is
+        const scaledStartDelay = startDelay
+
+        // Calculate total duration for the fade out wave (consistent speed)
+        const totalFadeOutDuration =
+            waveStagger * (animatedCharactersRef.current.length - 1)
+
+        // Fixed time relationship: fade in starts 0.2 seconds after fade out completes
+        const fixedGapDuration = 0.2
+
         // Create the wave effect
         tl.to(animatedCharactersRef.current, {
             opacity: 0,
             duration: 0,
             stagger: {
-                each: scaledWaveStagger,
-                from: direction === 'forward' ? "start" : "end"
+                each: waveStagger,
+                from: direction === "forward" ? "start" : "end",
             },
             ease: "power2.out",
         })
-        
-        // Fade back in with same pattern
-        tl.to(animatedCharactersRef.current, {
-            opacity: 1,
-            duration: 0,
-            stagger: {
-                each: scaledWaveStagger,
-                from: direction === 'forward' ? "start" : "end"
+
+        // Fade back in with same pattern, starting after 6 characters have animated
+        const sixCharactersDelay = waveStagger * 8
+        tl.to(
+            animatedCharactersRef.current,
+            {
+                opacity: 1,
+                duration: 0,
+                stagger: {
+                    each: waveStagger,
+                    from: direction === "forward" ? "start" : "end",
+                },
+                ease: "power2.out",
             },
-            ease: "power2.out",
-        }, "-=50%")
-        
+            sixCharactersDelay
+        )
+
         return tl.delay(scaledStartDelay)
     }
 
@@ -122,8 +137,7 @@ export default function ShutterHoverEffect(props: ShutterHoverEffectProps) {
             opacity: 1,
         })
 
-        animateText();
-
+        animateText()
     }, [text, enabled]) // Only re-split when text changes
 
     // Clean up on unmount
@@ -146,47 +160,73 @@ export default function ShutterHoverEffect(props: ShutterHoverEffectProps) {
             if (direction === "left-to-right") {
                 return "forward"
             } else {
-                return "backward"   
+                return "backward"
             }
         }
 
         // Create two independent waves with different speeds and directions
         const masterTimeline = gsap.timeline()
-        
+
         // FIXED WAVE CONFIGURATION - Perfect ratios locked in
         const baseSpeed = 1.0 // Base speed multiplier
         const speedMultiplier = baseSpeed * speed // Scale by speed control
-        
-        // Wave 1: Starts immediately, slowest
-        const wave1 = createWave(0, 0.1, decideDirection(), (1.1-speedMultiplier))
-        
-        // Wave 2: Starts 0.1s later, medium speed  
-        //const wave2 = createWave(0.75, 0.1, decideDirection(), (1.1-speedMultiplier))
-        
-        // Wave 3: Starts 0.2s later, fastest
-        //const wave3 = createWave(1, 0.1, decideDirection(), (1-speedMultiplier))
-        
+
+        // Calculate dynamic delay for wave 2 based on wave 1 completion + gap
+        const baseStagger = 0.008
+        const wave1Stagger = baseStagger / speedMultiplier // Apply speed to stagger only
+        const wave1Duration =
+            wave1Stagger * (animatedCharactersRef.current.length - 1)
+        const gapDuration = 0.2
+
+        // Use 4 characters for short text, 8 for longer text
+        const characterCount = animatedCharactersRef.current.length
+        const wave2CharacterDelay = characterCount <= 10 ? 4 : 8
+        const wave2StartDelay = wave1Stagger * wave2CharacterDelay
+
+        // Wave 3: 3x faster, starts after 8 characters
+        const wave3Stagger = wave1Stagger * 0.5 // 3x faster
+
+        // Wave 1: Starts immediately
+        const wave1 = createWave(
+            0,
+            wave1Stagger,
+            decideDirection(),
+            speedMultiplier
+        )
+
+        // Wave 2: Starts dynamically after wave 1 completes + gap
+        const wave2 = createWave(
+            wave2StartDelay,
+            wave1Stagger,
+            decideDirection(),
+            speedMultiplier
+        )
+
+        // Wave 3: Fast wave for randomness
+        const wave3 = createWave(
+            0,
+            wave3Stagger,
+            decideDirection(),
+            speedMultiplier
+        )
+
         // Add all waves to master timeline
         masterTimeline.add(wave1, 0)
-       // masterTimeline.add(wave2, 0)
+        masterTimeline.add(wave2, 0)
+        masterTimeline.add(wave3, 0)
         //masterTimeline.add(wave3, 0)
-        
-        
     }, [speed, direction])
-
-    
-
 
     return (
         <div
-            className='random-word-appear'
+            className="random-word-appear"
             style={{
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "center",
                 //width: "100%",
                 height: "auto",
-                width:"fit-content",
+                width: "fit-content",
                 backgroundColor: "transparent",
                 ...style,
             }}
@@ -200,7 +240,7 @@ export default function ShutterHoverEffect(props: ShutterHoverEffectProps) {
                         color,
                         // Apply font styles directly to the text element
                         fontSize: font.fontSize,
-                        lineHeight:font.lineHeight,
+                        lineHeight: font.lineHeight,
                         fontWeight: font.fontWeight || "700",
                         fontFamily:
                             font.fontFamily ||
@@ -239,17 +279,17 @@ addPropertyControls(ShutterHoverEffect, {
     color: {
         type: ControlType.Color,
         title: "Color",
-        defaultValue: "#000000",
+        defaultValue: "#7D7D7D",
     },
     font: {
         type: ControlType.Font,
         controls: "extended",
-        defaultFontType: "sans-serif",
+        defaultFontType: "monospace",
         defaultValue: {
             fontSize: 48,
             //@ts-ignore
             fontWeight: "600",
-            fontFamily: "system-ui, -apple-system, sans-serif",
+            fontFamily: "monospace, system-ui, -apple-system, sans-serif",
         },
     },
     tag: {
@@ -258,24 +298,25 @@ addPropertyControls(ShutterHoverEffect, {
         options: ["h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "span"],
         defaultValue: "h1",
     },
-    direction:{
+    direction: {
         type: ControlType.Enum,
         title: "Direction",
-        options: ["left-to-right", "right-to-left",],
+        options: ["left-to-right", "right-to-left"],
         defaultValue: "left-to-right",
         optionTitles: ["Left to Right", "Right to Left"],
         displaySegmentedControl: true,
         segmentedControlDirection: "vertical",
     },
-    
-    speed:{
+
+    speed: {
         type: ControlType.Number,
         title: "Speed",
         min: 0.1,
         max: 1,
-        step: 0.1,
-        defaultValue: 0.85,
-        description:"More components at [Framer University](https://frameruni.link/cc).",
+        step: 0.05,
+        defaultValue: 0.35,
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 
