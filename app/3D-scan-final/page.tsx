@@ -485,7 +485,7 @@ const Scene = ({
     // Subscribe to viewport/size so we re-render on container resize
     const viewport = useThree((state: any) => state.viewport)
     const size = useThree((state: any) => state.size)
-    const materialRef = useRef<Mesh>(null)
+    const materialRef = useRef<typeof Mesh>(null)
     const readySignaledRef = useRef(false)
 
     // Log dotColor changes (not every frame!) - removed for performance
