@@ -171,9 +171,10 @@ void main(){
 
         if (uRayCount > 0) {
             float ang = atan(Pb.y, Pb.x);
-            float comb = 0.5 + 0.5 * cos(float(uRayCount) * ang);
-            comb = pow(comb, 3.0);
-            rayPattern *= smoothstep(0.15, 0.95, comb);
+            // Create equal-width bright and dark sections
+            float comb = cos(float(uRayCount) * ang);
+            // Small 5-degree transition between bright and dark areas
+            rayPattern = rayPattern * smoothstep(-0.5, 0.5, comb);
         }
 
         vec3 spectralDefault = 1.0 + vec3(
@@ -428,26 +429,31 @@ export default function PrismaticBurst(
              const isPaused = !previewRef.current && isCanvas
              
              if (!isPaused) accumTime += dt
-             if (!visible) {
-                 raf = requestAnimationFrame(update)
-                 return
-             }
-
-            // Frame rate throttling
+             
+            // Frame rate throttling (applies everywhere, including Canvas mode)
             const targetFrameTime = 1000 / maxFPS
             const timeSinceLastFrame = now - lastFrameTimeRef.current
             frameSkipRef.current++
 
-            if (
-                timeSinceLastFrame < targetFrameTime &&
-                frameSkipRef.current <= perfSettings.frameSkip
-            ) {
+            // Apply quality-based frame skipping
+            if (frameSkipRef.current <= perfSettings.frameSkip) {
+                raf = requestAnimationFrame(update)
+                return
+            }
+
+            // Apply FPS limiting
+            if (timeSinceLastFrame < targetFrameTime) {
                 raf = requestAnimationFrame(update)
                 return
             }
 
             lastFrameTimeRef.current = now
             frameSkipRef.current = 0
+
+            if (!visible) {
+                raf = requestAnimationFrame(update)
+                return
+            }
 
             const tau =
                 0.02 + Math.max(0, Math.min(1, hoverDampRef.current)) * 0.5
@@ -499,6 +505,12 @@ export default function PrismaticBurst(
                 mixBlendMode && mixBlendMode !== "none" ? mixBlendMode : ""
         }
     }, [mixBlendMode])
+
+    useEffect(() => {
+        // Reset frame timing when maxFPS changes to ensure immediate effect
+        lastFrameTimeRef.current = 0
+        frameSkipRef.current = 0
+    }, [maxFPS])
 
     useEffect(() => {
         const program = programRef.current
@@ -593,8 +605,8 @@ addPropertyControls(PrismaticBurst, {
         title: "Intensity",
         min: 1,
         max: 10,
-        step: 0.1,
-        defaultValue: 2,
+        step: 1,
+        defaultValue: 10,
     },
     speed: {
         type: ControlType.Number,
@@ -627,7 +639,7 @@ addPropertyControls(PrismaticBurst, {
         type: ControlType.Number,
         title: "Ray Count",
         min: 0,
-        max: 20,
+        max: 50,
         step: 1,
         defaultValue: 0,
     },
@@ -676,6 +688,24 @@ addPropertyControls(PrismaticBurst, {
             "color",
             "luminosity",
         ],
+        optionTitles: [
+            "Normal",
+            "Multiply",
+            "Screen",
+            "Overlay",
+            "Soft Light",
+            "Hard Light",
+            "Color Dodge",
+            "Color Burn",
+            "Darken",
+            "Lighten",
+            "Difference",
+            "Exclusion",
+            "Hue",
+            "Saturation",
+            "Color",
+            "Luminosity",
+        ],
         defaultValue: "normal",
     },
     quality: {
@@ -690,7 +720,7 @@ addPropertyControls(PrismaticBurst, {
     maxFPS: {
         type: ControlType.Number,
         title: "Max FPS",
-        min: 15,
+        min: 1,
         max: 120,
         step: 15,
         defaultValue: 60,
