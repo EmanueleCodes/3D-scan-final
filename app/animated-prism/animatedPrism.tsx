@@ -8,7 +8,7 @@ import {
 } from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/ogl-prism.js"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
-type Offset = { x?: number | string; y?: number | string }
+type Offset = { x?: number; y?: number }
 type AnimationType = "rotate" | "rotate3d" | "hover"
 
 export type PrismaticBurstProps = {
@@ -201,29 +201,92 @@ void main(){
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`
 
-const hexToRgb01 = (hex: string): [number, number, number] => {
-    let h = hex.trim()
-    if (h.startsWith("#")) h = h.slice(1)
-    if (h.length === 3) {
-        const r = h[0],
-            g = h[1],
-            b = h[2]
-        h = r + r + g + g + b + b
+// CSS variable token and color parsing (hex/rgba/var())
+const cssVariableRegex =
+    /var\s*\(\s*(--[\w-]+)(?:\s*,\s*((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*))?\s*\)/
+function extractDefaultValue(cssVar: string): string {
+    if (!cssVar || !cssVar.startsWith("var(")) return cssVar
+    const match = cssVariableRegex.exec(cssVar)
+    if (!match) return cssVar
+    const fallback = (match[2] || "").trim()
+    if (fallback.startsWith("var(")) return extractDefaultValue(fallback)
+    return fallback || cssVar
+}
+function resolveTokenColor(input: any): any {
+    if (typeof input !== "string") return input
+    if (!input.startsWith("var(")) return input
+    return extractDefaultValue(input)
+}
+function parseColorToRgba(input: string): {
+    r: number
+    g: number
+    b: number
+    a: number
+} {
+    if (!input) return { r: 0, g: 0, b: 0, a: 1 }
+    const str = input.trim()
+    const rgbaMatch = str.match(
+        /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
+    )
+    if (rgbaMatch) {
+        const r = Math.max(0, Math.min(255, parseFloat(rgbaMatch[1]))) / 255
+        const g = Math.max(0, Math.min(255, parseFloat(rgbaMatch[2]))) / 255
+        const b = Math.max(0, Math.min(255, parseFloat(rgbaMatch[3]))) / 255
+        const a =
+            rgbaMatch[4] !== undefined
+                ? Math.max(0, Math.min(1, parseFloat(rgbaMatch[4])))
+                : 1
+        return { r, g, b, a }
     }
-    const intVal = parseInt(h, 16)
-    if (isNaN(intVal) || (h.length !== 6 && h.length !== 8)) return [1, 1, 1]
-    const r = ((intVal >> 16) & 255) / 255
-    const g = ((intVal >> 8) & 255) / 255
-    const b = (intVal & 255) / 255
-    return [r, g, b]
+    const hex = str.replace(/^#/, "")
+    if (hex.length === 8) {
+        return {
+            r: parseInt(hex.slice(0, 2), 16) / 255,
+            g: parseInt(hex.slice(2, 4), 16) / 255,
+            b: parseInt(hex.slice(4, 6), 16) / 255,
+            a: parseInt(hex.slice(6, 8), 16) / 255,
+        }
+    }
+    if (hex.length === 6) {
+        return {
+            r: parseInt(hex.slice(0, 2), 16) / 255,
+            g: parseInt(hex.slice(2, 4), 16) / 255,
+            b: parseInt(hex.slice(4, 6), 16) / 255,
+            a: 1,
+        }
+    }
+    if (hex.length === 4) {
+        return {
+            r: parseInt(hex[0] + hex[0], 16) / 255,
+            g: parseInt(hex[1] + hex[1], 16) / 255,
+            b: parseInt(hex[2] + hex[2], 16) / 255,
+            a: parseInt(hex[3] + hex[3], 16) / 255,
+        }
+    }
+    if (hex.length === 3) {
+        return {
+            r: parseInt(hex[0] + hex[0], 16) / 255,
+            g: parseInt(hex[1] + hex[1], 16) / 255,
+            b: parseInt(hex[2] + hex[2], 16) / 255,
+            a: 1,
+        }
+    }
+    return { r: 0, g: 0, b: 0, a: 1 }
+}
+function colorStringToVec4(input: string): [number, number, number, number] {
+    const resolved = resolveTokenColor(input)
+    const { r, g, b, a } = parseColorToRgba(resolved)
+    return [r, g, b, a]
 }
 
-const toPx = (v: number | string | undefined): number => {
-    if (v == null) return 0
-    if (typeof v === "number") return v
-    const s = String(v).trim()
-    const num = parseFloat(s.replace("px", ""))
-    return isNaN(num) ? 0 : num
+// Convert percentage offset to pixel offset based on component dimensions
+const getOffsetPixels = (offset: Offset, width: number, height: number): [number, number] => {
+    const x = offset.x ?? 0
+    const y = offset.y ?? 0
+    // Convert percentage (-50% to +50%) to pixels
+    const xPx = (x / 100) * width
+    const yPx = (y / 100) * height
+    return [xPx, yPx]
 }
 
 // Mapping functions for prettier property controls
@@ -531,9 +594,14 @@ export default function PrismaticBurst(
 
          program.uniforms.uDistort.value = mapDistort(distort ?? 0)
 
-        const ox = toPx(offset?.x)
-        const oy = toPx(offset?.y)
-        program.uniforms.uOffset.value = [ox, oy]
+        // Get component dimensions for percentage-based offset calculation
+        const container = containerRef.current
+        if (container) {
+            const width = container.clientWidth || 1
+            const height = container.clientHeight || 1
+            const [ox, oy] = getOffsetPixels(offset ?? { x: 0, y: 0 }, width, height)
+            program.uniforms.uOffset.value = [ox, oy]
+        }
         program.uniforms.uRayCount.value = Math.max(
             0,
             Math.floor(rayCount ?? 0)
@@ -546,11 +614,11 @@ export default function PrismaticBurst(
             count = capped.length
             const data = new Uint8Array(count * 4)
             for (let i = 0; i < count; i++) {
-                const [r, g, b] = hexToRgb01(capped[i])
+                const [r, g, b, a] = colorStringToVec4(capped[i])
                 data[i * 4 + 0] = Math.round(r * 255)
                 data[i * 4 + 1] = Math.round(g * 255)
                 data[i * 4 + 2] = Math.round(b * 255)
-                data[i * 4 + 3] = 255
+                data[i * 4 + 3] = Math.round(a * 255)
             }
             gradTex.image = data
             gradTex.width = count
@@ -650,12 +718,20 @@ addPropertyControls(PrismaticBurst, {
             x: {
                 type: ControlType.Number,
                 title: "X",
+                min: -100,
+                max: 100,
+                step: 1,
                 defaultValue: 0,
+                unit: "%",
             },
             y: {
                 type: ControlType.Number,
                 title: "Y",
+                min: -100,
+                max: 100,
+                step: 1,
                 defaultValue: 0,
+                unit: "%",
             },
         },
     },
