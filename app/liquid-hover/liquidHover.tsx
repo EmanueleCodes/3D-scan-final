@@ -244,21 +244,20 @@ vec2 get_img_uv() {
   vec2 uv = vUv - 0.5;
 
   // First shrink to container size inside overscanned canvas
-  // u_canvas_scale should be 1.0 / overscanFactor (e.g., 0.83333 for 1.2x canvas)
   uv *= u_canvas_scale;
 
-  // Then apply object-fit: cover mapping without stretching
+  // Apply object-fit: cover mapping (crop the lesser dimension)
   float containerAspect = u_ratio; // width / height of container (not canvas)
   float imageAspect = u_img_ratio; // image width / height
-  vec2 coverScale = vec2(1.0);
+  vec2 scale = vec2(1.0);
   if (containerAspect > imageAspect) {
-    // Container wider → scale X
-    coverScale.x = containerAspect / imageAspect;
+    // Container is wider than image: crop top/bottom (zoom in vertically)
+    scale.y = imageAspect / containerAspect;
   } else {
-    // Container taller → scale Y
-    coverScale.y = imageAspect / containerAspect;
+    // Container is taller than image: crop left/right (zoom in horizontally)
+    scale.x = containerAspect / imageAspect;
   }
-  uv *= coverScale;
+  uv *= scale;
   return uv + 0.5;
 }
 
@@ -441,7 +440,7 @@ void main () {
         // Init
         resizeCanvas()
         initFBOs()
-        setupEvents()
+        const cleanupEvents = setupEvents()
         render(0)
         // Default image
         loadImage("https://ksenia-k.com/img/codepen/for-fluid-sim-demo-1.jpg")
@@ -514,6 +513,12 @@ void main () {
             })
             window.addEventListener("resize", onResize)
 
+            // Observe container resize (Framer Canvas resizes the layer without window resize)
+            const resizeObserver = new ResizeObserver(() => {
+                onResize()
+            })
+            resizeObserver.observe(container!)
+
             // Cleanup on unmount
             return () => {
                 canvas.removeEventListener("mouseenter", onEnter)
@@ -524,6 +529,7 @@ void main () {
                 canvas.removeEventListener("touchend", onTouchEnd as any)
                 canvas.removeEventListener("touchmove", onTouchMove as any)
                 window.removeEventListener("resize", onResize)
+                resizeObserver.disconnect()
             }
         }
 
@@ -767,6 +773,8 @@ void main () {
 
         return () => {
             if (rafRef.current) cancelAnimationFrame(rafRef.current)
+            // Ensure event listeners/observers are removed
+            if (typeof cleanupEvents === "function") cleanupEvents()
         }
     }, [])
 
