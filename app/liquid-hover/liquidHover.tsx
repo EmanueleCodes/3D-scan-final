@@ -61,6 +61,8 @@ export default function LiquidHover(): JSX.Element {
         }
         // Render to a larger canvas so ripples can be seen outside bounds
         const overscanFactor = 1.2
+        // Draw the image inside an inner rectangle (83.3333% of canvas)
+        const innerScale = 5 / 6
 
         // Pointer state
         const pointer = {
@@ -238,6 +240,7 @@ uniform sampler2D u_velocity_texture;
 uniform sampler2D u_text_texture;
 uniform vec2 u_point;
 uniform float u_canvas_scale; // scale < 1.0 to render image smaller than canvas
+uniform float u_inner_scale; // additional inner rectangle scale (e.g., 0.8333)
 
 vec2 get_img_uv() {
   // Start from canvas UV and center
@@ -245,6 +248,11 @@ vec2 get_img_uv() {
 
   // First shrink to container size inside overscanned canvas
   uv *= u_canvas_scale;
+
+  // Map only the central inner rectangle to the image by expanding UVs
+  // Dividing by the inner scale means only a center region of size u_inner_scale
+  // in canvas space maps into [0,1]; outside becomes <0 or >1 and thus transparent
+  uv /= u_inner_scale;
 
   // Apply object-fit: cover mapping (crop the lesser dimension)
   float containerAspect = u_ratio; // width / height of container (not canvas)
@@ -279,8 +287,8 @@ void main () {
   img_uv -= u_disturb_power * normalize(velocity) * offset;
 
   vec3 img = texture2D(u_text_texture, vec2(img_uv.x, 1. - img_uv.y)).rgb;
-
-  float opacity = get_img_frame_alpha(img_uv, .004);
+  // Use the disturbed image UVs to compute opacity so ripples affect the border
+  float opacity = get_img_frame_alpha(img_uv, .002);
   gl_FragColor = vec4(img * opacity, opacity);
 }
 `
@@ -756,7 +764,9 @@ void main () {
                 outputColor.read().attach(1)
             )
             // Scale image to container size inside overscanned canvas
-            gl.uniform1f(displayProgram.uniforms.u_canvas_scale!, 1.0 / overscanFactor)
+            gl.uniform1f(displayProgram.uniforms.u_canvas_scale!, 1.0)
+            // Additional inner rectangle scale within the canvas
+            gl.uniform1f(displayProgram.uniforms.u_inner_scale!, innerScale)
             if (imageTexture) {
                 gl.activeTexture(gl.TEXTURE0)
                 gl.bindTexture(gl.TEXTURE_2D, imageTexture)
@@ -788,19 +798,24 @@ void main () {
                 overflow: "visible",
                 top:"0%",
                 left:"0%",
-                border:"1px solid red"
+              
             }}
         >
+            {/* Debug container */}
+            <div style={{border:"1px solid red", pointerEvents:"none",zIndex:1000, position:"absolute", top:"0%", left:"0%", width:"100%", height:"100%"}}>
+
+            </div>
             <canvas
                 ref={canvasRef}
                 style={{
                     position: "absolute",
-                    transform:"translate(-10%, -10%)",
-                    top: "0%",
-                    left: "0%",
+                    
+                    top: "-10%",
+                    left: "-10%",
                     width: "120%",
                     height: "120%",
-                    overflow:"visible"
+                    overflow:"hidden",
+                    border:"1px solid green"
                 }}
             />
         </div>

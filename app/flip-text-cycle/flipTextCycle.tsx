@@ -35,7 +35,7 @@ interface FlipTextCycleProps {
 addPropertyControls(FlipTextCycle, {
     preview: {
         type: ControlType.Boolean,
-        title: "Preview in Canvas",
+        title: "Preview",
         enabledTitle: "On",
         disabledTitle: "Off",
         defaultValue: false,
@@ -53,11 +53,16 @@ addPropertyControls(FlipTextCycle, {
     },
     font: {
         type: ControlType.Font,
-        defaultFontType: "monospace",
+        defaultFontType: "sans-serif",
         controls: "extended",
         title: "Font",
+        //@ts-check
+        fontWeight: "500",
         defaultValue: {
-            letterSpacing: "1px",
+            //@ts-ignore
+            fontFamily: "Geist",
+            fontWeight: "500",
+            letterSpacing: "-0.02em",
             lineHeight: "1.5em",
             textAlign: "left",
             fontSize: 40,
@@ -103,9 +108,9 @@ FlipTextCycle.defaultProps = {
     staggerDelay: 0.05,
     preview: true,
     font: {
-        fontFamily: "monospace",
-        fontWeight: 300,
-        letterSpacing: "1px",
+        fontFamily: "Geist",
+        fontWeight: "medium",
+        letterSpacing: "-0.02em",
         lineHeight: "1.5em",
         textAlign: "left" as const,
         fontSize: "40px",
@@ -113,11 +118,11 @@ FlipTextCycle.defaultProps = {
     texts: [
         {
             text: "Framer University",
-            color: "#999999",
+            color: "#45ED8E",
         },
         {
             text: "Learn Framer",
-            color: "#895BE4",
+            color: "#8754EB",
         },
     ],
 }
@@ -135,8 +140,10 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
     const [currentTextIndex, setCurrentTextIndex] = useState<number>(0)
     const [isAnimating, setIsAnimating] = useState<boolean>(false)
     const [cycleId, setCycleId] = useState<number>(0)
+    const [isInViewport, setIsInViewport] = useState<boolean>(true)
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
     const pauseInCanvas = isCanvas && !props.preview
+    const containerRef = useRef<HTMLDivElement>(null)
 
     // Unique id to avoid clashes between multiple component instances
     const reactId = useId()
@@ -177,6 +184,24 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
         staggerDelayRef.current = props.staggerDelay
     }, [props.staggerDelay])
 
+    // Viewport detection for performance optimization
+    useEffect(() => {
+        if (!containerRef.current) return
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsInViewport(entry.isIntersecting)
+            },
+            { threshold: 0.1 }
+        )
+
+        observer.observe(containerRef.current)
+
+        return () => {
+            observer.disconnect()
+        }
+    }, [])
+
     // Single scheduler loop: animate -> wait -> next
     useEffect(() => {
         if (areTextsEmpty) return
@@ -192,7 +217,7 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
             }
         }
 
-        if (pauseInCanvas) {
+        if (pauseInCanvas || !isInViewport) {
             clearTimers()
             return () => clearTimers()
         }
@@ -243,7 +268,7 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
         return () => {
             clearTimers()
         }
-    }, [areTextsEmpty, pauseInCanvas])
+    }, [areTextsEmpty, pauseInCanvas, isInViewport])
 
     const baseStyle = `
     @layer demo {
@@ -265,7 +290,7 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
         text-align: ${props.font.textAlign};
         margin: 0;
         display: inline-block;
-        white-space: nowrap;
+        white-space: break-spaces;
         transform-style: preserve-3d;
       }
       .flip-letter-${safeId} {
@@ -303,6 +328,52 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
         props.flipDuration,
     ])
 
+    // Split text into tokens (words and spaces) so wrapping happens between words only
+    const tokens = useMemo(() => {
+        return currentText?.text ? currentText.text.split(/(\s+)/) : []
+    }, [currentText?.text, currentTextIndex, cycleId])
+    
+    // Memoize the rendered content to avoid unnecessary re-renders
+    const renderedContent = useMemo(() => {
+        let letterCounter = 0
+        return tokens.map((token, tIndex) => {
+            const isSpace = token.trim() === ""
+            if (isSpace) {
+                // render a single normal space so the next line never starts with an extra gap
+                return (
+                    <span
+                        key={`${currentTextIndex}-${cycleId}-space-${tIndex}`}
+                    >
+                        {" "}
+                    </span>
+                )
+            }
+            return (
+                <span
+                    key={`${currentTextIndex}-${cycleId}-word-${tIndex}`}
+                    style={{ display: "inline-block", whiteSpace: "nowrap" }}
+                >
+                    {token.split("").map((letter, lIndex) => {
+                        const globalIndex = letterCounter++
+                        return (
+                            <span
+                                key={`${currentTextIndex}-${cycleId}-${tIndex}-${lIndex}`}
+                                className={`flip-letter-${safeId} ${pauseInCanvas ? "no-anim" : isAnimating ? "animate" : ""}`}
+                                style={{
+                                    transitionDelay: pauseInCanvas
+                                        ? "0s"
+                                        : `${globalIndex * props.staggerDelay}s`,
+                                }}
+                            >
+                                {letter}
+                            </span>
+                        )
+                    })}
+                </span>
+            )
+        })
+    }, [tokens, currentTextIndex, cycleId, pauseInCanvas, isAnimating, safeId, props.staggerDelay])
+
     if (areTextsEmpty) {
         return (
             <div style={{ width: "100%", height: "100%" }}>
@@ -318,6 +389,7 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
         <>
             <style>{style}</style>
             <div
+                ref={containerRef}
                 className={`flip-text-container-${safeId}`}
                 style={{
                     width: "100%",
@@ -325,19 +397,7 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
                 }}
             >
                 <span className={`flip-text-${safeId}`}>
-                    {currentText?.text.split("").map((letter, index) => (
-                        <span
-                            key={`${currentTextIndex}-${cycleId}-${index}`}
-                            className={`flip-letter-${safeId} ${pauseInCanvas ? "no-anim" : isAnimating ? "animate" : ""}`}
-                            style={{
-                                transitionDelay: pauseInCanvas
-                                    ? "0s"
-                                    : `${index * props.staggerDelay}s`,
-                            }}
-                        >
-                            {letter === " " ? "\u00A0" : letter}
-                        </span>
-                    ))}
+                    {renderedContent}
                 </span>
             </div>
         </>
