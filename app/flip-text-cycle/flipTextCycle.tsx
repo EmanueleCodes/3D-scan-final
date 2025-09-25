@@ -55,7 +55,7 @@ addPropertyControls(FlipTextCycle, {
         type: ControlType.Font,
         defaultFontType: "monospace",
         controls: "extended",
-        title:"Font",
+        title: "Font",
         defaultValue: {
             letterSpacing: "1px",
             lineHeight: "1.5em",
@@ -64,32 +64,30 @@ addPropertyControls(FlipTextCycle, {
         },
     },
     cycleDelay: {
-        title:"Delay",
+        title: "Delay",
         type: ControlType.Number,
         min: 0.5,
         max: 10,
         step: 0.1,
-        defaultValue: 2,
+        defaultValue: 1.5,
         unit: "s",
-       
     },
     staggerDelay: {
-        title:"Stagger",
+        title: "Stagger",
         type: ControlType.Number,
         min: 0,
         max: 1,
         step: 0.01,
-        defaultValue: 0.05,
+        defaultValue: 0.015,
         unit: "s",
-        
     },
     flipDuration: {
-        title:"Duration",
+        title: "Duration",
         type: ControlType.Number,
         min: 0.1,
         max: 2,
         step: 0.1,
-        defaultValue: 0.6,
+        defaultValue: 0.2,
         unit: "s",
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
@@ -218,7 +216,8 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
                     setIsAnimating(false)
                     // Allow DOM to apply the hidden state before swapping text
                     window.setTimeout(() => {
-                        const next = (indexRef.current + 1) % textsRef.current.length
+                        const next =
+                            (indexRef.current + 1) % textsRef.current.length
                         indexRef.current = next
                         setCurrentTextIndex(next)
                         // Force new letter elements so transitions retrigger even for repeated words
@@ -255,6 +254,7 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
         display: flex;
         align-items: center;
         justify-content: center;
+        transform-style: preserve-3d;
       }
       .flip-text-${safeId} {
         font-family: ${props.font.fontFamily};
@@ -266,20 +266,24 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
         margin: 0;
         display: inline-block;
         white-space: nowrap;
+        transform-style: preserve-3d;
       }
       .flip-letter-${safeId} {
         display: inline-block;
-        color: ${currentText?.color || '#000'};
+        color: ${currentText?.color || "#000"};
         transform-style: preserve-3d;
-        transition: transform ${props.flipDuration}s ease-in-out;
+        transition: transform ${props.flipDuration}s ease-in, opacity ${props.flipDuration}s ease-in;
         transform: rotateY(90deg);
+        opacity: 0;
       }
       .flip-letter-${safeId}.animate {
         transform: rotateY(0deg);
+        opacity: 1;
       }
       .flip-letter-${safeId}.no-anim {
         transition: none;
         transform: rotateY(0deg);
+        opacity: 1;
       }
     }
 `
@@ -321,15 +325,17 @@ export default function FlipTextCycle(props: FlipTextCycleProps) {
                 }}
             >
                 <span className={`flip-text-${safeId}`}>
-                    {currentText?.text.split('').map((letter, index) => (
+                    {currentText?.text.split("").map((letter, index) => (
                         <span
                             key={`${currentTextIndex}-${cycleId}-${index}`}
-                            className={`flip-letter-${safeId} ${pauseInCanvas ? 'no-anim' : isAnimating ? 'animate' : ''}`}
+                            className={`flip-letter-${safeId} ${pauseInCanvas ? "no-anim" : isAnimating ? "animate" : ""}`}
                             style={{
-                                transitionDelay: pauseInCanvas ? '0s' : `${index * props.staggerDelay}s`
+                                transitionDelay: pauseInCanvas
+                                    ? "0s"
+                                    : `${index * props.staggerDelay}s`,
                             }}
                         >
-                            {letter === ' ' ? '\u00A0' : letter}
+                            {letter === " " ? "\u00A0" : letter}
                         </span>
                     ))}
                 </span>

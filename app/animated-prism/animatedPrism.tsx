@@ -342,6 +342,7 @@ export default function PrismaticBurst(
     const triRef = useRef<typeof Triangle | null>(null)
     const lastFrameTimeRef = useRef<number>(0)
     const frameSkipRef = useRef<number>(0)
+    const maxFPSRef = useRef<number>(maxFPS)
 
     // Performance settings based on quality
     const getPerformanceSettings = () => {
@@ -482,7 +483,7 @@ export default function PrismaticBurst(
         let last = performance.now()
         let accumTime = 0
 
-         const update = (now: number) => {
+        const update = (now: number) => {
              const dt = Math.max(0, now - last) * 0.001
              last = now
              const visible = isVisibleRef.current && !document.hidden
@@ -494,7 +495,7 @@ export default function PrismaticBurst(
              if (!isPaused) accumTime += dt
              
             // Frame rate throttling (applies everywhere, including Canvas mode)
-            const targetFrameTime = 1000 / maxFPS
+            const targetFrameTime = 1000 / maxFPSRef.current
             const timeSinceLastFrame = now - lastFrameTimeRef.current
             frameSkipRef.current++
 
@@ -570,6 +571,8 @@ export default function PrismaticBurst(
     }, [mixBlendMode])
 
     useEffect(() => {
+        // Update the ref with the new maxFPS value
+        maxFPSRef.current = maxFPS
         // Reset frame timing when maxFPS changes to ensure immediate effect
         lastFrameTimeRef.current = 0
         frameSkipRef.current = 0
