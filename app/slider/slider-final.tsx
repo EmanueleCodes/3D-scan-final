@@ -2080,21 +2080,16 @@ export default function Carousel({
                                 const prevHeight =
                                     containerDimensions.current.height
 
-                                // Only update when needed
-                                const inCanvas =
-                                    RenderTarget.current() ===
-                                    RenderTarget.canvas
+                                // Only update when aspect ratio changes (more performant)
                                 const prevRatio =
                                     prevWidth / Math.max(prevHeight || 1, 1)
                                 const newRatio =
                                     rect.width / Math.max(rect.height || 1, 1)
                                 const aspectChanged =
                                     Math.abs(newRatio - prevRatio) > 0.0005
-                                const sizeChanged =
-                                    Math.abs(rect.width - prevWidth) > 20 ||
-                                    Math.abs(rect.height - prevHeight) > 20
 
-                                if ((inCanvas && aspectChanged) || (!inCanvas && sizeChanged)) {
+                                // Only trigger re-render if aspect ratio actually changed
+                                if (aspectChanged) {
                                     containerDimensions.current = {
                                         width: rect.width,
                                         height: rect.height,
@@ -2240,21 +2235,32 @@ export default function Carousel({
         animateDots(activeSlideIndex)
     }, [dotsUI, activeSlideIndex, isFullyInitialized, animateDots])
 
-    // Trigger centering when mode changes
+    // Trigger centering when mode changes - force complete re-initialization
     useEffect(() => {
-        if (!isFullyInitialized || !loopRef.current) return
+        if (!isFullyInitialized) return
 
+        // Preserve container dimensions during mode change to prevent height issues
+        const preservedDimensions = { ...containerDimensions.current }
+        
+        // Force complete re-initialization when mode changes (simplest approach)
+        setIsFullyInitialized(false)
+        // DON'T set isCentered to false - keep slides visible during mode change
+        // setIsCentered(false)
+        
         // Small delay to ensure DOM is updated after re-render
         const timeoutId = setTimeout(() => {
-            if (loopRef.current && loopRef.current.center) {
-                try {
-                    loopRef.current.center()
-                } catch (error) {}
+            // Restore container dimensions if they were lost during re-initialization
+            if (containerDimensions.current.width === 0 || containerDimensions.current.height === 0) {
+                containerDimensions.current = preservedDimensions
             }
-        }, 100)
+            
+            // Reset initialization state to trigger full re-initialization
+            initializationRef.current.isInitialized = false
+            initializationRef.current.isInitializing = false
+        }, 50)
 
         return () => clearTimeout(timeoutId)
-    }, [finiteMode, isFullyInitialized])
+    }, [finiteMode])
 
     // Handle height changes without re-rendering
     useEffect(() => {
@@ -2608,6 +2614,7 @@ export default function Carousel({
                 gap,
                 autoplay,
                 direction,
+                finiteMode, // Add finiteMode to trigger re-initialization when mode changes
                 // Always use full-width mode
                 containerReady,
             ],
@@ -3080,6 +3087,7 @@ export default function Carousel({
         containerDimensions.current.width,
         containerDimensions.current.height,
         gap,
+        finiteMode, // Add finiteMode to dependencies to recalculate when mode changes
     ]) // Include container width and gap
 
     // Reset refs each render so removed slides don't linger in boxesRef
