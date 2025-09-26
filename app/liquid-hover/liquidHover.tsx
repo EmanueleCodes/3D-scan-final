@@ -1,6 +1,6 @@
-"use client"
-
 import React, { useEffect, useRef } from "react"
+import { addPropertyControls, ControlType } from "framer"
+import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
 
 type GL = WebGLRenderingContext
 
@@ -26,6 +26,20 @@ type ProgramWithUniforms = {
     uniforms: Record<string, WebGLUniformLocation | null>
 }
 
+type ResponsiveImage = {
+    src: string
+    srcSet?: string
+    alt?: string
+}
+
+type Props = {
+    image?: ResponsiveImage
+    resolution?: number
+    cursorSize?: number
+    cursorPower?: number
+    distortionPower?: number
+}
+
 /**
  * @framerSupportedLayoutWidth fixed
  * @framerSupportedLayoutHeight fixed
@@ -33,7 +47,14 @@ type ProgramWithUniforms = {
  * @framerIntrinsicHeight 400
  * @framerDisableUnlink
  */
-export default function LiquidHover(): JSX.Element {
+export default function LiquidHover(props: Props): JSX.Element {
+    const {
+        image,
+        resolution = 5,
+        cursorSize = 0.5, // Default to middle of 0.1-1 range
+        cursorPower = 0.5, // Default to middle of 0.1-1 range
+        distortionPower = 0.4,
+    } = props
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const rafRef = useRef<number | null>(null)
@@ -45,19 +66,23 @@ export default function LiquidHover(): JSX.Element {
         const canvas = canvasEl as HTMLCanvasElement
 
         const glMaybe = canvas.getContext(
-            "webgl"
+            "webgl",
+            { alpha: true }
         ) as WebGLRenderingContext | null
         if (!glMaybe) return
         const gl: GL = glMaybe as GL
 
-        // Ensure float textures are available
+        // Ensure float textures + linear filtering are available
         gl.getExtension("OES_texture_float")
+        gl.getExtension("OES_texture_float_linear")
+        // Clear with transparent background so areas outside inner rect stay transparent
+        gl.clearColor(0, 0, 0, 0)
 
-        // Parameters (as in reference)
+        // Parameters from props with value mapping
         const params = {
-            cursorSize: 2,
-            cursorPower: 24,
-            distortionPower: 0.4,
+            cursorSize: 0.5 + (cursorSize - 0.1) * (5 - 0.5) / (1 - 0.1), // Map 0.1-1 to 0.5-5
+            cursorPower: 5 + (cursorPower - 0.1) * (50 - 5) / (1 - 0.1), // Map 0.1-1 to 5-50
+            distortionPower,
         }
         // Render to a larger canvas so ripples can be seen outside bounds
         const overscanFactor = 1.2
@@ -254,18 +279,26 @@ vec2 get_img_uv() {
   // in canvas space maps into [0,1]; outside becomes <0 or >1 and thus transparent
   uv /= u_inner_scale;
 
-  // Apply object-fit: cover mapping (crop the lesser dimension)
+  // Apply object-fit: cover mapping (from reverse-fish-eye implementation)
   float containerAspect = u_ratio; // width / height of container (not canvas)
   float imageAspect = u_img_ratio; // image width / height
   vec2 scale = vec2(1.0);
   if (containerAspect > imageAspect) {
-    // Container is wider than image: crop top/bottom (zoom in vertically)
+    // Container is wider than image: scale to fill height, crop left/right
     scale.y = imageAspect / containerAspect;
   } else {
-    // Container is taller than image: crop left/right (zoom in horizontally)
+    // Container is taller than image: scale to fill width, crop top/bottom
     scale.x = containerAspect / imageAspect;
   }
   uv *= scale;
+  return uv + 0.5;
+}
+
+// Frame UVs define the inner rectangle region (no cover scaling)
+vec2 get_frame_uv() {
+  vec2 uv = vUv - 0.5;
+  uv *= u_canvas_scale;
+  uv /= u_inner_scale;
   return uv + 0.5;
 }
 
@@ -273,6 +306,35 @@ float get_img_frame_alpha(vec2 uv, float img_frame_width) {
   float img_frame_alpha = smoothstep(0., img_frame_width, uv.x) * smoothstep(1., 1. - img_frame_width, uv.x);
   img_frame_alpha *= smoothstep(0., img_frame_width, uv.y) * smoothstep(1., 1. - img_frame_width, uv.y);
   return img_frame_alpha;
+}
+
+// Reduce striation when sampling outside the image bounds
+vec3 sample_image_smooth(vec2 uv) {
+  vec2 uvc = clamp(uv, 0.0, 1.0);
+  vec3 base = texture2D(u_text_texture, vec2(uvc.x, 1.0 - uvc.y)).rgb;
+
+  float yBelow = step(uv.y, 0.0);
+  float yAbove = step(1.0, uv.y);
+  float xLeft = step(uv.x, 0.0);
+  float xRight = step(1.0, uv.x);
+  float outOfBounds = max(max(yBelow, yAbove), max(xLeft, xRight));
+
+  // If sampling outside bounds, blur to avoid repeating single edge pixels
+  if (outOfBounds > 0.0) {
+    float d = 0.002; // small kernel
+    vec3 sum = vec3(0.0);
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x - d, 0.0, 1.0), 1.0 - clamp(uvc.y - d, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x, 0.0, 1.0), 1.0 - clamp(uvc.y - d, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x + d, 0.0, 1.0), 1.0 - clamp(uvc.y - d, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x - d, 0.0, 1.0), 1.0 - clamp(uvc.y, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x, 0.0, 1.0), 1.0 - clamp(uvc.y, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x + d, 0.0, 1.0), 1.0 - clamp(uvc.y, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x - d, 0.0, 1.0), 1.0 - clamp(uvc.y + d, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x, 0.0, 1.0), 1.0 - clamp(uvc.y + d, 0.0, 1.0))).rgb;
+    sum += texture2D(u_text_texture, vec2(clamp(uvc.x + d, 0.0, 1.0), 1.0 - clamp(uvc.y + d, 0.0, 1.0))).rgb;
+    base = sum / 9.0;
+  }
+  return base;
 }
 
 void main () {
@@ -286,9 +348,13 @@ void main () {
   img_uv -= u_disturb_power * normalize(velocity) * offset;
   img_uv -= u_disturb_power * normalize(velocity) * offset;
 
-  vec3 img = texture2D(u_text_texture, vec2(img_uv.x, 1. - img_uv.y)).rgb;
+  // Use a disturbance on the frame UVs too so the border ripple propagates outward
+  vec2 frame_uv = get_frame_uv();
+  frame_uv -= u_disturb_power * normalize(velocity) * offset;
+
+  vec3 img = sample_image_smooth(img_uv);
   // Use the disturbed image UVs to compute opacity so ripples affect the border
-  float opacity = get_img_frame_alpha(img_uv, .002);
+  float opacity = get_img_frame_alpha(frame_uv, .002);
   gl_FragColor = vec4(img * opacity, opacity);
 }
 `
@@ -373,8 +439,9 @@ void main () {
             gl.activeTexture(gl.TEXTURE0)
             const texture = gl.createTexture()
             gl.bindTexture(gl.TEXTURE_2D, texture)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+            // Use LINEAR filtering to reduce banding/striation when sampling in display
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
             gl.texImage2D(
@@ -450,8 +517,9 @@ void main () {
         initFBOs()
         const cleanupEvents = setupEvents()
         render(0)
-        // Default image
-        loadImage("https://ksenia-k.com/img/codepen/for-fluid-sim-demo-1.jpg")
+        // Load image from props or default
+        const imageSrc = image?.src || "https://ksenia-k.com/img/codepen/for-fluid-sim-demo-1.jpg"
+        loadImage(imageSrc)
 
         function initFBOs() {
             outputColor = createDoubleFBO(res.w, res.h)
@@ -554,8 +622,10 @@ void main () {
             canvas.style.width = `${cssW}px`
             canvas.style.height = `${cssH}px`
             const ratio = cssW / cssH
-            res.w = 256 * ratio
-            res.h = 256
+            // Map resolution prop (1-10) to actual resolution (128-512)
+            const baseResolution = 128 + (resolution - 1) * (512 - 128) / 9
+            res.w = Math.round(baseResolution * ratio)
+            res.h = Math.round(baseResolution)
         }
 
         function getPointerUV(): { u: number; v: number } {
@@ -574,7 +644,8 @@ void main () {
             image.crossOrigin = "anonymous"
             image.src = src
             image.onload = () => {
-                imgRatio = image.naturalWidth / image.naturalHeight
+                // Use the intrinsic image aspect to avoid stretching
+                imgRatio = image.naturalWidth / Math.max(1, image.naturalHeight)
                 imageTexture = gl.createTexture()
                 gl.bindTexture(gl.TEXTURE_2D, imageTexture)
                 gl.texParameteri(
@@ -763,7 +834,7 @@ void main () {
                 displayProgram.uniforms.u_output_texture!,
                 outputColor.read().attach(1)
             )
-            // Scale image to container size inside overscanned canvas
+            // Keep canvas scale at 1.0 so the inner 5/6 mapping is visible
             gl.uniform1f(displayProgram.uniforms.u_canvas_scale!, 1.0)
             // Additional inner rectangle scale within the canvas
             gl.uniform1f(displayProgram.uniforms.u_inner_scale!, innerScale)
@@ -786,10 +857,13 @@ void main () {
             // Ensure event listeners/observers are removed
             if (typeof cleanupEvents === "function") cleanupEvents()
         }
-    }, [])
+    }, [image?.src, resolution, cursorSize, cursorPower, distortionPower])
+
+    // Check if image is provided
+    const hasImage = !!(image && image.src)
 
     return (
-            <div 
+        <div 
             ref={containerRef}
             style={{ 
                 position: "relative", 
@@ -798,28 +872,80 @@ void main () {
                 overflow: "visible",
                 top:"0%",
                 left:"0%",
-              
             }}
         >
-            {/* Debug container */}
-            <div style={{border:"1px solid red", pointerEvents:"none",zIndex:1000, position:"absolute", top:"0%", left:"0%", width:"100%", height:"100%"}}>
-
-            </div>
-            <canvas
-                ref={canvasRef}
-                style={{
-                    position: "absolute",
-                    
-                    top: "-10%",
-                    left: "-10%",
-                    width: "120%",
-                    height: "120%",
-                    overflow:"hidden",
-                    border:"1px solid green"
-                }}
-            />
+            {!hasImage ? (
+                <ComponentMessage
+                    style={{
+                        position: "relative",
+                        width: "100%",
+                        height: "100%",
+                        minWidth: 0,
+                        minHeight: 0,
+                    }}
+                    title="Liquid Hover Effect"
+                    subtitle="Add an image to see the stunning liquid hover effect with ripples and distortions"
+                />
+            ) : (
+                <canvas
+                    ref={canvasRef}
+                    style={{
+                        position: "absolute",
+                        top: "-10%",
+                        left: "-10%",
+                        width: "120%",
+                        height: "120%",
+                        overflow:"hidden",
+                    }}
+                />
+            )}
         </div>
-        
-
     )
 }
+
+addPropertyControls(LiquidHover, {
+    image: {
+        type: ControlType.ResponsiveImage,
+        title: "Image",
+    },
+    resolution: {
+        type: ControlType.Number,
+        title: "Resolution",
+        min: 1,
+        max: 10,
+        step: 1,
+        defaultValue: 4,
+        displayStepper: false,
+    },
+    cursorSize: {
+        type: ControlType.Number,
+        title: "Cursor",
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+        displayStepper: false,
+    },
+    cursorPower: {
+        type: ControlType.Number,
+        title: "Power",
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.6,
+        displayStepper: false,
+    },
+    distortionPower: {
+        type: ControlType.Number,
+        title: "Distortion",
+        min: 0.1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.5,
+        displayStepper: false,
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
+    },
+})
+
+LiquidHover.displayName = "Liquid Hover"

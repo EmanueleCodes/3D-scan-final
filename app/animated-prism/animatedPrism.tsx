@@ -343,6 +343,9 @@ export default function PrismaticBurst(
     const lastFrameTimeRef = useRef<number>(0)
     const frameSkipRef = useRef<number>(0)
     const maxFPSRef = useRef<number>(maxFPS)
+    const rafRef = useRef<number | null>(null)
+    const updateRef = useRef<(now: number) => void>()
+    const lastRef = useRef<number>(0)
 
     // Performance settings based on quality
     const getPerformanceSettings = () => {
@@ -366,6 +369,28 @@ export default function PrismaticBurst(
 
     useEffect(() => {
         previewRef.current = preview
+        const isCanvas = RenderTarget.current() === RenderTarget.canvas
+        // When turning preview ON in Canvas, (re)start loop if not running
+        if (preview && isCanvas && updateRef.current) {
+            lastRef.current = performance.now()
+            if (rafRef.current == null) {
+                rafRef.current = requestAnimationFrame(updateRef.current)
+            }
+        }
+        // When turning preview OFF in Canvas, render once and stop loop
+        if (!preview && isCanvas) {
+            try {
+                if (rendererRef.current && meshRef.current) {
+                    rendererRef.current.render({ scene: meshRef.current })
+                }
+            } catch (e) {
+                void e
+            }
+            if (rafRef.current != null) {
+                cancelAnimationFrame(rafRef.current)
+                rafRef.current = null
+            }
+        }
     }, [preview])
     useEffect(() => {
         hoverDampRef.current = hoverDampness
@@ -479,13 +504,12 @@ export default function PrismaticBurst(
         const onVis = () => {}
         document.addEventListener("visibilitychange", onVis)
 
-        let raf = 0
-        let last = performance.now()
+        lastRef.current = performance.now()
         let accumTime = 0
 
         const update = (now: number) => {
-             const dt = Math.max(0, now - last) * 0.001
-             last = now
+             const dt = Math.max(0, now - lastRef.current) * 0.001
+             lastRef.current = now
              const visible = isVisibleRef.current && !document.hidden
              
              // Check if we're in Canvas mode and preview is off
@@ -494,6 +518,19 @@ export default function PrismaticBurst(
              
              if (!isPaused) accumTime += dt
              
+            // Stop animation completely if not visible
+            if (!visible) {
+                rafRef.current = requestAnimationFrame(update)
+                return
+            }
+            
+            // If paused in Canvas mode, render once then stop the loop
+            if (isPaused) {
+                renderer.render({ scene: meshRef.current! })
+                rafRef.current = null
+                return // Don't schedule next frame
+            }
+             
             // Frame rate throttling (applies everywhere, including Canvas mode)
             const targetFrameTime = 1000 / maxFPSRef.current
             const timeSinceLastFrame = now - lastFrameTimeRef.current
@@ -501,23 +538,18 @@ export default function PrismaticBurst(
 
             // Apply quality-based frame skipping
             if (frameSkipRef.current <= perfSettings.frameSkip) {
-                raf = requestAnimationFrame(update)
+                rafRef.current = requestAnimationFrame(update)
                 return
             }
 
             // Apply FPS limiting
             if (timeSinceLastFrame < targetFrameTime) {
-                raf = requestAnimationFrame(update)
+                rafRef.current = requestAnimationFrame(update)
                 return
             }
 
             lastFrameTimeRef.current = now
             frameSkipRef.current = 0
-
-            if (!visible) {
-                raf = requestAnimationFrame(update)
-                return
-            }
 
             const tau =
                 0.02 + Math.max(0, Math.min(1, hoverDampRef.current)) * 0.5
@@ -529,12 +561,14 @@ export default function PrismaticBurst(
             program.uniforms.uMouse.value = sm as any
             program.uniforms.uTime.value = accumTime
             renderer.render({ scene: meshRef.current! })
-            raf = requestAnimationFrame(update)
+            rafRef.current = requestAnimationFrame(update)
         }
-        raf = requestAnimationFrame(update)
+        updateRef.current = update
+        rafRef.current = requestAnimationFrame(update)
 
         return () => {
-            cancelAnimationFrame(raf)
+            if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+            rafRef.current = null
             container.removeEventListener("pointermove", onPointer)
             ro?.disconnect()
             if (!ro) window.removeEventListener("resize", resize)
