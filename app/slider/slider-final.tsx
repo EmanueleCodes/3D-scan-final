@@ -3255,7 +3255,7 @@ export default function Carousel({
                 visibility: isCentered ? "visible" : "hidden",
             }}
         >
-            <div style={{width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000}}></div>
+            <div style={{width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, pointerEvents: 'none'}}></div>
             {/* Navigation Buttons - Absolutely Positioned */}
             {arrows?.show && (
                 <div ref={arrowsRef}>
