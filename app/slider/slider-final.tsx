@@ -3237,7 +3237,6 @@ export default function Carousel({
         <div
             key={`carousel-${finiteMode ? "finite" : "infinite"}`}
             style={{
-                border:'1px solid red',
                 color: "white",
                 textAlign: "center" as const,
                 display: "flex",
@@ -3256,7 +3255,7 @@ export default function Carousel({
                 visibility: isCentered ? "visible" : "hidden",
             }}
         >
-            <div style={{border:'1px solid blue', width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000}}></div>
+            <div style={{width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000}}></div>
             {/* Navigation Buttons - Absolutely Positioned */}
             {arrows?.show && (
                 <div ref={arrowsRef}>
@@ -3289,8 +3288,8 @@ export default function Carousel({
                                             arrows.verticalAlign || "center"
 
                                         // Calculate insetX based on reference
-                                        let calculatedInsetX = insetX
-                                        let finalUnit = insetXUnit
+                                        let calculatedInsetX: number | string = insetX
+                                        let finalUnit: "px" | "%" | "" = insetXUnit
                                         
                                         if (insetXReference === "central-slide") {
                                             // Get slide width from slideWidth prop
@@ -3301,10 +3300,16 @@ export default function Carousel({
                                                 // For percentage-based slide width: position arrows relative to central slide edges
                                                 const slideWidthPercentage = slideWidthValue
                                                 const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                // Position arrows at central slide edges + user's inset
-                                                calculatedInsetX = offsetFromCenter + insetX
-                                                // Always use percentage for central slide reference to avoid unit mixing
-                                                finalUnit = "%"
+                                                
+                                                if (insetXUnit === "px") {
+                                                    // For pixel inset with percentage slide width, use calc()
+                                                    calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
+                                                    finalUnit = "" // No unit needed for calc()
+                                                } else {
+                                                    // For percentage inset with percentage slide width, add percentages
+                                                    calculatedInsetX = offsetFromCenter + insetX
+                                                    finalUnit = "%"
+                                                }
                                             } else {
                                                 // For pixel-based slide width: convert to percentage of container
                                                 const containerWidth = containerDimensions.current.width
@@ -3312,16 +3317,27 @@ export default function Carousel({
                                                     const slideWidthPixels = slideWidth.pixelValue ?? 300
                                                     const slideWidthPercentage = (slideWidthPixels / containerWidth) * 100
                                                     const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                    // Position arrows at central slide edges + user's inset
-                                                    calculatedInsetX = offsetFromCenter + insetX
-                                                    // Always use percentage for central slide reference to avoid unit mixing
-                                                    finalUnit = "%"
+                                                    
+                                                    if (insetXUnit === "px") {
+                                                        // For pixel inset with pixel slide width, use calc()
+                                                        calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
+                                                        finalUnit = "" // No unit needed for calc()
+                                                    } else {
+                                                        // For percentage inset with pixel slide width, add percentages
+                                                        calculatedInsetX = offsetFromCenter + insetX
+                                                        finalUnit = "%"
+                                                    }
                                                 }
                                             }
+                                        } else {
+                                            // For "container" reference, use the user's chosen unit directly
+                                            calculatedInsetX = insetX
+                                            finalUnit = insetXUnit
                                         }
 
                                         // Format insetX with the appropriate unit
-                                        const formattedInsetX = `${calculatedInsetX}${finalUnit}`
+                                        const formattedInsetX = finalUnit ? `${calculatedInsetX}${finalUnit}` : calculatedInsetX
+                                        
 
                                         return {
                                             top:
@@ -3392,8 +3408,8 @@ export default function Carousel({
                                             arrows.verticalAlign || "center"
 
                                         // Calculate insetX based on reference
-                                        let calculatedInsetX = insetX
-                                        let finalUnit = insetXUnit
+                                        let calculatedInsetX: number | string = insetX
+                                        let finalUnit: "px" | "%" | "" = insetXUnit
                                         
                                         if (insetXReference === "central-slide") {
                                             // Get slide width from slideWidth prop
@@ -3404,10 +3420,16 @@ export default function Carousel({
                                                 // For percentage-based slide width: position arrows relative to central slide edges
                                                 const slideWidthPercentage = slideWidthValue
                                                 const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                // Position arrows at central slide edges + user's inset
-                                                calculatedInsetX = offsetFromCenter + insetX
-                                                // Always use percentage for central slide reference to avoid unit mixing
-                                                finalUnit = "%"
+                                                
+                                                if (insetXUnit === "px") {
+                                                    // For pixel inset with percentage slide width, use calc()
+                                                    calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
+                                                    finalUnit = "" // No unit needed for calc()
+                                                } else {
+                                                    // For percentage inset with percentage slide width, add percentages
+                                                    calculatedInsetX = offsetFromCenter + insetX
+                                                    finalUnit = "%"
+                                                }
                                             } else {
                                                 // For pixel-based slide width: convert to percentage of container
                                                 const containerWidth = containerDimensions.current.width
@@ -3415,16 +3437,27 @@ export default function Carousel({
                                                     const slideWidthPixels = slideWidth.pixelValue ?? 300
                                                     const slideWidthPercentage = (slideWidthPixels / containerWidth) * 100
                                                     const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                    // Position arrows at central slide edges + user's inset
-                                                    calculatedInsetX = offsetFromCenter + insetX
-                                                    // Always use percentage for central slide reference to avoid unit mixing
-                                                    finalUnit = "%"
+                                                    
+                                                    if (insetXUnit === "px") {
+                                                        // For pixel inset with pixel slide width, use calc()
+                                                        calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
+                                                        finalUnit = "" // No unit needed for calc()
+                                                    } else {
+                                                        // For percentage inset with pixel slide width, add percentages
+                                                        calculatedInsetX = offsetFromCenter + insetX
+                                                        finalUnit = "%"
+                                                    }
                                                 }
                                             }
+                                        } else {
+                                            // For "container" reference, use the user's chosen unit directly
+                                            calculatedInsetX = insetX
+                                            finalUnit = insetXUnit
                                         }
 
                                         // Format insetX with the appropriate unit
-                                        const formattedInsetX = `${calculatedInsetX}${finalUnit}`
+                                        const formattedInsetX = finalUnit ? `${calculatedInsetX}${finalUnit}` : calculatedInsetX
+                                        
 
                                         return {
                                             top:
@@ -3845,7 +3878,7 @@ addPropertyControls(Carousel, {
                 hidden: (props: any) =>
                     props.distance !== "space" || !props.show,
             },
-            insetXUnit:{
+            insetXUnit: {
                 type: ControlType.Enum,
                 title: "X Inset Unit",
                 options: ["px", "%"],
