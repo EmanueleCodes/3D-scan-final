@@ -1064,6 +1064,12 @@ export default function Carousel({
         ) {
             items.forEach((item, index) => {
                 item.addEventListener("click", (e) => {
+                    // Disable click navigation while throwing
+                    if (isThrowingRef.current) {
+                        e.stopPropagation()
+                        e.preventDefault?.()
+                        return
+                    }
                     e.stopPropagation()
                     try {
                         stopAutoplay() // Stop autoplay when user clicks
@@ -1701,7 +1707,7 @@ export default function Carousel({
                     : false, // NON-FLUID MODE: No snapping - let cursor follow directly
                 onRelease() {
                     if (this.isClick) {
-                        if (clickNavigation) {
+                        if (clickNavigation && !isThrowingRef.current) {
                             // This was a click with click nav enabled - trigger navigation
                             const clickedElement = document.elementFromPoint(
                                 this.pressX,
@@ -1855,12 +1861,38 @@ export default function Carousel({
                         // No throwing animation, reset now
                         this.isClick = true
                         this.allowDrag = false
+                        // Safety: ensure click navigation is re-enabled
+                        isThrowingRef.current = false
                     }
+
+                    // Post-release safety: if inertia isn't active, re-enable click nav on next tick
+                    try {
+                        const d = draggable
+                        setTimeout(() => {
+                            try {
+                                if (!d || !d.isThrowing) {
+                                    isThrowingRef.current = false
+                                }
+                            } catch (_) {}
+                        }, 0)
+                    } catch (_) {}
                 },
                 onThrowComplete: () => {
                     syncIndex()
                     isThrowingRef.current = false // Throwing animation completed
                     wasPlaying && tl.play()
+
+                    // Extra safety: in case any click during throw set flags, re-enable click nav
+                    try {
+                        if (draggable) {
+                            draggable.isClick = true
+                            draggable.allowDrag = false
+                        }
+                        // Clear again on next tick to cover synchronous edge cases
+                        setTimeout(() => {
+                            isThrowingRef.current = false
+                        }, 0)
+                    } catch (e) {}
 
                     // Reset for next interaction after throwing completes
                     if (draggable) {
@@ -1919,6 +1951,12 @@ export default function Carousel({
         ) {
             items.forEach((item, index) => {
                 item.addEventListener("click", (e) => {
+                    // Disable click navigation while throwing
+                    if (isThrowingRef.current) {
+                        e.stopPropagation()
+                        e.preventDefault?.()
+                        return
+                    }
                     e.stopPropagation()
                     try {
                         stopAutoplay() // Stop autoplay when user clicks
@@ -2929,10 +2967,29 @@ export default function Carousel({
      * Calculate how many slides we actually need with proper validation and limits
      * DYNAMIC APPROACH: Calculate slides needed to fill container width
      */
+    // Determine if a React node will render visible content
+    const isRenderableNode = useCallback((node: React.ReactNode): boolean => {
+        if (node === null || node === undefined || node === false) return false
+        if (Array.isArray(node)) return node.some(isRenderableNode)
+        if (typeof node === "string") return node.trim().length > 0
+        if (typeof node === "number") return true
+        if (React.isValidElement(node)) {
+            const props: any = node.props || {}
+            const style = (props.style || {}) as React.CSSProperties
+            if (style && (style.display === "none" || style.visibility === "hidden")) return false
+            // Filter out empty fragments
+            if (node.type === React.Fragment) {
+                return isRenderableNode(props.children)
+            }
+            return true
+        }
+        return true
+    }, [])
+
     const calculateRequiredSlides = useCallback(() => {
         // Validate content array
         const validContent = Array.isArray(content)
-            ? content.filter((item) => item != null)
+            ? content.filter(isRenderableNode)
             : []
         const actualSlideCount = finiteMode
             ? Math.max(validContent.length, 1) // Finite mode: use actual content count
@@ -3091,6 +3148,11 @@ export default function Carousel({
         gap,
         finiteMode, // Add finiteMode to dependencies to recalculate when mode changes
     ]) // Include container width and gap
+
+    // Computed UI visibility flags
+    const singleFinite = finiteMode && (slideData?.actualSlideCount || 0) <= 1
+    const showArrows = Boolean(arrows?.show && !singleFinite)
+    const showDots = Boolean(dotsUI.enabled && !singleFinite)
 
     // Reset refs each render so removed slides don't linger in boxesRef
     boxesRef.current = []
@@ -3257,7 +3319,7 @@ export default function Carousel({
         >
             <div style={{width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, pointerEvents: 'none'}}></div>
             {/* Navigation Buttons - Absolutely Positioned */}
-            {arrows?.show && (
+            {showArrows && (
                 <div ref={arrowsRef}>
                     <>
                         {/* Previous Button */}
@@ -3545,7 +3607,7 @@ export default function Carousel({
             </div>
 
             {/* Dots Navigation - Show when enabled */}
-            {dotsUI.enabled && (
+            {showDots && (
                 <div
                     style={{
                         ...calculateDotsPosition(),
