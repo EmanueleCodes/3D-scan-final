@@ -953,6 +953,7 @@ export default function Carousel({
                 lastIndex = index
 
                 // Update active element
+                        console.log("🐛 FINITE toIndex calling onChange with index:", index, "element:", items[index])
                 if (onChange && items[index]) {
                     onChange(items[index], index)
                 }
@@ -996,44 +997,153 @@ export default function Carousel({
             return tl.toIndex(prevIndex)
         }
 
-        // Set up draggable if enabled (but disable in finite mode with click navigation to prevent conflicts)
-        if (config.draggable && !(finiteMode && clickNavigation)) {
-            const draggableInstance = Draggable.create(items, {
+        // Set up draggable for finite mode: NO throwing, threshold-based one-slide advance
+        if (config.draggable) {
+            const containerEl = items[0]?.parentElement as HTMLElement | null
+            if (containerEl) {
+                let startX = 0
+                let startIndex = 0
+                let isClick = true
+                let allowDrag = false
+                let baseGroupX = 0
+
+                // Create a proxy to drive drag without attaching to items directly
+                const proxy = document.createElement("div")
+                let pressX = 0
+                let pressY = 0
+                const draggableInstance = Draggable.create(proxy, {
                 type: "x",
-                bounds: {
-                    minX: -(
-                        totalWidth - (items[0]?.parentElement?.offsetWidth || 0)
-                    ),
-                    maxX: 0,
-                },
-                inertia: true,
-                // Prevent draggable from interfering with click navigation
+                    inertia: false,
                 allowEventDefault: false,
-                onPress: function () {
-                    // Only allow dragging if it's not a click (check for movement)
-                    this.allowDrag = false
-                },
-                onDragStart: function () {
-                    // Only start dragging if there's actual movement
-                    if (Math.abs(this.getVelocity("x")) > 0.1) {
-                        this.allowDrag = true
-                    }
-                },
-                onDrag: function () {
-                    if (!this.allowDrag) return
-                    // Update active element during drag
-                    const closestIndex = tl.closestIndex()
-                    if (closestIndex !== lastIndex) {
-                        lastIndex = closestIndex
-                        if (onChange && items[closestIndex]) {
-                            onChange(items[closestIndex], closestIndex)
+                    trigger: containerEl,
+                    onPress(this: any) {
+                        isClick = true
+                        allowDrag = false
+                        startX = this.pointerX || this.startX || 0
+                        pressX = this.pointerX || this.startX || 0
+                        pressY = this.pointerY || this.startY || 0
+                        // capture current group offset from first item
+                        baseGroupX = (gsap.getProperty(items[0], "x") as number) || 0
+                        // snap current index - prefer lastIndex (timeline source of truth),
+                        // fallback to activeSlideIndex
+                        startIndex = typeof lastIndex === "number" ? lastIndex : activeSlideIndex
+                        console.log("🐛 DRAG START - startIndex:", startIndex, "totalSlides:", items.length, "lastIndex:", lastIndex, "activeSlideIndex:", activeSlideIndex)
+                        stopAutoplay()
+                    },
+                    onDrag(this: any) {
+                        const x = this.pointerX || this.x || 0
+                        const moved = Math.abs(x - startX) > 5
+                        if (moved && isClick) {
+                            isClick = false
+                            allowDrag = true
                         }
-                    }
+                        if (!allowDrag) return
+
+                        // Follow cursor by translating the group (all items) with clamping
+                        const containerWidth = containerEl.offsetWidth || 0
+                        // Recompute totalWidth defensively in case widths changed
+                        const currentTotalWidth = items.reduce((sum, item, i) => sum + item.offsetWidth + (i < items.length - 1 ? (config.gap || 0) : 0), 0)
+                        const minX = -Math.max(0, currentTotalWidth - containerWidth)
+                        const maxX = 0
+                        const dragDelta = x - startX
+                        const targetX = Math.max(minX, Math.min(maxX, baseGroupX + dragDelta))
+                        gsap.set(items, { x: targetX })
+                    },
+                    onRelease(this: any) {
+                        if (isClick) {
+                            // Handle click-to-advance when draggable is enabled
+                            if (clickNavigation && !isThrowingRef.current) {
+                                const ptX = pressX || this.pointerX || this.x || 0
+                                const ptY = pressY || this.pointerY || this.y || 0
+                                const clicked = document.elementFromPoint(ptX, ptY)
+                                const slideElement = clicked && (clicked as Element).closest('.box') as HTMLElement | null
+                                if (slideElement) {
+                                    const slideIndex = Array.from(items).indexOf(slideElement)
+                                    if (slideIndex !== -1) {
+                                        try {
+                                            stopAutoplay()
+                                            tl.toIndex(slideIndex, {
+                                                duration: animation.duration,
+                                                ease: getEasingString(animation.easing || 'power1.inOut'),
+                                                onComplete: () => {
+                                                    lastIndex = slideIndex
+                                                    setActiveSlideIndex(slideIndex)
+                                                },
+                                            })
+                                            if (autoplay) setTimeout(startAutoplay, 10)
+                                        } catch (_) {}
+                                    }
+                                }
+                            }
+                            return
+                        }
+
+                        // Evaluate drag distance based on ACTUAL group shift
+                        const containerWidth = containerEl.offsetWidth || 0
+                        const slideWidth = items[0]?.getBoundingClientRect().width || Math.max(containerWidth, 1)
+                        const currentGroupX = parseFloat(String(gsap.getProperty(items[0], "x", "px"))) || 0
+                        const groupShift = currentGroupX - baseGroupX
+
+                        // Threshold (~20% of slide width) for a page advance
+                        const threshold = Math.max(30, slideWidth * 0.2)
+
+                        console.log("🐛 FINITE DRAG DEBUG:", {
+                            totalSlides: items.length,
+                            startIndex,
+                            currentGroupX,
+                            baseGroupX,
+                            groupShift,
+                            slideWidth,
+                            threshold,
+                            containerWidth
+                        })
+
+                        let targetIndex = startIndex
+                        if (groupShift > threshold) {
+                            // group moved right -> go to previous slide
+                            targetIndex = Math.max(0, startIndex - 1)
+                            console.log("🐛 DRAG RIGHT -> Previous slide:", targetIndex)
+                        } else if (groupShift < -threshold) {
+                            // group moved left -> go to next slide
+                            targetIndex = Math.min(items.length - 1, startIndex + 1)
+                            console.log("🐛 DRAG LEFT -> Next slide:", targetIndex, "(max:", items.length - 1, ")")
+                        } else {
+                            console.log("🐛 DRAG INSUFFICIENT -> Staying at:", targetIndex)
+                        }
+
+                        // Snap to target index using timeline and capture new base position
+                        console.log("🐛 CALLING tl.toIndex(", targetIndex, ") from startIndex:", startIndex)
+                        try {
+                            tl.toIndex(targetIndex, {
+                                duration: animation.duration,
+                                ease: getEasingString(animation.easing || "power1.inOut"),
+                                onComplete: () => {
+                                    console.log("🐛 toIndex COMPLETE - targetIndex:", targetIndex, "new baseGroupX:", (gsap.getProperty(items[0], "x") as number) || 0)
+                                    try {
+                                        baseGroupX = (gsap.getProperty(items[0], "x") as number) || 0
+                                        // Update lastIndex to match the target we just navigated to
+                                        lastIndex = targetIndex
+                                        // Force React state alignment if needed
+                                        setActiveSlideIndex(targetIndex)
+                                    } catch (_) {}
+                                },
+                            })
+                            // After timeline moves, update baseGroupX for next interaction
+                            setTimeout(() => {
+                                try {
+                                    baseGroupX = (gsap.getProperty(items[0], "x") as number) || 0
+                                } catch (_) {}
+                            }, (animation.duration || 0.4) * 1000)
+                        } catch (_) {}
+
+                        // Restart autoplay if needed
+                        if (autoplay) setTimeout(startAutoplay, 10)
                 },
             })[0]
 
             if (draggableInstance) {
                 tl.draggable = draggableInstance
+                }
             }
         }
 
@@ -1071,10 +1181,7 @@ export default function Carousel({
         }
 
         // Fallback click handler for when draggable is disabled but click navigation is enabled
-        if (
-            (!config.draggable || (finiteMode && clickNavigation)) &&
-            clickNavigation
-        ) {
+        if (!config.draggable && clickNavigation) {
             items.forEach((item, index) => {
                 item.addEventListener("click", (e) => {
                     // Disable click navigation while throwing
@@ -2480,6 +2587,7 @@ export default function Carousel({
                                         // Debounce onChange to prevent excessive state updates
                                         requestAnimationFrame(() => {
                                             try {
+                                                console.log("🐛 FINITE onChange FIRED - index:", index, "element:", element)
                                                 // Update React state when active slide changes
                                                 setActiveElement(element)
                                                 setActiveSlideIndex(index)
@@ -2535,7 +2643,9 @@ export default function Carousel({
                                                         isNextDisabled
                                                     )
                                                 }
-                                            } catch (error) {}
+                                            } catch (error) {
+                                                console.log("🐛 FINITE onChange ERROR:", error)
+                                            }
                                         })
                                     },
                                 },
@@ -3813,7 +3923,7 @@ addPropertyControls(Carousel, {
         type: ControlType.Boolean,
         title: "Draggable",
         defaultValue: true,
-        hidden: (props: any) => props.finiteMode,
+        hidden: (props: any) => false,
     },
     fluid: {
         type: ControlType.Boolean,
