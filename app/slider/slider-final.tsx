@@ -35,6 +35,7 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 // Register GSAP plugins for drag functionality and momentum scrolling
 gsap.registerPlugin(Draggable, InertiaPlugin)
 
+
 /**
  * Configuration interface for the horizontal loop
  *
@@ -143,6 +144,11 @@ export default function Carousel({
         insetX: 20,
         insetY: 20,
         opacity: 0.7,
+        fadeInControls: {
+            duration: 0.5,
+            easing: "power1.inOut",
+            delay: 0.2,
+        },
     },
     finiteMode = false,
     fluid = true,
@@ -205,6 +211,11 @@ export default function Carousel({
         insetXUnit?: "px" | "%"
         insetY?: number
         opacity?: number
+        fadeInControls?: {
+            duration?: number
+            easing?: string
+            delay?: number
+        }
     }
     finiteMode?: boolean
     fluid?: boolean
@@ -275,6 +286,8 @@ export default function Carousel({
     const [isCentered, setIsCentered] = useState(false) // Track when slides are properly centered
     const [arrowsVisible, setArrowsVisible] = useState(false) // Track when arrows should be visible
     const arrowsRef = useRef<HTMLDivElement>(null) // Reference to arrows container
+    const prevArrowElRef = useRef<HTMLElement | null>(null) // Reference to prev arrow element
+    const nextArrowElRef = useRef<HTMLElement | null>(null) // Reference to next arrow element
 
     // Refs for tracking drag state without causing re-renders
     const isDraggingRef = useRef(false) // Track if user is currently dragging
@@ -2060,35 +2073,60 @@ export default function Carousel({
         setCanvasMode(isCanvasMode)
     }, [])
 
-    // Handle arrow fade-in effect using Intersection Observer
+    // Handle arrow fade-in effect by observing actual arrow elements
     useEffect(() => {
-        if (!arrows?.show || !arrows?.fadeIn || !arrowsRef.current) {
-            setArrowsVisible(false)
+        if (!arrows?.show || !arrows?.fadeIn) {
             return
         }
+
+        const targets: HTMLElement[] = []
+        if (prevArrowElRef.current) targets.push(prevArrowElRef.current)
+        if (nextArrowElRef.current) targets.push(nextArrowElRef.current)
+        if (!targets.length) return
+
+        // Initialize opacity to 0 for fade-in behavior
+        try {
+            targets.forEach((el) => {
+                gsap.set(el, { opacity: 0 })
+            })
+        } catch (_) {}
 
         const observer = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        setArrowsVisible(true)
-                    } else {
-                        setArrowsVisible(false)
-                    }
+                    const el = entry.target as HTMLElement
+                    try {
+                        // Use intersectionRatio to determine visibility
+                        // intersectionRatio is 0 when element is not visible, 1 when fully visible
+                        const shouldBeVisible = entry.isIntersecting
+                        
+                        // Get fade settings from property controls
+                        const fadeDuration = arrows?.fadeInControls?.duration || 0.5
+                        const fadeEasing = arrows?.fadeInControls?.easing || "power1.inOut"
+                        const fadeDelay = arrows?.fadeInControls?.delay || 0.2
+                        
+                        gsap.to(el, {
+                            opacity: shouldBeVisible ? 1 : 0,
+                            duration: fadeDuration,
+                            delay: shouldBeVisible ? fadeDelay : 0, // Only delay on fade-in
+                            ease: getEasingString(fadeEasing),
+                            overwrite: true,
+                        })
+                    } catch (_) {}
                 })
             },
             {
-                threshold: 1, // Trigger when 10% of the arrows are visible
-                rootMargin: "0px 0px 20% 0px", // Start fading in when arrows are 10% from viewport
+                threshold: 0.1, // Trigger when 10% of arrow is visible
+                rootMargin: "0px",
             }
         )
 
-        observer.observe(arrowsRef.current)
+        targets.forEach((el) => observer.observe(el))
 
         return () => {
             observer.disconnect()
         }
-    }, [arrows?.show, arrows?.fadeIn])
+    }, [arrows?.show, arrows?.fadeIn, arrows?.fadeInControls?.duration, arrows?.fadeInControls?.easing, arrows?.fadeInControls?.delay, getEasingString])
 
     // Remove the old useEffect - now using useLayoutEffect for immediate measurement
 
@@ -3326,17 +3364,12 @@ export default function Carousel({
                         {prevArrow && (
                             <div
                                 data-button="prev"
+                                ref={(el) => {
+                                    prevArrowElRef.current = el
+                                }}
                                 style={{
                                     zIndex: 9999,
                                     position: "absolute",
-                                    opacity: arrows?.fadeIn
-                                        ? arrowsVisible
-                                            ? 1
-                                            : 0
-                                        : 1,
-                                    transition: arrows?.fadeIn
-                                        ? "opacity 0.5s ease-in-out"
-                                        : "none",
                                     ...(() => {
                                         const gap =
                                             arrows.distance === "group"
@@ -3446,17 +3479,12 @@ export default function Carousel({
                         {nextArrow && (
                             <div
                                 data-button="next"
+                                ref={(el) => {
+                                    nextArrowElRef.current = el
+                                }}
                                 style={{
                                     zIndex: 9999,
                                     position: "absolute",
-                                    opacity: arrows?.fadeIn
-                                        ? arrowsVisible
-                                            ? 1
-                                            : 0
-                                        : 1,
-                                    transition: arrows?.fadeIn
-                                        ? "opacity 0.5s ease-in-out"
-                                        : "none",
                                     ...(() => {
                                         const gap =
                                             arrows.distance === "group"
@@ -3898,6 +3926,95 @@ addPropertyControls(Carousel, {
                 title: "Fade In",
                 defaultValue: false,
                 hidden: (props: any) => !props.show,
+            },
+            fadeInControls:{
+                type: ControlType.Object,
+                title: "Animation",
+                hidden: (props: any) => !props.fadeIn,
+                controls: {
+                    duration: {
+                        type: ControlType.Number,
+                        title: "Duration",
+                        min: 0,
+                        max: 1,
+                        step: 0.01,
+                        defaultValue: 0.5,
+                    },
+                    easing: {
+                        type: ControlType.Enum,
+                        title: "Easing",
+                        //Same options as in the easing control
+                        options: [
+                            "none",
+                            "power1.inOut",
+                            "power1.in",
+                            "power1.out",
+                            "power2.inOut",
+                            "power2.in",
+                            "power2.out",
+                            "power3.inOut",
+                            "power3.in",
+                            "power3.out",
+                            "back.inOut",
+                            "back.in",
+                            "back.out",
+                            "elastic.inOut",
+                            "elastic.in",
+                            "elastic.out",
+                            "bounce.inOut",
+                            "bounce.in",
+                            "bounce.out",
+                            "circ.inOut",
+                            "circ.in",
+                            "circ.out",
+                            "expo.inOut",
+                            "expo.in",
+                            "expo.out",
+                            "sine.inOut",
+                            "sine.in",
+                            "sine.out",
+                        ],
+                        optionTitles: [
+                            "None",
+                            "Power1 InOut",
+                            "Power1 In",
+                            "Power1 Out",
+                            "Power2 InOut",
+                            "Power2 In",
+                            "Power2 Out",
+                            "Power3 InOut",
+                            "Power3 In",
+                            "Power3 Out",
+                            "Back InOut",
+                            "Back In",
+                            "Back Out",
+                            "Elastic InOut",
+                            "Elastic In",
+                            "Elastic Out",
+                            "Bounce InOut",
+                            "Bounce In",
+                            "Bounce Out",
+                            "Circ InOut",
+                            "Circ In",
+                            "Circ Out",
+                            "Expo InOut",
+                            "Expo In",
+                            "Expo Out",
+                            "Sine InOut",
+                            "Sine In",
+                            "Sine Out",
+                        ],
+                        defaultValue: "power1.inOut",
+                    },
+                    delay: {
+                        type: ControlType.Number,
+                        title: "Delay",
+                        min: 0,
+                        max: 1,
+                        step: 0.01,
+                        defaultValue: 0.2,
+                    },
+                },
             },
             distance: {
                 type: ControlType.Enum,
