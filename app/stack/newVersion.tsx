@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState } from "react"
 import { motion, PanInfo } from "framer-motion"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
@@ -33,7 +33,7 @@ interface CardStackProps {
     transition: any
     style?: React.CSSProperties
     cardShadow?: string
-    sizing: "fixed" | "fit-content"
+    fitToContent?: boolean
 }
 
 /**
@@ -68,7 +68,7 @@ export default function CardStack({
     transition = { type: "spring", stiffness: 300, damping: 30 },
     style,
     cardShadow = "0 10px 25px rgba(0, 0, 0, 0.15)",
-    sizing = "fixed",
+    fitToContent = false,
 }: CardStackProps) {
     // Determine the number of cards based on mode
     const actualCardCount =
@@ -98,58 +98,27 @@ export default function CardStack({
 
     // Refs and state to measure largest slide when fitting to content
     const contentMeasureRefs = React.useRef<(HTMLDivElement | null)[]>([])
-    const zoomProbeRef = React.useRef<HTMLDivElement>(null)
-    const hasMeasuredRef = React.useRef(false)
     const [maxContentSize, setMaxContentSize] = React.useState({
         width: 0,
         height: 0,
     })
 
     // Measure the maximum width/height among slides in components mode
-    useEffect(() => {
-        if (!(mode === "components" && sizing === "fit-content")) return
-        
-        // In preview mode, only measure once on initial load
-        const isPreview = RenderTarget.current() === RenderTarget.preview
-        if (isPreview && hasMeasuredRef.current) return
-        
-        // Use a timeout to ensure components are rendered
-        const timeoutId = setTimeout(() => {
-            // Detect editor zoom using a hidden 20x20 probe element
-            const probe = zoomProbeRef.current
-            const editorZoom = probe
-                ? probe.getBoundingClientRect().width / 20
-                : 1
-            
-            let maxW = 0
-            let maxH = 0
-            for (const el of contentMeasureRefs.current) {
-                if (!el) continue
-                // Get the first child (the actual component)
-                const child = el.firstElementChild as HTMLElement
-                if (child) {
-                    const rect = child.getBoundingClientRect()
-                    // Remove editor zoom from the measured size so scale matches preview/live
-                    const safeZoom = Math.max(editorZoom, 0.0001)
-                    const adjustedWidth = rect.width / safeZoom
-                    const adjustedHeight = rect.height / safeZoom
-                    if (adjustedWidth > maxW) maxW = adjustedWidth
-                    if (adjustedHeight > maxH) maxH = adjustedHeight
-                }
-            }
-            setMaxContentSize({ width: maxW, height: maxH })
-            
-            // Mark as measured in preview mode
-            if (isPreview) {
-                hasMeasuredRef.current = true
-            }
-        }, 0)
-        
-        return () => clearTimeout(timeoutId)
-    }, [cards, content, mode, sizing])
+    React.useLayoutEffect(() => {
+        if (!(mode === "components" && fitToContent)) return
+        let maxW = 0
+        let maxH = 0
+        for (const el of contentMeasureRefs.current) {
+            if (!el) continue
+            const rect = el.getBoundingClientRect()
+            if (rect.width > maxW) maxW = rect.width
+            if (rect.height > maxH) maxH = rect.height
+        }
+        setMaxContentSize({ width: maxW, height: maxH })
+    }, [cards, content, mode, fitToContent])
 
     // Update cards when cardCount or content changes
-    useEffect(() => {
+    React.useEffect(() => {
         setCards((prevCards) => {
             if (prevCards.length !== actualCardCount) {
                 return Array.from({ length: actualCardCount }, (_, i) => ({
@@ -285,106 +254,106 @@ export default function CardStack({
                         }}
                     >
                         <motion.div
-                            drag={isTopCard && !isCanvas ? true : false}
-                            dragConstraints={{
-                                left: 0,
-                                right: 0,
-                                top: 0,
-                                bottom: 0,
-                            }}
-                            dragElastic={0.7}
-                            dragMomentum={false}
-                            dragTransition={{
-                                bounceStiffness: 300,
-                                bounceDamping: 20,
-                            }}
-                            onMouseDown={
-                                isTopCard && !isCanvas
-                                    ? handlePointerDown
-                                    : undefined
-                            }
-                            onMouseUp={
-                                isTopCard && !isCanvas ? handlePointerUp : undefined
-                            }
-                            onDragStart={
-                                isTopCard && !isCanvas ? handleDragStart : undefined
-                            }
-                            onDragEnd={
-                                isTopCard && !isCanvas
-                                    ? (_, info) => handleDragEnd(info)
-                                    : undefined
-                            }
-                            animate={cardStyle}
-                            transition={{
-                                x: isCanvas ? { duration: 0 } : transition,
-                                y: isCanvas ? { duration: 0 } : transition,
-                                rotate: isCanvas ? { duration: 0 } : transition,
-                                scale: isCanvas ? { duration: 0 } : transition,
-                                zIndex: { duration: 0.3, ease: "easeOut" },
-                                z: { duration: 0.3, ease: "easeOut" },
-                            }}
-                            initial={isCanvas ? cardStyle : false}
-                            style={{
-                                pointerEvents: "auto",
-                                position:
-                                    mode === "components" && sizing === "fit-content"
-                                        ? "relative"
-                                        : "absolute",
-                                ...(mode === "components" && sizing === "fit-content"
-                                    ? {}
-                                    : { top: 0, right: 0, bottom: 0, left: 0 }),
-                                width:
-                                    mode === "components" && sizing === "fit-content"
-                                        ? "auto"
-                                        : "100%",
-                                height:
-                                    mode === "components" && sizing === "fit-content"
-                                        ? "auto"
-                                        : "100%",
-                                backgroundColor:
-                                    mode === "images"
-                                        ? "rgba(243, 239, 255, 0.8)"
-                                        : "transparent",
-                                borderRadius: cardRadius,
-                                display: "flex",
-                                alignItems: "center",
-                                backdropFilter:
-                                    mode === "images" && !cardImage
-                                        ? "blur(10px)"
-                                        : "none",
-                                justifyContent: "center",
-                                fontSize: "32px",
-                                fontWeight: "300",
-                                fontFamily: "system-ui",
-                                color: "#9967FF",
-                                cursor:
-                                    isTopCard && !isCanvas
-                                        ? isPressed
-                                            ? "grabbing"
-                                            : "grab"
-                                        : "default",
-                                userSelect: "none",
-                                boxShadow: cardShadow,
-                                backgroundImage:
-                                    mode === "images" && cardImage
-                                        ? `url(${cardImage.src})`
-                                        : undefined,
-                                backgroundSize: "cover",
-                                backgroundPosition: "center",
-                                backgroundRepeat: "no-repeat",
-                                overflow: "visible",
-                                border:
-                                    (mode === "images" && !cardImage) ||
-                                    (mode === "components" && !cardComponent)
-                                        ? "1.5px solid #9967FF"
-                                        : "none",
-                            }}
-                            whileDrag={{
-                                scale: 1.05,
-                                rotate: tiltAngleStart, // Preserve the tiltAngleStart during drag
-                                zIndex: 1000,
-                            }}
-                        >
+                        drag={isTopCard && !isCanvas ? true : false}
+                        dragConstraints={{
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                        }}
+                        dragElastic={0.7}
+                        dragMomentum={false}
+                        dragTransition={{
+                            bounceStiffness: 300,
+                            bounceDamping: 20,
+                        }}
+                        onMouseDown={
+                            isTopCard && !isCanvas
+                                ? handlePointerDown
+                                : undefined
+                        }
+                        onMouseUp={
+                            isTopCard && !isCanvas ? handlePointerUp : undefined
+                        }
+                        onDragStart={
+                            isTopCard && !isCanvas ? handleDragStart : undefined
+                        }
+                        onDragEnd={
+                            isTopCard && !isCanvas
+                                ? (_, info) => handleDragEnd(info)
+                                : undefined
+                        }
+                        animate={cardStyle}
+                        transition={{
+                            x: isCanvas ? { duration: 0 } : transition,
+                            y: isCanvas ? { duration: 0 } : transition,
+                            rotate: isCanvas ? { duration: 0 } : transition,
+                            scale: isCanvas ? { duration: 0 } : transition,
+                            zIndex: { duration: 0.3, ease: "easeOut" },
+                            z: { duration: 0.3, ease: "easeOut" },
+                        }}
+                        initial={isCanvas ? cardStyle : false}
+                    style={{
+                        pointerEvents: "auto",
+                        position:
+                            mode === "components" && fitToContent
+                                ? "relative"
+                                : "absolute",
+                        ...(mode === "components" && fitToContent
+                            ? {}
+                            : { top: 0, right: 0, bottom: 0, left: 0 }),
+                        width:
+                            mode === "components" && fitToContent
+                                ? "auto"
+                                : "100%",
+                        height:
+                            mode === "components" && fitToContent
+                                ? "auto"
+                                : "100%",
+                        backgroundColor:
+                            mode === "images"
+                                ? "rgba(243, 239, 255, 0.8)"
+                                : "transparent",
+                        borderRadius: cardRadius,
+                        display: "flex",
+                        alignItems: "center",
+                        backdropFilter:
+                            mode === "images" && !cardImage
+                                ? "blur(10px)"
+                                : "none",
+                        justifyContent: "center",
+                        fontSize: "32px",
+                        fontWeight: "300",
+                        fontFamily: "system-ui",
+                        color: "#9967FF",
+                        cursor:
+                            isTopCard && !isCanvas
+                                ? isPressed
+                                    ? "grabbing"
+                                    : "grab"
+                                : "default",
+                        userSelect: "none",
+                        boxShadow: cardShadow,
+                        backgroundImage:
+                            mode === "images" && cardImage
+                                ? `url(${cardImage.src})`
+                                : undefined,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                        backgroundRepeat: "no-repeat",
+                        overflow: "visible",
+                        border:
+                            (mode === "images" && !cardImage) ||
+                            (mode === "components" && !cardComponent)
+                                ? "1.5px solid #9967FF"
+                                : "none",
+                    }}
+                        whileDrag={{
+                            scale: 1.05,
+                            rotate: tiltAngleStart, // Preserve the tiltAngleStart during drag
+                            zIndex: 1000,
+                        }}
+                    >
                         {mode === "images" ? (
                             !cardImage && (
                                 <ComponentMessage
@@ -396,7 +365,7 @@ export default function CardStack({
                             <div
                                 style={{
                                     position: "relative",
-                                    ...(sizing === "fit-content"
+                                    ...(fitToContent
                                         ? { display: "inline-block" }
                                         : { width: "100%", height: "100%" }),
                                     backgroundColor: !cardComponent
@@ -414,22 +383,10 @@ export default function CardStack({
                                         }}
                                         style={{
                                             position: "relative",
-                                            ...(sizing === "fixed"
-                                                ? { width: "100%", height: "100%" }
-                                                : {}),
                                         }}
                                     >
                                         {React.cloneElement(cardComponent as any, {
                                             style: {
-                                                ...(sizing === "fixed"
-                                                    ? {
-                                                          width: "100%",
-                                                          height: "100%",
-                                                          position: "absolute",
-                                                          top: 0,
-                                                          left: 0,
-                                                      }
-                                                    : {}),
                                                 // Preserve any user-provided styles on the child
                                                 ...(cardComponent as any).props?.style,
                                             },
@@ -438,7 +395,7 @@ export default function CardStack({
                                 ) : (
                                     <ComponentMessage
                                         style={{
-                                            ...(sizing === "fit-content"
+                                            ...(fitToContent
                                                 ? { minWidth: 200, minHeight: 200 }
                                                 : { width: "100%", height: "100%" }),
                                         }}
@@ -452,23 +409,12 @@ export default function CardStack({
                     </div>
                 )
             })}
-            {/* Hidden 20x20 probe element to detect editor zoom level in canvas */}
-            <div
-                ref={zoomProbeRef}
-                style={{
-                    position: "absolute",
-                    width: 20,
-                    height: 20,
-                    opacity: 0,
-                    pointerEvents: "none",
-                }}
-            />
-            {mode === "components" ? (
+            {mode === "components" && fitToContent ? (
                 <div
                     style={{
                         position: "relative",
-                        width: maxContentSize.width || "100%",
-                        height: maxContentSize.height || "100%",
+                        width: maxContentSize.width || 0,
+                        height: maxContentSize.height || 0,
                         opacity: 0,
                         zIndex: -1,
                         pointerEvents: "none",
@@ -486,16 +432,6 @@ addPropertyControls(CardStack, {
         options: ["images", "components"],
         optionTitles: ["Images", "Components"],
         defaultValue: "images",
-        displaySegmentedControl: true,
-        segmentedControlDirection: "vertical",
-    },
-    sizing: {
-        type: ControlType.Enum,
-        title: "Sizing",
-        options: ["fixed", "fit-content"],
-        optionTitles: ["Fixed dimensions", "Fit content"],
-        defaultValue: "fixed",
-        hidden: (props) => props.mode !== "components",
         displaySegmentedControl: true,
         segmentedControlDirection: "vertical",
     },
@@ -649,6 +585,13 @@ addPropertyControls(CardStack, {
         defaultValue: { type: "spring", stiffness: 300, damping: 30 },
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
+    },
+    fitToContent: {
+        type: ControlType.Boolean,
+        title: "Fit to Content",
+        defaultValue: false,
+        hidden: (props) => props.mode !== "components",
+        description: "Size cards to the passed component's intrinsic size",
     },
 })
 
