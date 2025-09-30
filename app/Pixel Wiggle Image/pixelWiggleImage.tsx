@@ -10,7 +10,7 @@ import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
  * @framerDisableUnlink
  */
 export default function PixelWiggleImage(props: Props) {
-    const { image, tile, offset, style } = props
+    const { image, tileWidth, tileHeight, offset, speed, style } = props
 
     // Container and canvas refs
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -24,10 +24,19 @@ export default function PixelWiggleImage(props: Props) {
     const animRef = useRef<number | null>(null)
     const uniformsRef = useRef<Record<string, WebGLUniformLocation | null>>({})
     const imageObjRef = useRef<HTMLImageElement | null>(null)
+    const textureReadyRef = useRef<boolean>(false)
+    const [isTextureReady, setIsTextureReady] = useState(false)
     const resizeObserverRef = useRef<ResizeObserver | null>(null)
+    const intersectionObserverRef = useRef<IntersectionObserver | null>(null)
+    const isInViewRef = useRef<boolean>(true)
+    const devicePixelRatioRef = useRef<number>(1) // Safe default for SSR
 
-    // Device pixel ratio (cap at 2 to limit GPU cost)
-    const devicePixelRatio = useMemo(() => Math.min(window.devicePixelRatio || 1, 2), [])
+    // Set device pixel ratio on client side only
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            devicePixelRatioRef.current = Math.min(window.devicePixelRatio || 1, 2)
+        }
+    }, [])
 
     // Inline styles only. The outer sizing is controlled by Framer; inner fills 100%.
     const containerStyle: React.CSSProperties = {
@@ -50,6 +59,8 @@ export default function PixelWiggleImage(props: Props) {
         height: "100%",
         display: "block",
     }
+
+    const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
     // Shaders converted from reference.html
     const vertexShaderSource = useMemo(
@@ -74,8 +85,10 @@ uniform sampler2D u_image_texture;
 uniform vec2 u_pointer;
 uniform vec3 u_dot_color;
 uniform float u_time;
-uniform float u_tile_scale;
+uniform float u_tile_width;
+uniform float u_tile_height;
 uniform float u_offset;
+uniform float u_speed;
 uniform float u_container_aspect;
 uniform float u_image_aspect;
 
@@ -124,12 +137,14 @@ void main () {
 
   // 2) Then apply tiling/distortion in the already cover-mapped space
   vec2 sampling_uv = fit_uv - 0.5;
-  sampling_uv /= u_tile_scale;
+  sampling_uv.x /= u_tile_width;
+  sampling_uv.y /= u_tile_height;
   vec2 fract_uv = fract(sampling_uv);
   vec2 floor_uv = floor(sampling_uv);
-  fract_uv.x += u_offset * snoise(floor_uv + 0.001 * u_time);
+  fract_uv.x += u_offset * snoise(floor_uv + 0.001 * u_time * u_speed);
   sampling_uv = (floor_uv + fract_uv);
-  sampling_uv *= u_tile_scale;
+  sampling_uv.x *= u_tile_width;
+  sampling_uv.y *= u_tile_height;
   sampling_uv += 0.5;
 
   // Sample with clamped UVs and crop to the cover area using fit_uv bounds
@@ -152,8 +167,8 @@ void main () {
         if (!canvas || !container) return
 
         const gl =
-            (canvas.getContext("webgl") as WebGLRenderingContext | null) ||
-            (canvas.getContext("experimental-webgl") as WebGLRenderingContext | null)
+            (canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true }) as WebGLRenderingContext | null) ||
+            (canvas.getContext("experimental-webgl", { alpha: true, premultipliedAlpha: true }) as WebGLRenderingContext | null)
         if (!gl) {
             // Graceful fallback: show a message in the container
             return
@@ -240,12 +255,16 @@ void main () {
         const uImage = uniformsRef.current["u_image_texture"]
         if (uImage) gl.uniform1i(uImage, 0)
 
+        // Clear to transparent to avoid black frame before texture loads
+        gl.clearColor(0, 0, 0, 0)
+        gl.clear(gl.COLOR_BUFFER_BIT)
+
         // Initial sizing and ResizeObserver
         const resize = () => {
             const w = Math.max(canvas.clientWidth, 2)
             const h = Math.max(canvas.clientHeight, 2)
-            const width = Math.floor(w * devicePixelRatio)
-            const height = Math.floor(h * devicePixelRatio)
+            const width = Math.floor(w * devicePixelRatioRef.current)
+            const height = Math.floor(h * devicePixelRatioRef.current)
             if (canvas.width !== width || canvas.height !== height) {
                 canvas.width = width
                 canvas.height = height
@@ -263,6 +282,22 @@ void main () {
         resizeObserverRef.current = ro
         ro.observe(container)
 
+        // Intersection Observer to pause animation when out of view
+        const intersectionObserver = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    isInViewRef.current = entry.isIntersecting
+                })
+            },
+            {
+                root: null,
+                rootMargin: "50px", // Start animating 50px before component comes into view
+                threshold: 0.01,
+            }
+        )
+        intersectionObserverRef.current = intersectionObserver
+        intersectionObserver.observe(container)
+
         // Framer Canvas mode often needs extra passes
         if (RenderTarget.current() === RenderTarget.canvas) {
             setTimeout(resize, 50)
@@ -271,17 +306,41 @@ void main () {
 
         // Start RAF loop
         const uTime = uniformsRef.current["u_time"]
-        const uTile = uniformsRef.current["u_tile_scale"]
+        const uTileWidth = uniformsRef.current["u_tile_width"]
+        const uTileHeight = uniformsRef.current["u_tile_height"]
         const uOffset = uniformsRef.current["u_offset"]
+        const uSpeed = uniformsRef.current["u_speed"]
         const render = () => {
             if (!gl || !programRef.current) return
+            
+            // Only animate if component is in view
+            if (!isInViewRef.current) {
+                animRef.current = requestAnimationFrame(render)
+                return
+            }
+            
+            // Skip drawing until the texture is ready (keeps canvas transparent)
+            if (!textureReadyRef.current) {
+                animRef.current = requestAnimationFrame(render)
+                return
+            }
+
             // Update uniforms
             if (uTime) gl.uniform1f(uTime, performance.now())
-            if (uTile) {
-                const scale = canvas.clientHeight > 0 ? tile / canvas.clientHeight : 1
-                gl.uniform1f(uTile, scale)
+            if (uTileWidth) {
+                const scaleX = canvas.clientWidth > 0 ? tileWidth / canvas.clientWidth : 1
+                gl.uniform1f(uTileWidth, scaleX)
+            }
+            if (uTileHeight) {
+                const scaleY = canvas.clientHeight > 0 ? tileHeight / canvas.clientHeight : 1
+                gl.uniform1f(uTileHeight, scaleY)
             }
             if (uOffset) gl.uniform1f(uOffset, offset)
+            if (uSpeed) {
+                // Map speed from 0-1 to 0-3
+                const mappedSpeed = speed * 3
+                gl.uniform1f(uSpeed, mappedSpeed)
+            }
 
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
             animRef.current = requestAnimationFrame(render)
@@ -293,8 +352,11 @@ void main () {
             if (resizeObserverRef.current) {
                 try { resizeObserverRef.current.disconnect() } catch {}
             }
+            if (intersectionObserverRef.current) {
+                try { intersectionObserverRef.current.disconnect() } catch {}
+            }
         }
-    }, [vertexShaderSource, fragmentShaderSource, tile, offset, devicePixelRatio, image])
+    }, [vertexShaderSource, fragmentShaderSource, tileWidth, tileHeight, offset, speed, image])
 
     // (Re)load texture when image prop changes
     useEffect(() => {
@@ -321,6 +383,10 @@ void main () {
             const imageAspect = img.naturalWidth / img.naturalHeight
             const uImageAspect = uniformsRef.current["u_image_aspect"]
             if (uImageAspect) gl.uniform1f(uImageAspect, imageAspect)
+
+            // Mark texture as ready so we start rendering
+            textureReadyRef.current = true
+            setIsTextureReady(true)
         }
 
         return () => {
@@ -345,12 +411,42 @@ void main () {
     return (
         <div ref={containerRef} style={containerStyle}>
             {image?.src ? (
-                <canvas ref={canvasRef} style={canvasStyle} />
+                <>
+                    {!isTextureReady && (
+                        isCanvas ? (
+                            <ComponentMessage
+                                title="Loading image…"
+                                subtitle="Preparing the pixel wiggle texture"
+                            />
+                        ) : (
+                            <div
+                                style={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    width: "100%",
+                                    height: "100%",
+                                }}
+                            />
+                        )
+                    )}
+                    <canvas ref={canvasRef} style={canvasStyle} />
+                </>
             ) : (
-                <ComponentMessage
-                    title="Pixel Wiggle Image"
-                    subtitle="Add an image in the properties to see the pixel wiggle effect"
-                />
+                isCanvas ? (
+                    <ComponentMessage
+                        title="Pixel Wiggle Image"
+                        subtitle="Add an image in the properties to see the pixel wiggle effect"
+                    />
+                ) : (
+                    <div
+                        style={{
+                            position: "absolute",
+                            inset: 0,
+                            width: "100%",
+                            height: "100%",
+                        }}
+                    />
+                )
             )}
         </div>
     )
@@ -368,8 +464,10 @@ interface ResponsiveImageProp {
 
 interface Props {
     image?: ResponsiveImageProp
-    tile: number
+    tileWidth: number
+    tileHeight: number
     offset: number
+    speed: number
     style?: React.CSSProperties
     docs?: string
 }
@@ -381,9 +479,18 @@ addPropertyControls(PixelWiggleImage, {
         type: ControlType.ResponsiveImage,
         title: "Image",
     },
-    tile: {
+    tileWidth: {
         type: ControlType.Number,
-        title: "Tile",
+        title: "Width",
+        min: 5,
+        max: 400,
+        step: 5,
+        defaultValue: 50,
+        unit: "px",
+    },
+    tileHeight: {
+        type: ControlType.Number,
+        title: "Height",
         min: 5,
         max: 400,
         step: 5,
@@ -392,11 +499,19 @@ addPropertyControls(PixelWiggleImage, {
     },
     offset: {
         type: ControlType.Number,
-        title: "Offset",
+        title: "Movement",
         min: 0,
         max: 1,
-        step: 0.01,
+        step: 0.1,
         defaultValue: 0.5,
+    },
+    speed: {
+        type: ControlType.Number,
+        title: "Speed",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.33,
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
