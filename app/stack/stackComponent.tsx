@@ -99,7 +99,6 @@ export default function CardStack({
     // Refs and state to measure largest slide when fitting to content
     const contentMeasureRefs = React.useRef<(HTMLDivElement | null)[]>([])
     const zoomProbeRef = React.useRef<HTMLDivElement>(null)
-    const hasMeasuredRef = React.useRef(false)
     const [maxContentSize, setMaxContentSize] = React.useState({
         width: 0,
         height: 0,
@@ -108,11 +107,7 @@ export default function CardStack({
     // Measure the maximum width/height among slides in components mode
     useEffect(() => {
         if (!(mode === "components" && sizing === "fit-content")) return
-        
-        // In preview mode, only measure once on initial load
-        const isPreview = RenderTarget.current() === RenderTarget.preview
-        if (isPreview && hasMeasuredRef.current) return
-        
+
         // Use a timeout to ensure components are rendered
         const timeoutId = setTimeout(() => {
             // Detect editor zoom using a hidden 20x20 probe element
@@ -120,7 +115,7 @@ export default function CardStack({
             const editorZoom = probe
                 ? probe.getBoundingClientRect().width / 20
                 : 1
-            
+
             let maxW = 0
             let maxH = 0
             for (const el of contentMeasureRefs.current) {
@@ -138,13 +133,8 @@ export default function CardStack({
                 }
             }
             setMaxContentSize({ width: maxW, height: maxH })
-            
-            // Mark as measured in preview mode
-            if (isPreview) {
-                hasMeasuredRef.current = true
-            }
         }, 0)
-        
+
         return () => clearTimeout(timeoutId)
     }, [cards, content, mode, sizing])
 
@@ -304,10 +294,14 @@ export default function CardStack({
                                     : undefined
                             }
                             onMouseUp={
-                                isTopCard && !isCanvas ? handlePointerUp : undefined
+                                isTopCard && !isCanvas
+                                    ? handlePointerUp
+                                    : undefined
                             }
                             onDragStart={
-                                isTopCard && !isCanvas ? handleDragStart : undefined
+                                isTopCard && !isCanvas
+                                    ? handleDragStart
+                                    : undefined
                             }
                             onDragEnd={
                                 isTopCard && !isCanvas
@@ -327,18 +321,22 @@ export default function CardStack({
                             style={{
                                 pointerEvents: "auto",
                                 position:
-                                    mode === "components" && sizing === "fit-content"
+                                    mode === "components" &&
+                                    sizing === "fit-content"
                                         ? "relative"
                                         : "absolute",
-                                ...(mode === "components" && sizing === "fit-content"
+                                ...(mode === "components" &&
+                                sizing === "fit-content"
                                     ? {}
                                     : { top: 0, right: 0, bottom: 0, left: 0 }),
                                 width:
-                                    mode === "components" && sizing === "fit-content"
+                                    mode === "components" &&
+                                    sizing === "fit-content"
                                         ? "auto"
                                         : "100%",
                                 height:
-                                    mode === "components" && sizing === "fit-content"
+                                    mode === "components" &&
+                                    sizing === "fit-content"
                                         ? "auto"
                                         : "100%",
                                 backgroundColor:
@@ -385,69 +383,89 @@ export default function CardStack({
                                 zIndex: 1000,
                             }}
                         >
-                        {mode === "images" ? (
-                            !cardImage && (
-                                <ComponentMessage
-                                    title={card.content}
-                                    subtitle="Add an image in the properties to fill this card"
-                                />
-                            )
-                        ) : (
-                            <div
-                                style={{
-                                    position: "relative",
-                                    ...(sizing === "fit-content"
-                                        ? { display: "inline-block" }
-                                        : { width: "100%", height: "100%" }),
-                                    backgroundColor: !cardComponent
-                                        ? "rgba(243, 239, 255, 0.8)"
-                                        : "transparent",
-                                    backdropFilter: !cardComponent
-                                        ? "blur(10px)"
-                                        : "none",
-                                }}
-                            >
-                                {cardComponent ? (
-                                    <div
-                                        ref={(el) => {
-                                            contentMeasureRefs.current[index] = el
-                                        }}
-                                        style={{
-                                            position: "relative",
-                                            ...(sizing === "fixed"
-                                                ? { width: "100%", height: "100%" }
-                                                : {}),
-                                        }}
-                                    >
-                                        {React.cloneElement(cardComponent as any, {
-                                            style: {
+                            {mode === "images" ? (
+                                !cardImage && (
+                                    <ComponentMessage
+                                        title={card.content}
+                                        subtitle="Add an image in the properties to fill this card"
+                                    />
+                                )
+                            ) : (
+                                <div
+                                    style={{
+                                        position: "relative",
+                                        ...(sizing === "fit-content"
+                                            ? { display: "inline-block" }
+                                            : {
+                                                  width: "100%",
+                                                  height: "100%",
+                                              }),
+                                        backgroundColor: !cardComponent
+                                            ? "rgba(243, 239, 255, 0.8)"
+                                            : "transparent",
+                                        backdropFilter: !cardComponent
+                                            ? "blur(10px)"
+                                            : "none",
+                                    }}
+                                >
+                                    {cardComponent ? (
+                                        <div
+                                            ref={(el) => {
+                                                contentMeasureRefs.current[
+                                                    index
+                                                ] = el
+                                            }}
+                                            style={{
+                                                position: "relative",
                                                 ...(sizing === "fixed"
                                                     ? {
                                                           width: "100%",
                                                           height: "100%",
-                                                          position: "absolute",
-                                                          top: 0,
-                                                          left: 0,
                                                       }
                                                     : {}),
-                                                // Preserve any user-provided styles on the child
-                                                ...(cardComponent as any).props?.style,
-                                            },
-                                        })}
-                                    </div>
-                                ) : (
-                                    <ComponentMessage
-                                        style={{
-                                            ...(sizing === "fit-content"
-                                                ? { minWidth: 200, minHeight: 200 }
-                                                : { width: "100%", height: "100%" }),
-                                        }}
-                                        title={card.content}
-                                        subtitle="Add components to the Content property control to fill this card"
-                                    />
-                                )}
-                            </div>
-                        )}
+                                            }}
+                                        >
+                                            {React.cloneElement(
+                                                cardComponent as any,
+                                                {
+                                                    style: {
+                                                        ...(sizing === "fixed"
+                                                            ? {
+                                                                  width: "100%",
+                                                                  height: "100%",
+                                                                  position:
+                                                                      "absolute",
+                                                                  top: 0,
+                                                                  left: 0,
+                                                              }
+                                                            : {}),
+                                                        // Preserve any user-provided styles on the child
+                                                        ...(
+                                                            cardComponent as any
+                                                        ).props?.style,
+                                                    },
+                                                }
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <ComponentMessage
+                                            style={{
+                                                ...(sizing === "fit-content"
+                                                    ? {
+                                                          minWidth: 200,
+                                                          minHeight: 200,
+                                                      }
+                                                    : {
+                                                          width: "100%",
+                                                          height: "100%",
+                                                      }),
+                                            }}
+                                            title={card.content}
+                                            subtitle="Add components to the Content property control to fill this card"
+                                        />
+                                    )}
+                                </div>
+                            )}
                         </motion.div>
                     </div>
                 )
@@ -463,12 +481,12 @@ export default function CardStack({
                     pointerEvents: "none",
                 }}
             />
-            {mode === "components" ? (
+            {mode === "components" && sizing === "fit-content" ? (
                 <div
                     style={{
                         position: "relative",
-                        width: maxContentSize.width || "100%",
-                        height: maxContentSize.height || "100%",
+                        width: maxContentSize.width || 0,
+                        height: maxContentSize.height || 0,
                         opacity: 0,
                         zIndex: -1,
                         pointerEvents: "none",
