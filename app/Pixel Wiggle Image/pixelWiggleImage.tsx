@@ -10,7 +10,7 @@ import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
  * @framerDisableUnlink
  */
 export default function PixelWiggleImage(props: Props) {
-    const { image, tileWidth, tileHeight, offset, speed, style } = props
+    const { image, tileWidth, tileHeight, offset, speed, preview, style } = props
 
     // Container and canvas refs
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -30,6 +30,7 @@ export default function PixelWiggleImage(props: Props) {
     const intersectionObserverRef = useRef<IntersectionObserver | null>(null)
     const isInViewRef = useRef<boolean>(true)
     const devicePixelRatioRef = useRef<number>(1) // Safe default for SSR
+    const previewRef = useRef<boolean>(preview)
 
     // Set device pixel ratio on client side only
     useEffect(() => {
@@ -38,13 +39,18 @@ export default function PixelWiggleImage(props: Props) {
         }
     }, [])
 
+    // Update preview ref when prop changes
+    useEffect(() => {
+        previewRef.current = preview
+    }, [preview])
+
     // Inline styles only. The outer sizing is controlled by Framer; inner fills 100%.
     const containerStyle: React.CSSProperties = {
         ...(style as React.CSSProperties),
         position: "relative",
         width: "100%",
         height: "100%",
-        overflow: "hidden",
+        overflow: "visible",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -57,7 +63,7 @@ export default function PixelWiggleImage(props: Props) {
         padding: 0,
         width: "100%",
         height: "100%",
-        display: "block",
+        display: "flex",
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
@@ -120,11 +126,22 @@ float snoise(vec2 v) {
 }
 
 void main () {
-  // Base UV in texture space (flip Y once)
-  vec2 base_uv = vUv;
-  base_uv.y = 1.0 - base_uv.y;
+  // 1) Compute tile grid in container space so tile size is constant in pixels
+  vec2 grid_uv = vUv - 0.5;
+  grid_uv.x /= u_tile_width;
+  grid_uv.y /= u_tile_height;
+  vec2 grid_fract = fract(grid_uv);
+  vec2 grid_floor = floor(grid_uv);
+  grid_fract.x += u_offset * snoise(grid_floor + 0.001 * u_time * u_speed);
+  vec2 warped_container_uv = (grid_floor + grid_fract);
+  warped_container_uv.x *= u_tile_width;
+  warped_container_uv.y *= u_tile_height;
+  warped_container_uv += 0.5;
 
-  // 1) Cover mapping first (maintain aspect, fill container)
+  // 2) Apply cover mapping AFTER the tile warp so the image maintains aspect
+  vec2 base_uv = warped_container_uv;
+  base_uv.y = 1.0 - base_uv.y; // flip Y once for texture space
+
   vec2 scale = vec2(1.0);
   if (u_container_aspect > u_image_aspect) {
     // Container wider than image: crop left/right
@@ -135,20 +152,8 @@ void main () {
   }
   vec2 fit_uv = (base_uv - 0.5) * scale + 0.5;
 
-  // 2) Then apply tiling/distortion in the already cover-mapped space
-  vec2 sampling_uv = fit_uv - 0.5;
-  sampling_uv.x /= u_tile_width;
-  sampling_uv.y /= u_tile_height;
-  vec2 fract_uv = fract(sampling_uv);
-  vec2 floor_uv = floor(sampling_uv);
-  fract_uv.x += u_offset * snoise(floor_uv + 0.001 * u_time * u_speed);
-  sampling_uv = (floor_uv + fract_uv);
-  sampling_uv.x *= u_tile_width;
-  sampling_uv.y *= u_tile_height;
-  sampling_uv += 0.5;
-
-  // Sample with clamped UVs and crop to the cover area using fit_uv bounds
-  vec2 uv_clamped = clamp(sampling_uv, 0.0, 1.0);
+  // 3) Sample with clamped UVs and crop to cover bounds for clean edges
+  vec2 uv_clamped = clamp(fit_uv, 0.0, 1.0);
   vec4 img_shifted = texture2D(u_image_texture, uv_clamped);
   float alphaX = step(0.0, fit_uv.x) * (1.0 - step(1.0, fit_uv.x));
   float alphaY = step(0.0, fit_uv.y) * (1.0 - step(1.0, fit_uv.y));
@@ -248,8 +253,8 @@ void main () {
         textureRef.current = texture
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, texture)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
         const uImage = uniformsRef.current["u_image_texture"]
@@ -313,6 +318,10 @@ void main () {
         const render = () => {
             if (!gl || !programRef.current) return
             
+            // Check if we're in Canvas mode and preview is off
+            const isCanvas = RenderTarget.current() === RenderTarget.canvas
+            const isPaused = !previewRef.current && isCanvas
+            
             // Only animate if component is in view
             if (!isInViewRef.current) {
                 animRef.current = requestAnimationFrame(render)
@@ -323,6 +332,13 @@ void main () {
             if (!textureReadyRef.current) {
                 animRef.current = requestAnimationFrame(render)
                 return
+            }
+
+            // If paused in Canvas mode, render once then stop the loop
+            if (isPaused) {
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+                animRef.current = null
+                return // Don't schedule next frame
             }
 
             // Update uniforms
@@ -356,7 +372,7 @@ void main () {
                 try { intersectionObserverRef.current.disconnect() } catch {}
             }
         }
-    }, [vertexShaderSource, fragmentShaderSource, tileWidth, tileHeight, offset, speed, image])
+    }, [vertexShaderSource, fragmentShaderSource, tileWidth, tileHeight, offset, speed, preview, image])
 
     // (Re)load texture when image prop changes
     useEffect(() => {
@@ -372,8 +388,8 @@ void main () {
         img.onload = () => {
             gl.activeTexture(gl.TEXTURE0)
             gl.bindTexture(gl.TEXTURE_2D, texture)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
             gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0)
@@ -468,6 +484,7 @@ interface Props {
     tileHeight: number
     offset: number
     speed: number
+    preview: boolean
     style?: React.CSSProperties
     docs?: string
 }
@@ -475,13 +492,21 @@ interface Props {
 // Property Controls (one-word titles, last control with Framer University link)
 // Note: Font controls are not needed here; we expose image and effect parameters only.
 addPropertyControls(PixelWiggleImage, {
+    
     image: {
         type: ControlType.ResponsiveImage,
         title: "Image",
     },
+    preview: {
+        type: ControlType.Boolean,
+        title: "Preview",
+        defaultValue: true,
+        enabledTitle: "Yes",
+        disabledTitle: "No",
+    },
     tileWidth: {
         type: ControlType.Number,
-        title: "Width",
+        title: "Tile Width",
         min: 5,
         max: 400,
         step: 5,
@@ -490,7 +515,7 @@ addPropertyControls(PixelWiggleImage, {
     },
     tileHeight: {
         type: ControlType.Number,
-        title: "Height",
+        title: "Tile Height",
         min: 5,
         max: 400,
         step: 5,
@@ -510,8 +535,8 @@ addPropertyControls(PixelWiggleImage, {
         title: "Speed",
         min: 0,
         max: 1,
-        step: 0.1,
-        defaultValue: 0.33,
+        step: 0.05,
+        defaultValue: 0.25,
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
