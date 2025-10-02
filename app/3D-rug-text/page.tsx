@@ -64,6 +64,7 @@ export default function ThreeDRugTextComponent(props: Props) {
     const shadowPlaneRef = useRef<typeof Mesh | null>(null)
     const sceneRef = useRef<typeof Scene | null>(null)
     const lastSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 })
+    const zoomProbeRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if (!containerRef.current) return
@@ -411,7 +412,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         }
     }, [zoom, rotXDeg, rotYDeg, rotZDeg, orbitEnabled])
 
-    // Simple resize detection - no aspect ratio or zoom probe complexity
+    // Zoom-aware resize handling - only updates Three.js content, no component re-render
     useEffect(() => {
         const handleResize = () => {
             const renderer = rendererRef.current
@@ -421,32 +422,69 @@ export default function ThreeDRugTextComponent(props: Props) {
                 const w = Math.max(1, Math.round(rect.width))
                 const h = Math.max(1, Math.round(rect.height))
 
-                renderer.setSize(w, h)
-                
-                const camera = cameraRef.current
-                if (camera) {
-                    const frustumSize = 20 / zoom
-                    const aspect = w / h
-                    camera.left = (frustumSize * aspect) / -2
-                    camera.right = (frustumSize * aspect) / 2
-                    camera.top = frustumSize / 2
-                    camera.bottom = frustumSize / -2
-                    camera.updateProjectionMatrix()
+                // Only update if size actually changed
+                if (lastSizeRef.current.width !== w || lastSizeRef.current.height !== h) {
+                    lastSizeRef.current = { width: w, height: h }
+                    
+                    renderer.setSize(w, h)
+                    
+                    const camera = cameraRef.current
+                    if (camera) {
+                        const frustumSize = 20 / zoom
+                        const aspect = w / h
+                        camera.left = (frustumSize * aspect) / -2
+                        camera.right = (frustumSize * aspect) / 2
+                        camera.top = frustumSize / 2
+                        camera.bottom = frustumSize / -2
+                        camera.updateProjectionMatrix()
+                    }
                 }
             }
         }
 
-        // Simple ResizeObserver - triggers on any size change
-        const ro = new ResizeObserver(() => {
-            handleResize()
-        })
-        
-        if (containerRef.current) {
-            ro.observe(containerRef.current)
+        // Different behavior for canvas (editor) vs preview/live
+        if (RenderTarget.current() === RenderTarget.canvas) {
+            // In canvas: monitor for zoom changes using probe element
+            let rafId = 0
+            const last = { ts: 0, zoom: 0, w: 0, h: 0 }
+            const TICK_MS = 250 // throttle to 4Hz
+            const EPS_ZOOM = 0.001
+            const EPS_SIZE = 0.5
+
+            const tick = (now?: number) => {
+                const probe = zoomProbeRef.current
+                const container = containerRef.current
+                if (probe && container) {
+                    const currentZoom = probe.getBoundingClientRect().width / 20
+                    const rect = container.getBoundingClientRect()
+
+                    // Only update if enough time passed and meaningful changes occurred
+                    const timeOk = !last.ts || (now || performance.now()) - last.ts >= TICK_MS
+                    const zoomChanged = Math.abs(currentZoom - last.zoom) > EPS_ZOOM
+                    const sizeChanged = Math.abs(rect.width - last.w) > EPS_SIZE || Math.abs(rect.height - last.h) > EPS_SIZE
+
+                    if (timeOk && (zoomChanged || sizeChanged)) {
+                        last.ts = now || performance.now()
+                        last.zoom = currentZoom
+                        last.w = rect.width
+                        last.h = rect.height
+                        handleResize()
+                    }
+                }
+                rafId = requestAnimationFrame(tick)
+            }
+            rafId = requestAnimationFrame(tick)
+            return () => cancelAnimationFrame(rafId)
         }
-        
+
+        // Preview/Live: only respond to real size changes
+        handleResize()
+        const ro = new ResizeObserver(() => handleResize())
+        if (containerRef.current) ro.observe(containerRef.current)
+        window.addEventListener("resize", handleResize)
         return () => {
             ro.disconnect()
+            window.removeEventListener("resize", handleResize)
         }
     }, [zoom])
 
@@ -479,6 +517,17 @@ export default function ThreeDRugTextComponent(props: Props) {
                 border: "2px solid blue",
             }}
         >
+            {/* Hidden 20x20 probe element to detect editor zoom level in canvas */}
+            <div
+                ref={zoomProbeRef}
+                style={{
+                    position: "absolute",
+                    width: 20,
+                    height: 20,
+                    opacity: 0,
+                    pointerEvents: "none",
+                }}
+            />
             {!hasImages ? (
                 isCanvas ? (
                     <ComponentMessage
