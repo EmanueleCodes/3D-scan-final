@@ -63,7 +63,7 @@ export default function ThreeDRugTextComponent(props: Props) {
     const mainPlaneRef = useRef<typeof Mesh | null>(null)
     const shadowPlaneRef = useRef<typeof Mesh | null>(null)
     const sceneRef = useRef<typeof Scene | null>(null)
-    const lastSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 })
+    const lastSizeRef = useRef<{ width: number; height: number; aspectRatio: number }>({ width: 0, height: 0, aspectRatio: 0 })
     const zoomProbeRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -412,7 +412,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         }
     }, [zoom, rotXDeg, rotYDeg, rotZDeg, orbitEnabled])
 
-    // Zoom-aware resize handling - only updates Three.js content, no component re-render
+    // Aspect ratio-aware resize handling - only updates Three.js content when aspect ratio changes
     useEffect(() => {
         const handleResize = () => {
             const renderer = rendererRef.current
@@ -421,19 +421,21 @@ export default function ThreeDRugTextComponent(props: Props) {
                 const rect = container.getBoundingClientRect()
                 const w = Math.max(1, Math.round(rect.width))
                 const h = Math.max(1, Math.round(rect.height))
+                const aspectRatio = w / h
 
-                // Only update if size actually changed
-                if (lastSizeRef.current.width !== w || lastSizeRef.current.height !== h) {
-                    lastSizeRef.current = { width: w, height: h }
+                // Only update if aspect ratio actually changed (not just zoom)
+                const aspectRatioChanged = Math.abs(lastSizeRef.current.aspectRatio - aspectRatio) > 0.001
+                
+                if (aspectRatioChanged) {
+                    lastSizeRef.current = { width: w, height: h, aspectRatio }
                     
                     renderer.setSize(w, h)
                     
                     const camera = cameraRef.current
                     if (camera) {
                         const frustumSize = 20 / zoom
-                        const aspect = w / h
-                        camera.left = (frustumSize * aspect) / -2
-                        camera.right = (frustumSize * aspect) / 2
+                        camera.left = (frustumSize * aspectRatio) / -2
+                        camera.right = (frustumSize * aspectRatio) / 2
                         camera.top = frustumSize / 2
                         camera.bottom = frustumSize / -2
                         camera.updateProjectionMatrix()
@@ -444,12 +446,12 @@ export default function ThreeDRugTextComponent(props: Props) {
 
         // Different behavior for canvas (editor) vs preview/live
         if (RenderTarget.current() === RenderTarget.canvas) {
-            // In canvas: monitor for zoom changes using probe element
+            // In canvas: monitor for aspect ratio changes using probe element
             let rafId = 0
-            const last = { ts: 0, zoom: 0, w: 0, h: 0 }
+            const last = { ts: 0, zoom: 0, w: 0, h: 0, aspectRatio: 0 }
             const TICK_MS = 250 // throttle to 4Hz
             const EPS_ZOOM = 0.001
-            const EPS_SIZE = 0.5
+            const EPS_ASPECT = 0.001
 
             const tick = (now?: number) => {
                 const probe = zoomProbeRef.current
@@ -457,17 +459,18 @@ export default function ThreeDRugTextComponent(props: Props) {
                 if (probe && container) {
                     const currentZoom = probe.getBoundingClientRect().width / 20
                     const rect = container.getBoundingClientRect()
+                    const currentAspectRatio = rect.width / rect.height
 
-                    // Only update if enough time passed and meaningful changes occurred
+                    // Only update if enough time passed and aspect ratio changed (not just zoom)
                     const timeOk = !last.ts || (now || performance.now()) - last.ts >= TICK_MS
-                    const zoomChanged = Math.abs(currentZoom - last.zoom) > EPS_ZOOM
-                    const sizeChanged = Math.abs(rect.width - last.w) > EPS_SIZE || Math.abs(rect.height - last.h) > EPS_SIZE
+                    const aspectRatioChanged = Math.abs(currentAspectRatio - last.aspectRatio) > EPS_ASPECT
 
-                    if (timeOk && (zoomChanged || sizeChanged)) {
+                    if (timeOk && aspectRatioChanged) {
                         last.ts = now || performance.now()
                         last.zoom = currentZoom
                         last.w = rect.width
                         last.h = rect.height
+                        last.aspectRatio = currentAspectRatio
                         handleResize()
                     }
                 }
@@ -477,7 +480,7 @@ export default function ThreeDRugTextComponent(props: Props) {
             return () => cancelAnimationFrame(rafId)
         }
 
-        // Preview/Live: only respond to real size changes
+        // Preview/Live: only respond to real aspect ratio changes
         handleResize()
         const ro = new ResizeObserver(() => handleResize())
         if (containerRef.current) ro.observe(containerRef.current)
