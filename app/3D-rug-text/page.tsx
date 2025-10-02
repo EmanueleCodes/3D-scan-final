@@ -1,8 +1,8 @@
-'use client'
-
 import { useEffect, useRef, useState } from "react"
-import {Scene, Color, OrthographicCamera, Raycaster, Vector2, WebGLRenderer, ShaderMaterial, TextureLoader, Vector3, PlaneGeometry, Mesh, MeshBasicMaterial, DoubleSide} from "three"
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
+import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
+//@ts-ignore
+import {OrbitControls,Scene, Color, OrthographicCamera, Raycaster, Vector2, WebGLRenderer, ShaderMaterial, TextureLoader, Vector3, PlaneGeometry, Mesh, MeshBasicMaterial, DoubleSide} from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/3D-text-rug.js"
 
 /**
  * 3D Rug Text Component
@@ -10,30 +10,60 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
  * Interactive 3D text displacement effect using js and custom shaders.
  * Based on: https://tympanus.net/codrops/2025/03/24/animating-letters-with-shaders-interactive-text-effect-with-three-js-glsl/
  */
-export default function page() {
-    const mainTexture = "./mainTexture.png"
-    const shadowTexture = "./shadowTexture.png"
-    const displacementRadius = 3
-    const displacementHeight = 1
-    const backgroundColor = "#ffffff"
+
+type ResponsiveImageProp = {
+    src?: string
+    srcSet?: string
+    alt?: string
+    positionX?: string
+    positionY?: string
+}
+
+type Props = {
+    mainTexture?: ResponsiveImageProp
+    shadowTexture?: ResponsiveImageProp
+    orbitEnabled?: boolean
+    zoom?: number
+    rotXDeg?: number
+    rotYDeg?: number
+    rotZDeg?: number
+    displacementRadius?: number
+    displacementHeight?: number
+    backgroundColor?: string
+    preview?: boolean
+}
+
+/**
+ * @framerSupportedLayoutWidth any-prefer-fixed
+ * @framerSupportedLayoutHeight any-prefer-fixed
+ * @framerIntrinsicWidth 600
+ * @framerIntrinsicHeight 400
+ * @framerDisableUnlink
+ */
+export default function ThreeDRugTextComponent(props: Props) {
+    const {
+        mainTexture,
+        shadowTexture,
+        orbitEnabled = false,
+        zoom = 1,
+        rotXDeg = 0,
+        rotYDeg = 0,
+        rotZDeg = 0,
+        displacementRadius = 3,
+        displacementHeight = 1,
+        backgroundColor = "#ffffff",
+        preview = true
+    } = props
 
     const containerRef = useRef<HTMLDivElement>(null)
     const animationRef = useRef<number | null>(null)
-    const cameraRef = useRef<OrthographicCamera | null>(null)
-    const rendererRef = useRef<WebGLRenderer | null>(null)
-    const controlsRef = useRef<OrbitControls | null>(null)
-    const mainPlaneRef = useRef<Mesh | null>(null)
-    const shadowPlaneRef = useRef<Mesh | null>(null)
-    const sceneRef = useRef<Scene | null>(null)
-
-    // UI state for perspective/orbit
-    const [orbitEnabled, setOrbitEnabled] = useState(false)
-    const [camX, setCamX] = useState(10)
-    const [camY, setCamY] = useState(10)
-    const [camZ, setCamZ] = useState(10)
-    const [rotXDeg, setRotXDeg] = useState(0)
-    const [rotYDeg, setRotYDeg] = useState(0)
-    const [rotZDeg, setRotZDeg] = useState(0)
+    const cameraRef = useRef<typeof OrthographicCamera | null>(null)
+    const rendererRef = useRef<typeof WebGLRenderer | null>(null)
+    const controlsRef = useRef<typeof OrbitControls | null>(null)
+    const mainPlaneRef = useRef<typeof Mesh | null>(null)
+    const shadowPlaneRef = useRef<typeof Mesh | null>(null)
+    const sceneRef = useRef<typeof Scene | null>(null)
+    const lastSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 })
 
     useEffect(() => {
         if (!containerRef.current) return
@@ -45,7 +75,7 @@ export default function page() {
         scene.background = new Color(backgroundColor)
         sceneRef.current = scene
 
-        // Orthographic camera for diagonal view
+        // Orthographic camera for diagonal view - properly centered
         const frustumSize = 20
         const aspect = container.clientWidth / container.clientHeight
         const camera = new OrthographicCamera(
@@ -56,7 +86,8 @@ export default function page() {
             0.1,
             1000
         )
-        camera.position.set(camX, camY, camZ)
+        // Fixed camera position - use zoom to control scale
+        camera.position.set(10, 10, 10)
         camera.lookAt(0, 0, 0)
         cameraRef.current = camera
 
@@ -64,36 +95,46 @@ export default function page() {
         const renderer = new WebGLRenderer({ antialias: true })
         renderer.setSize(container.clientWidth, container.clientHeight)
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-        container.appendChild(renderer.domElement)
+        
+        // Ensure canvas is properly sized and positioned to prevent layout shifts
+        const canvas = renderer.domElement
+        canvas.style.width = "100%"
+        canvas.style.height = "100%"
+        canvas.style.display = "block"
+        canvas.style.position = "absolute"
+        canvas.style.top = "0"
+        canvas.style.left = "0"
+        
+        container.appendChild(canvas)
         rendererRef.current = renderer
 
         // Texture loader
         const textureLoader = new TextureLoader()
 
         // Load textures with error handling
-        const mainTex = textureLoader.load(
-            mainTexture,
-            (texture) => {
+        const mainTex = mainTexture?.src ? textureLoader.load(
+            mainTexture.src,
+            (texture: any) => {
                 console.log("Main texture loaded successfully")
                 texture.needsUpdate = true
             },
             undefined,
-            (error) => {
+            (error: any) => {
                 console.error("Error loading main texture:", error)
             }
-        )
+        ) : null
 
-        const shadowTex = textureLoader.load(
-            shadowTexture,
-            (texture) => {
+        const shadowTex = shadowTexture?.src ? textureLoader.load(
+            shadowTexture.src,
+            (texture: any) => {
                 console.log("Shadow texture loaded successfully")
                 texture.needsUpdate = true
             },
             undefined,
-            (error) => {
+            (error: any) => {
                 console.error("Error loading shadow texture:", error)
             }
-        )
+        ) : null
 
         // Main displacement plane shader material
         const shaderMaterial = new ShaderMaterial({
@@ -206,7 +247,10 @@ export default function page() {
         const geometry = new PlaneGeometry(15, 15, 100, 100)
         const mainPlane = new Mesh(geometry, shaderMaterial)
         const shadowPlane = new Mesh(geometry, shadowMaterial)
-        shadowPlane.position.z = -0.1 // Slightly behind main plane
+        
+        // Ensure planes are centered at origin
+        mainPlane.position.set(0, 0, 0)
+        shadowPlane.position.set(0, 0, -0.1) // Slightly behind main plane
         
         scene.add(mainPlane)
         scene.add(shadowPlane)
@@ -233,6 +277,9 @@ export default function page() {
         })
         const hitPlane = new Mesh(hitGeometry, hitMaterial)
         hitPlane.name = "hit"
+        
+        // Ensure hit plane is centered at origin
+        hitPlane.position.set(0, 0, 0)
         
         // Apply the same rotation as the visual planes
         hitPlane.rotation.x = rx
@@ -317,8 +364,17 @@ export default function page() {
         const renderer = rendererRef.current
 
         if (camera) {
-            camera.position.set(camX, camY, camZ)
-            camera.lookAt(0, 0, 0)
+            // Apply zoom by adjusting the frustum size while maintaining centering
+            const frustumSize = 20 / zoom
+            const container = containerRef.current
+            if (container) {
+                const aspect = container.clientWidth / container.clientHeight
+                camera.left = (frustumSize * aspect) / -2
+                camera.right = (frustumSize * aspect) / 2
+                camera.top = frustumSize / 2
+                camera.bottom = frustumSize / -2
+                camera.updateProjectionMatrix()
+            }
         }
 
         if (mainPlane && shadowPlane) {
@@ -335,7 +391,7 @@ export default function page() {
             // Also update the invisible hit plane to match
             const scene = sceneRef.current
             if (scene) {
-                const hitPlane = scene.children.find(child => child.name === "hit")
+                const hitPlane = scene.children.find((child: any) => child.name === "hit")
                 if (hitPlane) {
                     hitPlane.rotation.x = rx
                     hitPlane.rotation.y = ry
@@ -353,153 +409,187 @@ export default function page() {
                 controlsRef.current = null
             }
         }
-    }, [camX, camY, camZ, rotXDeg, rotYDeg, rotZDeg, orbitEnabled])
+    }, [zoom, rotXDeg, rotYDeg, rotZDeg, orbitEnabled])
 
-    // Presets for quick perspectives
-    const applyIsometric = () => {
-        setCamX(10)
-        setCamY(10)
-        setCamZ(10)
-        setRotXDeg(0)
-        setRotYDeg(0)
-        setRotZDeg(0)
-    }
+    // Simple resize detection - no aspect ratio or zoom probe complexity
+    useEffect(() => {
+        const handleResize = () => {
+            const renderer = rendererRef.current
+            const container = containerRef.current
+            if (renderer && container) {
+                const rect = container.getBoundingClientRect()
+                const w = Math.max(1, Math.round(rect.width))
+                const h = Math.max(1, Math.round(rect.height))
 
-    const applyHappyDays = () => {
-        // Slightly lower camera and skew plane for a dramatic perspective
-        setCamX(12)
-        setCamY(6)
-        setCamZ(20)
-        setRotXDeg(-8)
-        setRotYDeg(-35)
-        setRotZDeg(0)
-    }
+                renderer.setSize(w, h)
+                
+                const camera = cameraRef.current
+                if (camera) {
+                    const frustumSize = 20 / zoom
+                    const aspect = w / h
+                    camera.left = (frustumSize * aspect) / -2
+                    camera.right = (frustumSize * aspect) / 2
+                    camera.top = frustumSize / 2
+                    camera.bottom = frustumSize / -2
+                    camera.updateProjectionMatrix()
+                }
+            }
+        }
+
+        // Simple ResizeObserver - triggers on any size change
+        const ro = new ResizeObserver(() => {
+            handleResize()
+        })
+        
+        if (containerRef.current) {
+            ro.observe(containerRef.current)
+        }
+        
+        return () => {
+            ro.disconnect()
+        }
+    }, [zoom])
+
+    // Check if images are provided
+    const hasImages = !!(mainTexture?.src && shadowTexture?.src)
+    const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
     return (
+
+        <div style={{
+            width: "100%",
+            height: "100%",
+            position: "relative",
+            overflow: "hidden",
+            background: backgroundColor,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            border: "2px solid red",
+        }}>
         <div
             ref={containerRef}
             style={{
                 width: "100%",
-                height: "100vh",
+                height: "100%",
                 position: "relative",
                 overflow: "hidden",
-                background: "#ffffff",
+                background: backgroundColor,
+                display: "block",
+                border: "2px solid blue",
             }}
         >
-            <div
-                style={{
-                    position: "absolute",
-                    top: 12,
-                    left: 12,
-                    zIndex: 10,
-                    background: "rgba(255,255,255,0.9)",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 8,
-                    padding: 12,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                    width: 260,
-                    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-                    fontSize: 12,
-                    color: "#111827",
-                }}
-            >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <strong>Camera</strong>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <input
-                            type="checkbox"
-                            checked={orbitEnabled}
-                            onChange={(e) => setOrbitEnabled(e.target.checked)}
-                        />
-                        Orbit Controls
-                    </label>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    <div>
-                        <label style={{ display: "block", marginBottom: 4, fontSize: 11 }}>X: {camX.toFixed(1)}</label>
-                        <input 
-                            type="range" 
-                            min={-30} 
-                            max={30} 
-                            step={0.5} 
-                            value={camX} 
-                            onChange={(e) => setCamX(parseFloat(e.target.value))} 
-                            style={{ width: "100%" }} 
-                        />
-                    </div>
-                    <div>
-                        <label style={{ display: "block", marginBottom: 4, fontSize: 11 }}>Y: {camY.toFixed(1)}</label>
-                        <input 
-                            type="range" 
-                            min={-30} 
-                            max={30} 
-                            step={0.5} 
-                            value={camY} 
-                            onChange={(e) => setCamY(parseFloat(e.target.value))} 
-                            style={{ width: "100%" }} 
-                        />
-                    </div>
-                    <div>
-                        <label style={{ display: "block", marginBottom: 4, fontSize: 11 }}>Z: {camZ.toFixed(1)}</label>
-                        <input 
-                            type="range" 
-                            min={-30} 
-                            max={30} 
-                            step={0.5} 
-                            value={camZ} 
-                            onChange={(e) => setCamZ(parseFloat(e.target.value))} 
-                            style={{ width: "100%" }} 
-                        />
-                    </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <strong>Plane Rotation (deg)</strong>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    <div>
-                        <label style={{ display: "block", marginBottom: 4, fontSize: 11 }}>RotX: {rotXDeg.toFixed(0)}°</label>
-                        <input 
-                            type="range" 
-                            min={-180} 
-                            max={180} 
-                            step={1} 
-                            value={rotXDeg} 
-                            onChange={(e) => setRotXDeg(parseFloat(e.target.value))} 
-                            style={{ width: "100%" }} 
-                        />
-                    </div>
-                    <div>
-                        <label style={{ display: "block", marginBottom: 4, fontSize: 11 }}>RotY: {rotYDeg.toFixed(0)}°</label>
-                        <input 
-                            type="range" 
-                            min={-180} 
-                            max={180} 
-                            step={1} 
-                            value={rotYDeg} 
-                            onChange={(e) => setRotYDeg(parseFloat(e.target.value))} 
-                            style={{ width: "100%" }} 
-                        />
-                    </div>
-                    <div>
-                        <label style={{ display: "block", marginBottom: 4, fontSize: 11 }}>RotZ: {rotZDeg.toFixed(0)}°</label>
-                        <input 
-                            type="range" 
-                            min={-180} 
-                            max={180} 
-                            step={1} 
-                            value={rotZDeg} 
-                            onChange={(e) => setRotZDeg(parseFloat(e.target.value))} 
-                            style={{ width: "100%" }} 
-                        />
-                    </div>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={applyIsometric} style={{ padding: "6px 8px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", cursor: "pointer" }}>Isometric</button>
-                    <button onClick={applyHappyDays} style={{ padding: "6px 8px", border: "1px solid #e5e7eb", borderRadius: 6, background: "#f9fafb", cursor: "pointer" }}>Happy Days</button>
-                </div>
-            </div>
+            {!hasImages ? (
+                isCanvas ? (
+                    <ComponentMessage
+                        style={{
+                            position: "relative",
+                            width: "100%",
+                            height: "100%",
+                            minWidth: 0,
+                            minHeight: 0,
+                        }}
+                        title="3D Rug Text Effect"
+                        subtitle="Add main and shadow textures to see the interactive 3D text displacement effect"
+                    />
+                ) : (
+                    <div
+                        style={{
+                            position: "absolute",
+                            inset: 0,
+                            width: "100%",
+                            height: "100%",
+                        }}
+                    />
+                )
+            ) : null}
         </div>
+        </div>
+
     )
 }
+
+addPropertyControls(ThreeDRugTextComponent, {
+    mainTexture: {
+        type: ControlType.ResponsiveImage,
+        title: "Image",
+    },
+    shadowTexture: {
+        type: ControlType.ResponsiveImage,
+        title: "Shadow",
+        description: "Low opacity blurred version of the main Image",
+    },
+    orbitEnabled: {
+        type: ControlType.Boolean,
+        title: "Orbit",
+        defaultValue: false,
+        enabledTitle: "Yes",
+        disabledTitle: "No",
+    },
+    zoom: {
+        type: ControlType.Number,
+        title: "Zoom",
+        min: 0.1,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1.5,
+    },
+    rotXDeg: {
+        type: ControlType.Number,
+        title: "Rotate X",
+        min: -180,
+        max: 180,
+        step: 1,
+        defaultValue: -90,
+        unit: "°",
+    },
+    rotYDeg: {
+        type: ControlType.Number,
+        title: "RotateY",
+        min: -180,
+        max: 180,
+        step: 1,
+        defaultValue: 0,
+        unit: "°",
+    },
+    rotZDeg: {
+        type: ControlType.Number,
+        title: "Rotate Z",
+        min: -180,
+        max: 180,
+        step: 1,
+        defaultValue: 90,
+        unit: "°",
+    },
+    displacementRadius: {
+        type: ControlType.Number,
+        title: "Radius",
+        min: 0.5,
+        max: 10,
+        step: 0.5,
+        defaultValue: 3,
+    },
+    displacementHeight: {
+        type: ControlType.Number,
+        title: "Bump",
+        min: 0.1,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1,
+    },
+    backgroundColor: {
+        type: ControlType.Color,
+        title: "Background",
+        defaultValue: "#ffffff",
+    },
+    preview: {
+        type: ControlType.Boolean,
+        title: "Preview",
+        defaultValue: true,
+        enabledTitle: "Yes",
+        disabledTitle: "No",
+        description: "More components at [Framer University](https://frameruni.link/cc).",
+    },
+})
+
+ThreeDRugTextComponent.displayName = "3D Rug Text"
