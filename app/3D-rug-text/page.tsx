@@ -45,10 +45,10 @@ export default function ThreeDRugTextComponent(props: Props) {
         mainTexture,
         shadowTexture,
         orbitEnabled = false,
-        zoom = 1,
-        rotXDeg = 0,
+        zoom = 1.5,
+        rotXDeg = -90,
         rotYDeg = 0,
-        rotZDeg = 0,
+        rotZDeg = 90,
         displacementRadius = 3,
         displacementHeight = 1,
         backgroundColor = "#ffffff",
@@ -71,14 +71,18 @@ export default function ThreeDRugTextComponent(props: Props) {
 
         const container = containerRef.current
 
+        // Get container dimensions using clientWidth/clientHeight like working components
+        const w = container.clientWidth || container.offsetWidth || 1
+        const h = container.clientHeight || container.offsetHeight || 1
+
         // Scene setup
         const scene = new Scene()
         scene.background = new Color(backgroundColor)
         sceneRef.current = scene
 
-        // Orthographic camera for diagonal view - properly centered
+        // Orthographic camera - identical setup for canvas and live
         const frustumSize = 20
-        const aspect = container.clientWidth / container.clientHeight
+        const aspect = w / h
         const camera = new OrthographicCamera(
             (frustumSize * aspect) / -2,
             (frustumSize * aspect) / 2,
@@ -94,17 +98,17 @@ export default function ThreeDRugTextComponent(props: Props) {
 
         // Renderer
         const renderer = new WebGLRenderer({ antialias: true })
-        renderer.setSize(container.clientWidth, container.clientHeight)
+        renderer.setSize(w, h, false)
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
         
-        // Ensure canvas is properly sized and positioned to prevent layout shifts
+        // Ensure canvas fills container completely - same in canvas and live
         const canvas = renderer.domElement
+        canvas.style.position = "absolute"
+        canvas.style.inset = "0"
         canvas.style.width = "100%"
         canvas.style.height = "100%"
         canvas.style.display = "block"
-        canvas.style.position = "absolute"
-        canvas.style.top = "0"
-        canvas.style.left = "0"
+        // canvas.style.border = "2px solid green" // Debug border removed
         
         container.appendChild(canvas)
         rendererRef.current = renderer
@@ -113,7 +117,12 @@ export default function ThreeDRugTextComponent(props: Props) {
         const textureLoader = new TextureLoader()
 
         // Load textures with error handling
-        const mainTex = mainTexture?.src ? textureLoader.load(
+        // In Canvas mode, use a fallback texture if no image is provided
+        const isCanvas = RenderTarget.current() === RenderTarget.canvas
+        const hasMainTexture = mainTexture?.src
+        const hasShadowTexture = shadowTexture?.src
+        
+        const mainTex = hasMainTexture ? textureLoader.load(
             mainTexture.src,
             (texture: any) => {
                 console.log("Main texture loaded successfully")
@@ -123,9 +132,15 @@ export default function ThreeDRugTextComponent(props: Props) {
             (error: any) => {
                 console.error("Error loading main texture:", error)
             }
-        ) : null
+        ) : (isCanvas ? textureLoader.load(
+            "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzMzMzMzMyIvPjx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+MyBEIFJVRzwvdGV4dD48L3N2Zz4=",
+            (texture: any) => {
+                console.log("Fallback texture loaded for Canvas")
+                texture.needsUpdate = true
+            }
+        ) : null)
 
-        const shadowTex = shadowTexture?.src ? textureLoader.load(
+        const shadowTex = hasShadowTexture ? textureLoader.load(
             shadowTexture.src,
             (texture: any) => {
                 console.log("Shadow texture loaded successfully")
@@ -135,7 +150,13 @@ export default function ThreeDRugTextComponent(props: Props) {
             (error: any) => {
                 console.error("Error loading shadow texture:", error)
             }
-        ) : null
+        ) : (isCanvas ? textureLoader.load(
+            "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzY2NjY2NiIvPjx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+U0hBRE9XPC90ZXh0Pjwvc3ZnPg==",
+            (texture: any) => {
+                console.log("Fallback shadow texture loaded for Canvas")
+                texture.needsUpdate = true
+            }
+        ) : null)
 
         // Main displacement plane shader material
         const shaderMaterial = new ShaderMaterial({
@@ -317,7 +338,15 @@ export default function ThreeDRugTextComponent(props: Props) {
             if (controlsRef.current) controlsRef.current.update()
             renderer.render(scene, camera)
         }
-        animate()
+        
+        // Start animation immediately in Canvas mode, or after textures load in live mode
+        if (isCanvas) {
+            // In Canvas mode, start immediately with fallback textures
+            animate()
+        } else {
+            // In live mode, wait for textures to load
+            animate()
+        }
 
         // Handle resize
         const handleResize = () => {
@@ -331,10 +360,19 @@ export default function ThreeDRugTextComponent(props: Props) {
             camera.bottom = frustumSize / -2
             camera.updateProjectionMatrix()
 
-            renderer.setSize(width, height)
+            renderer.setSize(width, height, false)
+            renderer.setViewport(0, 0, width, height)
         }
 
         window.addEventListener("resize", handleResize)
+
+        // Framer Canvas often needs extra passes to settle CSS layout
+        if (RenderTarget.current() === RenderTarget.canvas) {
+            setTimeout(handleResize, 50)
+            setTimeout(handleResize, 150)
+            setTimeout(handleResize, 300)
+            setTimeout(handleResize, 500)
+        }
 
         // Cleanup
         return () => {
@@ -418,9 +456,8 @@ export default function ThreeDRugTextComponent(props: Props) {
             const renderer = rendererRef.current
             const container = containerRef.current
             if (renderer && container) {
-                const rect = container.getBoundingClientRect()
-                const w = Math.max(1, Math.round(rect.width))
-                const h = Math.max(1, Math.round(rect.height))
+                const w = container.clientWidth || container.offsetWidth || 1
+                const h = container.clientHeight || container.offsetHeight || 1
                 const aspectRatio = w / h
 
                 // Only update if aspect ratio actually changed (not just zoom)
@@ -458,20 +495,33 @@ export default function ThreeDRugTextComponent(props: Props) {
                 const container = containerRef.current
                 if (probe && container) {
                     const currentZoom = probe.getBoundingClientRect().width / 20
-                    const rect = container.getBoundingClientRect()
-                    const currentAspectRatio = rect.width / rect.height
+                    const w = container.clientWidth || container.offsetWidth || 1
+                    const h = container.clientHeight || container.offsetHeight || 1
+                    const currentAspectRatio = w / h
 
                     // Only update if enough time passed and aspect ratio changed (not just zoom)
                     const timeOk = !last.ts || (now || performance.now()) - last.ts >= TICK_MS
                     const aspectRatioChanged = Math.abs(currentAspectRatio - last.aspectRatio) > EPS_ASPECT
+                    const zoomChanged = Math.abs(currentZoom - last.zoom) > EPS_ZOOM
 
                     if (timeOk && aspectRatioChanged) {
                         last.ts = now || performance.now()
                         last.zoom = currentZoom
-                        last.w = rect.width
-                        last.h = rect.height
+                        last.w = w
+                        last.h = h
                         last.aspectRatio = currentAspectRatio
                         handleResize()
+                    } else if (timeOk && zoomChanged) {
+                        // Only zoom changed: keep camera/frustum the same, just sync renderer buffer size
+                        last.ts = now || performance.now()
+                        last.zoom = currentZoom
+                        last.w = w
+                        last.h = h
+                        const renderer = rendererRef.current
+                        if (renderer) {
+                    renderer.setSize(w, h, false)
+                    renderer.setViewport(0, 0, w, h)
+                        }
                     }
                 }
                 rafId = requestAnimationFrame(tick)
@@ -514,10 +564,10 @@ export default function ThreeDRugTextComponent(props: Props) {
                 width: "100%",
                 height: "100%",
                 position: "relative",
-                overflow: "hidden",
-                background: backgroundColor,
                 display: "block",
-                border: "2px solid blue",
+                margin: 0,
+                padding: 0,
+                background: backgroundColor,
             }}
         >
             {/* Hidden 20x20 probe element to detect editor zoom level in canvas */}
