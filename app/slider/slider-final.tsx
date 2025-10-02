@@ -35,7 +35,6 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 // Register GSAP plugins for drag functionality and momentum scrolling
 gsap.registerPlugin(Draggable, InertiaPlugin)
 
-
 /**
  * Configuration interface for the horizontal loop
  *
@@ -953,7 +952,7 @@ export default function Carousel({
                 lastIndex = index
 
                 // Update active element
-                        console.log("🐛 FINITE toIndex calling onChange with index:", index, "element:", items[index])
+
                 if (onChange && items[index]) {
                     onChange(items[index], index)
                 }
@@ -1012,9 +1011,9 @@ export default function Carousel({
                 let pressX = 0
                 let pressY = 0
                 const draggableInstance = Draggable.create(proxy, {
-                type: "x",
+                    type: "x",
                     inertia: false,
-                allowEventDefault: false,
+                    allowEventDefault: false,
                     trigger: containerEl,
                     onPress(this: any) {
                         isClick = true
@@ -1023,11 +1022,15 @@ export default function Carousel({
                         pressX = this.pointerX || this.startX || 0
                         pressY = this.pointerY || this.startY || 0
                         // capture current group offset from first item
-                        baseGroupX = (gsap.getProperty(items[0], "x") as number) || 0
+                        baseGroupX =
+                            (gsap.getProperty(items[0], "x") as number) || 0
                         // snap current index - prefer lastIndex (timeline source of truth),
                         // fallback to activeSlideIndex
-                        startIndex = typeof lastIndex === "number" ? lastIndex : activeSlideIndex
-                        console.log("🐛 DRAG START - startIndex:", startIndex, "totalSlides:", items.length, "lastIndex:", lastIndex, "activeSlideIndex:", activeSlideIndex)
+                        startIndex =
+                            typeof lastIndex === "number"
+                                ? lastIndex
+                                : activeSlideIndex
+                        
                         stopAutoplay()
                     },
                     onDrag(this: any) {
@@ -1042,35 +1045,63 @@ export default function Carousel({
                         // Follow cursor by translating the group (all items) with clamping
                         const containerWidth = containerEl.offsetWidth || 0
                         // Recompute totalWidth defensively in case widths changed
-                        const currentTotalWidth = items.reduce((sum, item, i) => sum + item.offsetWidth + (i < items.length - 1 ? (config.gap || 0) : 0), 0)
-                        const minX = -Math.max(0, currentTotalWidth - containerWidth)
+                        const currentTotalWidth = items.reduce(
+                            (sum, item, i) =>
+                                sum +
+                                item.offsetWidth +
+                                (i < items.length - 1 ? config.gap || 0 : 0),
+                            0
+                        )
+                        const minX = -Math.max(
+                            0,
+                            currentTotalWidth - containerWidth
+                        )
                         const maxX = 0
                         const dragDelta = x - startX
-                        const targetX = Math.max(minX, Math.min(maxX, baseGroupX + dragDelta))
+                        const targetX = Math.max(
+                            minX,
+                            Math.min(maxX, baseGroupX + dragDelta)
+                        )
                         gsap.set(items, { x: targetX })
                     },
                     onRelease(this: any) {
                         if (isClick) {
                             // Handle click-to-advance when draggable is enabled
                             if (clickNavigation && !isThrowingRef.current) {
-                                const ptX = pressX || this.pointerX || this.x || 0
-                                const ptY = pressY || this.pointerY || this.y || 0
-                                const clicked = document.elementFromPoint(ptX, ptY)
-                                const slideElement = clicked && (clicked as Element).closest('.box') as HTMLElement | null
+                                const ptX =
+                                    pressX || this.pointerX || this.x || 0
+                                const ptY =
+                                    pressY || this.pointerY || this.y || 0
+                                const clicked = document.elementFromPoint(
+                                    ptX,
+                                    ptY
+                                )
+                                const slideElement =
+                                    clicked &&
+                                    ((clicked as Element).closest(
+                                        ".box"
+                                    ) as HTMLElement | null)
                                 if (slideElement) {
-                                    const slideIndex = Array.from(items).indexOf(slideElement)
+                                    const slideIndex =
+                                        Array.from(items).indexOf(slideElement)
                                     if (slideIndex !== -1) {
                                         try {
                                             stopAutoplay()
                                             tl.toIndex(slideIndex, {
                                                 duration: animation.duration,
-                                                ease: getEasingString(animation.easing || 'power1.inOut'),
+                                                ease: getEasingString(
+                                                    animation.easing ||
+                                                        "power1.inOut"
+                                                ),
                                                 onComplete: () => {
                                                     lastIndex = slideIndex
-                                                    setActiveSlideIndex(slideIndex)
+                                                    setActiveSlideIndex(
+                                                        slideIndex
+                                                    )
                                                 },
                                             })
-                                            if (autoplay) setTimeout(startAutoplay, 10)
+                                            if (autoplay)
+                                                setTimeout(startAutoplay, 10)
                                         } catch (_) {}
                                     }
                                 }
@@ -1080,47 +1111,50 @@ export default function Carousel({
 
                         // Evaluate drag distance based on ACTUAL group shift
                         const containerWidth = containerEl.offsetWidth || 0
-                        const slideWidth = items[0]?.getBoundingClientRect().width || Math.max(containerWidth, 1)
-                        const currentGroupX = parseFloat(String(gsap.getProperty(items[0], "x", "px"))) || 0
+                        const slideWidth =
+                            items[0]?.getBoundingClientRect().width ||
+                            Math.max(containerWidth, 1)
+                        const currentGroupX =
+                            parseFloat(
+                                String(gsap.getProperty(items[0], "x", "px"))
+                            ) || 0
                         const groupShift = currentGroupX - baseGroupX
 
                         // Threshold (~20% of slide width) for a page advance
                         const threshold = Math.max(30, slideWidth * 0.2)
 
-                        console.log("🐛 FINITE DRAG DEBUG:", {
-                            totalSlides: items.length,
-                            startIndex,
-                            currentGroupX,
-                            baseGroupX,
-                            groupShift,
-                            slideWidth,
-                            threshold,
-                            containerWidth
-                        })
+                        
 
                         let targetIndex = startIndex
                         if (groupShift > threshold) {
                             // group moved right -> go to previous slide
                             targetIndex = Math.max(0, startIndex - 1)
-                            console.log("🐛 DRAG RIGHT -> Previous slide:", targetIndex)
+                            
                         } else if (groupShift < -threshold) {
                             // group moved left -> go to next slide
-                            targetIndex = Math.min(items.length - 1, startIndex + 1)
-                            console.log("🐛 DRAG LEFT -> Next slide:", targetIndex, "(max:", items.length - 1, ")")
-                        } else {
-                            console.log("🐛 DRAG INSUFFICIENT -> Staying at:", targetIndex)
-                        }
+                            targetIndex = Math.min(
+                                items.length - 1,
+                                startIndex + 1
+                            )
+                            
+                        } 
 
                         // Snap to target index using timeline and capture new base position
-                        console.log("🐛 CALLING tl.toIndex(", targetIndex, ") from startIndex:", startIndex)
+                        
                         try {
                             tl.toIndex(targetIndex, {
                                 duration: animation.duration,
-                                ease: getEasingString(animation.easing || "power1.inOut"),
+                                ease: getEasingString(
+                                    animation.easing || "power1.inOut"
+                                ),
                                 onComplete: () => {
-                                    console.log("🐛 toIndex COMPLETE - targetIndex:", targetIndex, "new baseGroupX:", (gsap.getProperty(items[0], "x") as number) || 0)
+                                    
                                     try {
-                                        baseGroupX = (gsap.getProperty(items[0], "x") as number) || 0
+                                        baseGroupX =
+                                            (gsap.getProperty(
+                                                items[0],
+                                                "x"
+                                            ) as number) || 0
                                         // Update lastIndex to match the target we just navigated to
                                         lastIndex = targetIndex
                                         // Force React state alignment if needed
@@ -1129,20 +1163,27 @@ export default function Carousel({
                                 },
                             })
                             // After timeline moves, update baseGroupX for next interaction
-                            setTimeout(() => {
-                                try {
-                                    baseGroupX = (gsap.getProperty(items[0], "x") as number) || 0
-                                } catch (_) {}
-                            }, (animation.duration || 0.4) * 1000)
+                            setTimeout(
+                                () => {
+                                    try {
+                                        baseGroupX =
+                                            (gsap.getProperty(
+                                                items[0],
+                                                "x"
+                                            ) as number) || 0
+                                    } catch (_) {}
+                                },
+                                (animation.duration || 0.4) * 1000
+                            )
                         } catch (_) {}
 
                         // Restart autoplay if needed
                         if (autoplay) setTimeout(startAutoplay, 10)
-                },
-            })[0]
+                    },
+                })[0]
 
-            if (draggableInstance) {
-                tl.draggable = draggableInstance
+                if (draggableInstance) {
+                    tl.draggable = draggableInstance
                 }
             }
         }
@@ -2206,12 +2247,14 @@ export default function Carousel({
                         // Use intersectionRatio to determine visibility
                         // intersectionRatio is 0 when element is not visible, 1 when fully visible
                         const shouldBeVisible = entry.isIntersecting
-                        
+
                         // Get fade settings from property controls
-                        const fadeDuration = arrows?.fadeInControls?.duration || 0.5
-                        const fadeEasing = arrows?.fadeInControls?.easing || "power1.inOut"
+                        const fadeDuration =
+                            arrows?.fadeInControls?.duration || 0.5
+                        const fadeEasing =
+                            arrows?.fadeInControls?.easing || "power1.inOut"
                         const fadeDelay = arrows?.fadeInControls?.delay || 0.2
-                        
+
                         gsap.to(el, {
                             opacity: shouldBeVisible ? 1 : 0,
                             duration: fadeDuration,
@@ -2233,7 +2276,14 @@ export default function Carousel({
         return () => {
             observer.disconnect()
         }
-    }, [arrows?.show, arrows?.fadeIn, arrows?.fadeInControls?.duration, arrows?.fadeInControls?.easing, arrows?.fadeInControls?.delay, getEasingString])
+    }, [
+        arrows?.show,
+        arrows?.fadeIn,
+        arrows?.fadeInControls?.duration,
+        arrows?.fadeInControls?.easing,
+        arrows?.fadeInControls?.delay,
+        getEasingString,
+    ])
 
     // Remove the old useEffect - now using useLayoutEffect for immediate measurement
 
@@ -2426,19 +2476,22 @@ export default function Carousel({
 
         // Preserve container dimensions during mode change to prevent height issues
         const preservedDimensions = { ...containerDimensions.current }
-        
+
         // Force complete re-initialization when mode changes (simplest approach)
         setIsFullyInitialized(false)
         // DON'T set isCentered to false - keep slides visible during mode change
         // setIsCentered(false)
-        
+
         // Small delay to ensure DOM is updated after re-render
         const timeoutId = setTimeout(() => {
             // Restore container dimensions if they were lost during re-initialization
-            if (containerDimensions.current.width === 0 || containerDimensions.current.height === 0) {
+            if (
+                containerDimensions.current.width === 0 ||
+                containerDimensions.current.height === 0
+            ) {
                 containerDimensions.current = preservedDimensions
             }
-            
+
             // Reset initialization state to trigger full re-initialization
             initializationRef.current.isInitialized = false
             initializationRef.current.isInitializing = false
@@ -2587,7 +2640,7 @@ export default function Carousel({
                                         // Debounce onChange to prevent excessive state updates
                                         requestAnimationFrame(() => {
                                             try {
-                                                console.log("🐛 FINITE onChange FIRED - index:", index, "element:", element)
+                                                
                                                 // Update React state when active slide changes
                                                 setActiveElement(element)
                                                 setActiveSlideIndex(index)
@@ -2644,7 +2697,7 @@ export default function Carousel({
                                                     )
                                                 }
                                             } catch (error) {
-                                                console.log("🐛 FINITE onChange ERROR:", error)
+                                                
                                             }
                                         })
                                     },
@@ -3124,7 +3177,11 @@ export default function Carousel({
         if (React.isValidElement(node)) {
             const props: any = node.props || {}
             const style = (props.style || {}) as React.CSSProperties
-            if (style && (style.display === "none" || style.visibility === "hidden")) return false
+            if (
+                style &&
+                (style.display === "none" || style.visibility === "hidden")
+            )
+                return false
             // Filter out empty fragments
             if (node.type === React.Fragment) {
                 return isRenderableNode(props.children)
@@ -3465,7 +3522,19 @@ export default function Carousel({
                 visibility: isCentered ? "visible" : "hidden",
             }}
         >
-            <div style={{width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, pointerEvents: 'none'}}></div>
+            <div
+                style={{
+                    width: "100%",
+                    height: "100%",
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 1000,
+                    pointerEvents: "none",
+                }}
+            ></div>
             {/* Navigation Buttons - Absolutely Positioned */}
             {showArrows && (
                 <div ref={arrowsRef}>
@@ -3486,50 +3555,77 @@ export default function Carousel({
                                                 ? (arrows.gap ?? 20)
                                                 : 0
                                         const insetX = arrows.insetX ?? 20
-                                        const insetXUnit = arrows.insetXUnit ?? "px"
-                                        const insetXReference = arrows.insetXReference ?? "container"
+                                        const insetXUnit =
+                                            arrows.insetXUnit ?? "px"
+                                        const insetXReference =
+                                            arrows.insetXReference ??
+                                            "container"
                                         const insetY = arrows.insetY ?? 20
                                         const verticalAlign =
                                             arrows.verticalAlign || "center"
 
                                         // Calculate insetX based on reference
-                                        let calculatedInsetX: number | string = insetX
-                                        let finalUnit: "px" | "%" | "" = insetXUnit
-                                        
-                                        if (insetXReference === "central-slide") {
+                                        let calculatedInsetX: number | string =
+                                            insetX
+                                        let finalUnit: "px" | "%" | "" =
+                                            insetXUnit
+
+                                        if (
+                                            insetXReference === "central-slide"
+                                        ) {
                                             // Get slide width from slideWidth prop
-                                            const slideWidthValue = slideWidth.value ?? 100
-                                            const slideWidthUnit = slideWidth.unit ?? "percent"
-                                            
+                                            const slideWidthValue =
+                                                slideWidth.value ?? 100
+                                            const slideWidthUnit =
+                                                slideWidth.unit ?? "percent"
+
                                             if (slideWidthUnit === "percent") {
                                                 // For percentage-based slide width: position arrows relative to central slide edges
-                                                const slideWidthPercentage = slideWidthValue
-                                                const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                
+                                                const slideWidthPercentage =
+                                                    slideWidthValue
+                                                const offsetFromCenter =
+                                                    (100 -
+                                                        slideWidthPercentage) /
+                                                    2
+
                                                 if (insetXUnit === "px") {
                                                     // For pixel inset with percentage slide width, use calc()
                                                     calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
                                                     finalUnit = "" // No unit needed for calc()
                                                 } else {
                                                     // For percentage inset with percentage slide width, add percentages
-                                                    calculatedInsetX = offsetFromCenter + insetX
+                                                    calculatedInsetX =
+                                                        offsetFromCenter +
+                                                        insetX
                                                     finalUnit = "%"
                                                 }
                                             } else {
                                                 // For pixel-based slide width: convert to percentage of container
-                                                const containerWidth = containerDimensions.current.width
+                                                const containerWidth =
+                                                    containerDimensions.current
+                                                        .width
                                                 if (containerWidth > 0) {
-                                                    const slideWidthPixels = slideWidth.pixelValue ?? 300
-                                                    const slideWidthPercentage = (slideWidthPixels / containerWidth) * 100
-                                                    const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                    
+                                                    const slideWidthPixels =
+                                                        slideWidth.pixelValue ??
+                                                        300
+                                                    const slideWidthPercentage =
+                                                        (slideWidthPixels /
+                                                            containerWidth) *
+                                                        100
+                                                    const offsetFromCenter =
+                                                        (100 -
+                                                            slideWidthPercentage) /
+                                                        2
+
                                                     if (insetXUnit === "px") {
                                                         // For pixel inset with pixel slide width, use calc()
                                                         calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
                                                         finalUnit = "" // No unit needed for calc()
                                                     } else {
                                                         // For percentage inset with pixel slide width, add percentages
-                                                        calculatedInsetX = offsetFromCenter + insetX
+                                                        calculatedInsetX =
+                                                            offsetFromCenter +
+                                                            insetX
                                                         finalUnit = "%"
                                                     }
                                                 }
@@ -3541,8 +3637,9 @@ export default function Carousel({
                                         }
 
                                         // Format insetX with the appropriate unit
-                                        const formattedInsetX = finalUnit ? `${calculatedInsetX}${finalUnit}` : calculatedInsetX
-                                        
+                                        const formattedInsetX = finalUnit
+                                            ? `${calculatedInsetX}${finalUnit}`
+                                            : calculatedInsetX
 
                                         return {
                                             top:
@@ -3601,50 +3698,77 @@ export default function Carousel({
                                                 ? (arrows.gap ?? 20)
                                                 : 0
                                         const insetX = arrows.insetX ?? 20
-                                        const insetXUnit = arrows.insetXUnit ?? "px"
-                                        const insetXReference = arrows.insetXReference ?? "container"
+                                        const insetXUnit =
+                                            arrows.insetXUnit ?? "px"
+                                        const insetXReference =
+                                            arrows.insetXReference ??
+                                            "container"
                                         const insetY = arrows.insetY ?? 20
                                         const verticalAlign =
                                             arrows.verticalAlign || "center"
 
                                         // Calculate insetX based on reference
-                                        let calculatedInsetX: number | string = insetX
-                                        let finalUnit: "px" | "%" | "" = insetXUnit
-                                        
-                                        if (insetXReference === "central-slide") {
+                                        let calculatedInsetX: number | string =
+                                            insetX
+                                        let finalUnit: "px" | "%" | "" =
+                                            insetXUnit
+
+                                        if (
+                                            insetXReference === "central-slide"
+                                        ) {
                                             // Get slide width from slideWidth prop
-                                            const slideWidthValue = slideWidth.value ?? 100
-                                            const slideWidthUnit = slideWidth.unit ?? "percent"
-                                            
+                                            const slideWidthValue =
+                                                slideWidth.value ?? 100
+                                            const slideWidthUnit =
+                                                slideWidth.unit ?? "percent"
+
                                             if (slideWidthUnit === "percent") {
                                                 // For percentage-based slide width: position arrows relative to central slide edges
-                                                const slideWidthPercentage = slideWidthValue
-                                                const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                
+                                                const slideWidthPercentage =
+                                                    slideWidthValue
+                                                const offsetFromCenter =
+                                                    (100 -
+                                                        slideWidthPercentage) /
+                                                    2
+
                                                 if (insetXUnit === "px") {
                                                     // For pixel inset with percentage slide width, use calc()
                                                     calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
                                                     finalUnit = "" // No unit needed for calc()
                                                 } else {
                                                     // For percentage inset with percentage slide width, add percentages
-                                                    calculatedInsetX = offsetFromCenter + insetX
+                                                    calculatedInsetX =
+                                                        offsetFromCenter +
+                                                        insetX
                                                     finalUnit = "%"
                                                 }
                                             } else {
                                                 // For pixel-based slide width: convert to percentage of container
-                                                const containerWidth = containerDimensions.current.width
+                                                const containerWidth =
+                                                    containerDimensions.current
+                                                        .width
                                                 if (containerWidth > 0) {
-                                                    const slideWidthPixels = slideWidth.pixelValue ?? 300
-                                                    const slideWidthPercentage = (slideWidthPixels / containerWidth) * 100
-                                                    const offsetFromCenter = (100 - slideWidthPercentage) / 2
-                                                    
+                                                    const slideWidthPixels =
+                                                        slideWidth.pixelValue ??
+                                                        300
+                                                    const slideWidthPercentage =
+                                                        (slideWidthPixels /
+                                                            containerWidth) *
+                                                        100
+                                                    const offsetFromCenter =
+                                                        (100 -
+                                                            slideWidthPercentage) /
+                                                        2
+
                                                     if (insetXUnit === "px") {
                                                         // For pixel inset with pixel slide width, use calc()
                                                         calculatedInsetX = `calc(${offsetFromCenter}% + ${insetX}px)`
                                                         finalUnit = "" // No unit needed for calc()
                                                     } else {
                                                         // For percentage inset with pixel slide width, add percentages
-                                                        calculatedInsetX = offsetFromCenter + insetX
+                                                        calculatedInsetX =
+                                                            offsetFromCenter +
+                                                            insetX
                                                         finalUnit = "%"
                                                     }
                                                 }
@@ -3656,8 +3780,9 @@ export default function Carousel({
                                         }
 
                                         // Format insetX with the appropriate unit
-                                        const formattedInsetX = finalUnit ? `${calculatedInsetX}${finalUnit}` : calculatedInsetX
-                                        
+                                        const formattedInsetX = finalUnit
+                                            ? `${calculatedInsetX}${finalUnit}`
+                                            : calculatedInsetX
 
                                         return {
                                             top:
@@ -4037,7 +4162,7 @@ addPropertyControls(Carousel, {
                 defaultValue: false,
                 hidden: (props: any) => !props.show,
             },
-            fadeInControls:{
+            fadeInControls: {
                 type: ControlType.Object,
                 title: "Animation",
                 hidden: (props: any) => !props.fadeIn,
@@ -4156,7 +4281,7 @@ addPropertyControls(Carousel, {
                 hidden: (props: any) =>
                     props.distance !== "group" || !props.show,
             },
-            insetXReference:{
+            insetXReference: {
                 type: ControlType.Enum,
                 title: "Reference",
                 options: ["container", "central-slide"],

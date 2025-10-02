@@ -103,7 +103,6 @@ type Props = {
     displacementRadius?: number
     displacementHeight?: number
     backgroundColor?: string
-    preview?: boolean
 }
 
 /**
@@ -125,7 +124,6 @@ export default function ThreeDRugTextComponent(props: Props) {
         displacementRadius = 3,
         displacementHeight = 1,
         backgroundColor = "transparent",
-        preview = true
     } = props
 
     // Resolve background color from Framer tokens and parse to RGBA
@@ -145,6 +143,11 @@ export default function ThreeDRugTextComponent(props: Props) {
 
     useEffect(() => {
         if (!containerRef.current) return
+        
+        // Don't render Three.js scene if no images are provided
+        const hasMainTexture = mainTexture?.src
+        const hasShadowTexture = shadowTexture?.src
+        if (!hasMainTexture || !hasShadowTexture) return
 
         const container = containerRef.current
 
@@ -198,10 +201,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         const textureLoader = new TextureLoader()
 
         // Load textures with error handling
-        // In Canvas mode, use a fallback texture if no image is provided
         const isCanvas = RenderTarget.current() === RenderTarget.canvas
-        const hasMainTexture = mainTexture?.src
-        const hasShadowTexture = shadowTexture?.src
         
         // Minimal fix: scale planes to the image aspect ratio to avoid stretching
         const applyAspectFromTexture = (texture: any) => {
@@ -227,7 +227,7 @@ export default function ThreeDRugTextComponent(props: Props) {
             }
         }
 
-        const mainTex = hasMainTexture ? textureLoader.load(
+        const mainTex = textureLoader.load(
             mainTexture.src,
             (texture: any) => {
                 console.log("Main texture loaded successfully")
@@ -238,16 +238,9 @@ export default function ThreeDRugTextComponent(props: Props) {
             (error: any) => {
                 console.error("Error loading main texture:", error)
             }
-        ) : (isCanvas ? textureLoader.load(
-            "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzMzMzMzMyIvPjx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+MyBEIFJVRzwvdGV4dD48L3N2Zz4=",
-            (texture: any) => {
-                console.log("Fallback texture loaded for Canvas")
-                texture.needsUpdate = true
-                applyAspectFromTexture(texture)
-            }
-        ) : null)
+        )
 
-        const shadowTex = hasShadowTexture ? textureLoader.load(
+        const shadowTex = textureLoader.load(
             shadowTexture.src,
             (texture: any) => {
                 console.log("Shadow texture loaded successfully")
@@ -257,13 +250,7 @@ export default function ThreeDRugTextComponent(props: Props) {
             (error: any) => {
                 console.error("Error loading shadow texture:", error)
             }
-        ) : (isCanvas ? textureLoader.load(
-            "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iIzY2NjY2NiIvPjx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+U0hBRE9XPC90ZXh0Pjwvc3ZnPg==",
-            (texture: any) => {
-                console.log("Fallback shadow texture loaded for Canvas")
-                texture.needsUpdate = true
-            }
-        ) : null)
+        )
 
         // Main displacement plane shader material
         const shaderMaterial = new ShaderMaterial({
@@ -379,7 +366,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         
         // Ensure planes are centered at origin
         mainPlane.position.set(0, 0, 0)
-        shadowPlane.position.set(0.05, -0.05, -0.1) // Subtle shadow offset for realistic effect
+        shadowPlane.position.set(0, 0, -0.01) // Subtle shadow offset for realistic effect
         
         scene.add(mainPlane)
         scene.add(shadowPlane)
@@ -502,7 +489,7 @@ export default function ThreeDRugTextComponent(props: Props) {
             shadowPlaneRef.current = null
             sceneRef.current = null
         }
-    }, [])
+    }, [mainTexture?.src, shadowTexture?.src])
 
     // Apply UI changes (camera position, plane rotation, orbit controls)
     useEffect(() => {
@@ -802,13 +789,6 @@ addPropertyControls(ThreeDRugTextComponent, {
         type: ControlType.Color,
         title: "Background",
         defaultValue: "#ffffff",
-    },
-    preview: {
-        type: ControlType.Boolean,
-        title: "Preview",
-        defaultValue: true,
-        enabledTitle: "Yes",
-        disabledTitle: "No",
         description: "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
