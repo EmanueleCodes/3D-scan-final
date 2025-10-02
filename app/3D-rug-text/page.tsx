@@ -4,6 +4,79 @@ import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
 //@ts-ignore
 import {OrbitControls,Scene, Color, OrthographicCamera, Raycaster, Vector2, WebGLRenderer, ShaderMaterial, TextureLoader, Vector3, PlaneGeometry, Mesh, MeshBasicMaterial, DoubleSide} from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/3D-text-rug.js"
 
+// CSS variable token and color parsing (hex/rgba/var())
+const cssVariableRegex =
+    /var\s*\(\s*(--[\w-]+)(?:\s*,\s*((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*))?\s*\)/
+function extractDefaultValue(cssVar: string): string {
+    if (!cssVar || !cssVar.startsWith("var(")) return cssVar
+    const match = cssVariableRegex.exec(cssVar)
+    if (!match) return cssVar
+    const fallback = (match[2] || "").trim()
+    if (fallback.startsWith("var(")) return extractDefaultValue(fallback)
+    return fallback || cssVar
+}
+function resolveTokenColor(input: any): any {
+    if (typeof input !== "string") return input
+    if (!input.startsWith("var(")) return input
+    return extractDefaultValue(input)
+}
+function parseColorToRgba(input: string): {
+    r: number
+    g: number
+    b: number
+    a: number
+} {
+    if (!input) return { r: 0, g: 0, b: 0, a: 1 }
+    const str = input.trim()
+    const rgbaMatch = str.match(
+        /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
+    )
+    if (rgbaMatch) {
+        const r = Math.max(0, Math.min(255, parseFloat(rgbaMatch[1]))) / 255
+        const g = Math.max(0, Math.min(255, parseFloat(rgbaMatch[2]))) / 255
+        const b = Math.max(0, Math.min(255, parseFloat(rgbaMatch[3]))) / 255
+        const a =
+            rgbaMatch[4] !== undefined
+                ? Math.max(0, Math.min(1, parseFloat(rgbaMatch[4])))
+                : 1
+        return { r, g, b, a }
+    }
+    const hex = str.replace(/^#/, "")
+    if (hex.length === 8) {
+        return {
+            r: parseInt(hex.slice(0, 2), 16) / 255,
+            g: parseInt(hex.slice(2, 4), 16) / 255,
+            b: parseInt(hex.slice(4, 6), 16) / 255,
+            a: parseInt(hex.slice(6, 8), 16) / 255,
+        }
+    }
+    if (hex.length === 6) {
+        return {
+            r: parseInt(hex.slice(0, 2), 16) / 255,
+            g: parseInt(hex.slice(2, 4), 16) / 255,
+            b: parseInt(hex.slice(4, 6), 16) / 255,
+            a: 1,
+        }
+    }
+    if (hex.length === 4) {
+        return {
+            r: parseInt(hex[0] + hex[0], 16) / 255,
+            g: parseInt(hex[1] + hex[1], 16) / 255,
+            b: parseInt(hex[2] + hex[2], 16) / 255,
+            a: parseInt(hex[3] + hex[3], 16) / 255,
+        }
+    }
+    if (hex.length === 3) {
+        return {
+            r: parseInt(hex[0] + hex[0], 16) / 255,
+            g: parseInt(hex[1] + hex[1], 16) / 255,
+            b: parseInt(hex[2] + hex[2], 16) / 255,
+            a: 1,
+        }
+    }
+    return { r: 0, g: 0, b: 0, a: 1 }
+}
+
 /**
  * 3D Rug Text Component
  * 
@@ -55,6 +128,10 @@ export default function ThreeDRugTextComponent(props: Props) {
         preview = true
     } = props
 
+    // Resolve background color from Framer tokens and parse to RGBA
+    const resolvedBackgroundColor = resolveTokenColor(backgroundColor)
+    const backgroundColorRgba = parseColorToRgba(resolvedBackgroundColor)
+
     const containerRef = useRef<HTMLDivElement>(null)
     const animationRef = useRef<number | null>(null)
     const cameraRef = useRef<typeof OrthographicCamera | null>(null)
@@ -77,7 +154,10 @@ export default function ThreeDRugTextComponent(props: Props) {
 
         // Scene setup
         const scene = new Scene()
-        scene.background = new Color(backgroundColor)
+        // Convert RGBA to hex for Three.js Color
+        const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, "0")
+        const hexColor = `#${toHex(backgroundColorRgba.r)}${toHex(backgroundColorRgba.g)}${toHex(backgroundColorRgba.b)}`
+        scene.background = new Color(hexColor)
         sceneRef.current = scene
 
         // Orthographic camera - identical setup for canvas and live
@@ -299,7 +379,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         
         // Ensure planes are centered at origin
         mainPlane.position.set(0, 0, 0)
-        shadowPlane.position.set(0, 0, -0.1) // Slightly behind main plane
+        shadowPlane.position.set(0.05, -0.05, -0.1) // Subtle shadow offset for realistic effect
         
         scene.add(mainPlane)
         scene.add(shadowPlane)
@@ -401,9 +481,6 @@ export default function ThreeDRugTextComponent(props: Props) {
         // Framer Canvas often needs extra passes to settle CSS layout
         if (RenderTarget.current() === RenderTarget.canvas) {
             setTimeout(handleResize, 50)
-            setTimeout(handleResize, 150)
-            setTimeout(handleResize, 300)
-            setTimeout(handleResize, 500)
         }
 
         // Cleanup
@@ -481,6 +558,17 @@ export default function ThreeDRugTextComponent(props: Props) {
             }
         }
     }, [zoom, rotXDeg, rotYDeg, rotZDeg, orbitEnabled])
+
+    // Handle background color changes without recreating the scene
+    useEffect(() => {
+        const scene = sceneRef.current
+        if (scene) {
+            // Convert RGBA to hex for Three.js Color
+            const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, "0")
+            const hexColor = `#${toHex(backgroundColorRgba.r)}${toHex(backgroundColorRgba.g)}${toHex(backgroundColorRgba.b)}`
+            scene.background = new Color(hexColor)
+        }
+    }, [backgroundColorRgba])
 
     // Aspect ratio-aware resize handling - only updates Three.js content when aspect ratio changes
     useEffect(() => {
@@ -584,11 +672,10 @@ export default function ThreeDRugTextComponent(props: Props) {
             height: "100%",
             position: "relative",
             overflow: "hidden",
-            background: backgroundColor,
+            background: resolvedBackgroundColor,
             display: "flex",
             justifyContent: "center",
             alignItems: "center",
-            border: "2px solid red",
         }}>
         <div
             ref={containerRef}
@@ -599,7 +686,7 @@ export default function ThreeDRugTextComponent(props: Props) {
                 display: "block",
                 margin: 0,
                 padding: 0,
-                background: backgroundColor,
+                background: resolvedBackgroundColor,
             }}
         >
             {/* Hidden 20x20 probe element to detect editor zoom level in canvas */}
