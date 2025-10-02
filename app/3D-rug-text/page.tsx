@@ -81,13 +81,14 @@ export default function ThreeDRugTextComponent(props: Props) {
         sceneRef.current = scene
 
         // Orthographic camera - identical setup for canvas and live
-        const frustumSize = 20
+        const baseFrustum = 20
+        const frustum = baseFrustum / zoom
         const aspect = w / h
         const camera = new OrthographicCamera(
-            (frustumSize * aspect) / -2,
-            (frustumSize * aspect) / 2,
-            frustumSize / 2,
-            frustumSize / -2,
+            (frustum * aspect) / -2,
+            (frustum * aspect) / 2,
+            frustum / 2,
+            frustum / -2,
             0.1,
             1000
         )
@@ -122,11 +123,36 @@ export default function ThreeDRugTextComponent(props: Props) {
         const hasMainTexture = mainTexture?.src
         const hasShadowTexture = shadowTexture?.src
         
+        // Minimal fix: scale planes to the image aspect ratio to avoid stretching
+        const applyAspectFromTexture = (texture: any) => {
+            try {
+                const img = texture?.image
+                if (!img || !img.width || !img.height) return
+                const aspect = img.width / img.height
+                const scaleX = aspect >= 1 ? aspect : 1
+                const scaleY = aspect >= 1 ? 1 : 1 / aspect
+
+                if (mainPlaneRef.current && shadowPlaneRef.current) {
+                    mainPlaneRef.current.scale.set(scaleX, scaleY, 1)
+                    shadowPlaneRef.current.scale.set(scaleX, scaleY, 1)
+                }
+
+                const scene = sceneRef.current
+                if (scene) {
+                    const hitPlane = scene.children.find((child: any) => child.name === "hit")
+                    if (hitPlane) hitPlane.scale.set(scaleX, scaleY, 1)
+                }
+            } catch (_) {
+                // ignore
+            }
+        }
+
         const mainTex = hasMainTexture ? textureLoader.load(
             mainTexture.src,
             (texture: any) => {
                 console.log("Main texture loaded successfully")
                 texture.needsUpdate = true
+                applyAspectFromTexture(texture)
             },
             undefined,
             (error: any) => {
@@ -137,6 +163,7 @@ export default function ThreeDRugTextComponent(props: Props) {
             (texture: any) => {
                 console.log("Fallback texture loaded for Canvas")
                 texture.needsUpdate = true
+                applyAspectFromTexture(texture)
             }
         ) : null)
 
@@ -281,6 +308,11 @@ export default function ThreeDRugTextComponent(props: Props) {
         mainPlaneRef.current = mainPlane
         shadowPlaneRef.current = shadowPlane
 
+        // If texture already cached/available, apply aspect immediately
+        if ((mainTex as any)?.image && (mainTex as any).image.width) {
+            applyAspectFromTexture(mainTex)
+        }
+
         // Apply initial plane rotation from UI (degrees to radians)
         const rx = (rotXDeg * Math.PI) / 180
         const ry = (rotYDeg * Math.PI) / 180
@@ -293,7 +325,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         shadowPlane.rotation.z = rz
 
         // Invisible hit plane for raycasting - must match the visual plane rotation
-        const hitGeometry = new PlaneGeometry(20, 20)
+        const hitGeometry = new PlaneGeometry(15, 15)
         const hitMaterial = new MeshBasicMaterial({
             visible: false,
         })
@@ -354,10 +386,10 @@ export default function ThreeDRugTextComponent(props: Props) {
             const height = container.clientHeight
             const aspect = width / height
 
-            camera.left = (frustumSize * aspect) / -2
-            camera.right = (frustumSize * aspect) / 2
-            camera.top = frustumSize / 2
-            camera.bottom = frustumSize / -2
+            camera.left = (frustum * aspect) / -2
+            camera.right = (frustum * aspect) / 2
+            camera.top = frustum / 2
+            camera.bottom = frustum / -2
             camera.updateProjectionMatrix()
 
             renderer.setSize(width, height, false)
