@@ -51,7 +51,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         rotZDeg = 90,
         displacementRadius = 3,
         displacementHeight = 1,
-        backgroundColor = "#ffffff",
+        backgroundColor = "transparent",
         preview = true
     } = props
 
