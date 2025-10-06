@@ -2,7 +2,22 @@ import { useEffect, useRef, useState } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
 //@ts-ignore
-import {OrbitControls,Scene, Color, OrthographicCamera, Raycaster, Vector2, WebGLRenderer, ShaderMaterial, TextureLoader, Vector3, PlaneGeometry, Mesh, MeshBasicMaterial, DoubleSide} from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/3D-text-rug.js"
+import {
+    OrbitControls,
+    Scene,
+    Color,
+    OrthographicCamera,
+    Raycaster,
+    Vector2,
+    WebGLRenderer,
+    ShaderMaterial,
+    TextureLoader,
+    Vector3,
+    PlaneGeometry,
+    Mesh,
+    MeshBasicMaterial,
+    DoubleSide,
+} from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/3D-text-rug.js"
 
 // CSS variable token and color parsing (hex/rgba/var())
 const cssVariableRegex =
@@ -79,7 +94,7 @@ function parseColorToRgba(input: string): {
 
 /**
  * 3D Rug Text Component
- * 
+ *
  * Interactive 3D text displacement effect using js and custom shaders.
  * Based on: https://tympanus.net/codrops/2025/03/24/animating-letters-with-shaders-interactive-text-effect-with-three-js-glsl/
  */
@@ -138,12 +153,16 @@ export default function ThreeDRugTextComponent(props: Props) {
     const mainPlaneRef = useRef<typeof Mesh | null>(null)
     const shadowPlaneRef = useRef<typeof Mesh | null>(null)
     const sceneRef = useRef<typeof Scene | null>(null)
-    const lastSizeRef = useRef<{ width: number; height: number; aspectRatio: number }>({ width: 0, height: 0, aspectRatio: 0 })
+    const lastSizeRef = useRef<{
+        width: number
+        height: number
+        aspectRatio: number
+    }>({ width: 0, height: 0, aspectRatio: 0 })
     const zoomProbeRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if (!containerRef.current) return
-        
+
         // Don't render Three.js scene if no images are provided
         const hasMainTexture = mainTexture?.src
         const hasShadowTexture = shadowTexture?.src
@@ -157,10 +176,7 @@ export default function ThreeDRugTextComponent(props: Props) {
 
         // Scene setup
         const scene = new Scene()
-        // Convert RGBA to hex for Three.js Color
-        const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, "0")
-        const hexColor = `#${toHex(backgroundColorRgba.r)}${toHex(backgroundColorRgba.g)}${toHex(backgroundColorRgba.b)}`
-        scene.background = new Color(hexColor)
+        // Don't set scene background - let CSS handle it with proper alpha support
         sceneRef.current = scene
 
         // Orthographic camera - identical setup for canvas and live
@@ -180,11 +196,15 @@ export default function ThreeDRugTextComponent(props: Props) {
         camera.lookAt(0, 0, 0)
         cameraRef.current = camera
 
-        // Renderer
-        const renderer = new WebGLRenderer({ antialias: true })
+        // Renderer with alpha support for transparent backgrounds
+        const renderer = new WebGLRenderer({ 
+            antialias: true,
+            alpha: true,
+            premultipliedAlpha: false
+        })
         renderer.setSize(w, h, false)
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-        
+
         // Ensure canvas fills container completely - same in canvas and live
         const canvas = renderer.domElement
         canvas.style.position = "absolute"
@@ -193,7 +213,7 @@ export default function ThreeDRugTextComponent(props: Props) {
         canvas.style.height = "100%"
         canvas.style.display = "block"
         // canvas.style.border = "2px solid green" // Debug border removed
-        
+
         container.appendChild(canvas)
         rendererRef.current = renderer
 
@@ -202,7 +222,7 @@ export default function ThreeDRugTextComponent(props: Props) {
 
         // Load textures with error handling
         const isCanvas = RenderTarget.current() === RenderTarget.canvas
-        
+
         // Minimal fix: scale planes to the image aspect ratio to avoid stretching
         const applyAspectFromTexture = (texture: any) => {
             try {
@@ -219,7 +239,9 @@ export default function ThreeDRugTextComponent(props: Props) {
 
                 const scene = sceneRef.current
                 if (scene) {
-                    const hitPlane = scene.children.find((child: any) => child.name === "hit")
+                    const hitPlane = scene.children.find(
+                        (child: any) => child.name === "hit"
+                    )
                     if (hitPlane) hitPlane.scale.set(scaleX, scaleY, 1)
                 }
             } catch (_) {
@@ -363,11 +385,11 @@ export default function ThreeDRugTextComponent(props: Props) {
         const geometry = new PlaneGeometry(15, 15, 100, 100)
         const mainPlane = new Mesh(geometry, shaderMaterial)
         const shadowPlane = new Mesh(geometry, shadowMaterial)
-        
+
         // Ensure planes are centered at origin
         mainPlane.position.set(0, 0, 0)
         shadowPlane.position.set(0, 0, -0.01) // Subtle shadow offset for realistic effect
-        
+
         scene.add(mainPlane)
         scene.add(shadowPlane)
 
@@ -398,15 +420,15 @@ export default function ThreeDRugTextComponent(props: Props) {
         })
         const hitPlane = new Mesh(hitGeometry, hitMaterial)
         hitPlane.name = "hit"
-        
+
         // Ensure hit plane is centered at origin
         hitPlane.position.set(0, 0, 0)
-        
+
         // Apply the same rotation as the visual planes
         hitPlane.rotation.x = rx
         hitPlane.rotation.y = ry
         hitPlane.rotation.z = rz
-        
+
         scene.add(hitPlane)
 
         // Raycaster setup
@@ -437,7 +459,7 @@ export default function ThreeDRugTextComponent(props: Props) {
             if (controlsRef.current) controlsRef.current.update()
             renderer.render(scene, camera)
         }
-        
+
         // Start animation immediately in Canvas mode, or after textures load in live mode
         if (isCanvas) {
             // In Canvas mode, start immediately with fallback textures
@@ -522,11 +544,13 @@ export default function ThreeDRugTextComponent(props: Props) {
             shadowPlane.rotation.x = rx
             shadowPlane.rotation.y = ry
             shadowPlane.rotation.z = rz
-            
+
             // Also update the invisible hit plane to match
             const scene = sceneRef.current
             if (scene) {
-                const hitPlane = scene.children.find((child: any) => child.name === "hit")
+                const hitPlane = scene.children.find(
+                    (child: any) => child.name === "hit"
+                )
                 if (hitPlane) {
                     hitPlane.rotation.x = rx
                     hitPlane.rotation.y = ry
@@ -537,7 +561,10 @@ export default function ThreeDRugTextComponent(props: Props) {
 
         if (renderer && camera) {
             if (orbitEnabled && !controlsRef.current) {
-                controlsRef.current = new OrbitControls(camera, renderer.domElement)
+                controlsRef.current = new OrbitControls(
+                    camera,
+                    renderer.domElement
+                )
                 controlsRef.current.enableDamping = true
             } else if (!orbitEnabled && controlsRef.current) {
                 controlsRef.current.dispose()
@@ -546,16 +573,29 @@ export default function ThreeDRugTextComponent(props: Props) {
         }
     }, [zoom, rotXDeg, rotYDeg, rotZDeg, orbitEnabled])
 
-    // Handle background color changes without recreating the scene
+    // Background color is now handled by CSS on the container div
+    // No need to update Three.js scene background since we removed it
+
+    // Handle displacement properties changes in real-time
     useEffect(() => {
-        const scene = sceneRef.current
-        if (scene) {
-            // Convert RGBA to hex for Three.js Color
-            const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, "0")
-            const hexColor = `#${toHex(backgroundColorRgba.r)}${toHex(backgroundColorRgba.g)}${toHex(backgroundColorRgba.b)}`
-            scene.background = new Color(hexColor)
+        const mainPlane = mainPlaneRef.current
+        const shadowPlane = shadowPlaneRef.current
+        
+        if (mainPlane && mainPlane.material && 'uniforms' in mainPlane.material) {
+            const shaderMaterial = mainPlane.material as any
+            if (shaderMaterial.uniforms) {
+                shaderMaterial.uniforms.uRadius.value = displacementRadius
+                shaderMaterial.uniforms.uHeight.value = displacementHeight
+            }
         }
-    }, [backgroundColorRgba])
+        
+        if (shadowPlane && shadowPlane.material && 'uniforms' in shadowPlane.material) {
+            const shadowMaterial = shadowPlane.material as any
+            if (shadowMaterial.uniforms) {
+                shadowMaterial.uniforms.uRadius.value = displacementRadius
+            }
+        }
+    }, [displacementRadius, displacementHeight])
 
     // Aspect ratio-aware resize handling - only updates Three.js content when aspect ratio changes
     useEffect(() => {
@@ -568,13 +608,15 @@ export default function ThreeDRugTextComponent(props: Props) {
                 const aspectRatio = w / h
 
                 // Only update if aspect ratio actually changed (not just zoom)
-                const aspectRatioChanged = Math.abs(lastSizeRef.current.aspectRatio - aspectRatio) > 0.001
-                
+                const aspectRatioChanged =
+                    Math.abs(lastSizeRef.current.aspectRatio - aspectRatio) >
+                    0.001
+
                 if (aspectRatioChanged) {
                     lastSizeRef.current = { width: w, height: h, aspectRatio }
-                    
+
                     renderer.setSize(w, h)
-                    
+
                     const camera = cameraRef.current
                     if (camera) {
                         const frustumSize = 20 / zoom
@@ -602,14 +644,21 @@ export default function ThreeDRugTextComponent(props: Props) {
                 const container = containerRef.current
                 if (probe && container) {
                     const currentZoom = probe.getBoundingClientRect().width / 20
-                    const w = container.clientWidth || container.offsetWidth || 1
-                    const h = container.clientHeight || container.offsetHeight || 1
+                    const w =
+                        container.clientWidth || container.offsetWidth || 1
+                    const h =
+                        container.clientHeight || container.offsetHeight || 1
                     const currentAspectRatio = w / h
 
                     // Only update if enough time passed and aspect ratio changed (not just zoom)
-                    const timeOk = !last.ts || (now || performance.now()) - last.ts >= TICK_MS
-                    const aspectRatioChanged = Math.abs(currentAspectRatio - last.aspectRatio) > EPS_ASPECT
-                    const zoomChanged = Math.abs(currentZoom - last.zoom) > EPS_ZOOM
+                    const timeOk =
+                        !last.ts ||
+                        (now || performance.now()) - last.ts >= TICK_MS
+                    const aspectRatioChanged =
+                        Math.abs(currentAspectRatio - last.aspectRatio) >
+                        EPS_ASPECT
+                    const zoomChanged =
+                        Math.abs(currentZoom - last.zoom) > EPS_ZOOM
 
                     if (timeOk && aspectRatioChanged) {
                         last.ts = now || performance.now()
@@ -626,8 +675,8 @@ export default function ThreeDRugTextComponent(props: Props) {
                         last.h = h
                         const renderer = rendererRef.current
                         if (renderer) {
-                    renderer.setSize(w, h, false)
-                    renderer.setViewport(0, 0, w, h)
+                            renderer.setSize(w, h, false)
+                            renderer.setViewport(0, 0, w, h)
                         }
                     }
                 }
@@ -653,67 +702,67 @@ export default function ThreeDRugTextComponent(props: Props) {
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
     return (
-
-        <div style={{
-            width: "100%",
-            height: "100%",
-            position: "relative",
-            overflow: "hidden",
-            background: resolvedBackgroundColor,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-        }}>
         <div
-            ref={containerRef}
             style={{
                 width: "100%",
                 height: "100%",
                 position: "relative",
-                display: "block",
-                margin: 0,
-                padding: 0,
+                overflow: "hidden",
                 background: resolvedBackgroundColor,
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
             }}
         >
-            {/* Hidden 20x20 probe element to detect editor zoom level in canvas */}
             <div
-                ref={zoomProbeRef}
+                ref={containerRef}
                 style={{
-                    position: "absolute",
-                    width: 20,
-                    height: 20,
-                    opacity: 0,
-                    pointerEvents: "none",
+                    width: "100%",
+                    height: "100%",
+                    position: "relative",
+                    display: "block",
+                    margin: 0,
+                    padding: 0,
+                    background: resolvedBackgroundColor,
                 }}
-            />
-            {!hasImages ? (
-                isCanvas ? (
-                    <ComponentMessage
-                        style={{
-                            position: "relative",
-                            width: "100%",
-                            height: "100%",
-                            minWidth: 0,
-                            minHeight: 0,
-                        }}
-                        title="3D Rug Text Effect"
-                        subtitle="Add main and shadow textures to see the interactive 3D text displacement effect"
-                    />
-                ) : (
-                    <div
-                        style={{
-                            position: "absolute",
-                            inset: 0,
-                            width: "100%",
-                            height: "100%",
-                        }}
-                    />
-                )
-            ) : null}
+            >
+                {/* Hidden 20x20 probe element to detect editor zoom level in canvas */}
+                <div
+                    ref={zoomProbeRef}
+                    style={{
+                        position: "absolute",
+                        width: 20,
+                        height: 20,
+                        opacity: 0,
+                        pointerEvents: "none",
+                    }}
+                />
+                {!hasImages ? (
+                    isCanvas ? (
+                        <ComponentMessage
+                            style={{
+                                position: "relative",
+                                width: "100%",
+                                height: "100%",
+                                minWidth: 0,
+                                minHeight: 0,
+                            }}
+                            title="3D Rug Text Effect"
+                            subtitle="Add main and shadow textures to see the interactive 3D text displacement effect"
+                        />
+                    ) : (
+                        <div
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                                width: "100%",
+                                height: "100%",
+                            }}
+                        />
+                    )
+                ) : null}
+            </div>
         </div>
-        </div>
-
     )
 }
 
@@ -753,7 +802,7 @@ addPropertyControls(ThreeDRugTextComponent, {
     },
     rotYDeg: {
         type: ControlType.Number,
-        title: "RotateY",
+        title: "Rotate Y",
         min: -180,
         max: 180,
         step: 1,
@@ -788,8 +837,10 @@ addPropertyControls(ThreeDRugTextComponent, {
     backgroundColor: {
         type: ControlType.Color,
         title: "Background",
-        defaultValue: "#ffffff",
-        description: "More components at [Framer University](https://frameruni.link/cc).",
+        defaultValue:"ffffff",
+        optional: true,
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 
