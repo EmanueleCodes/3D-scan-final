@@ -514,7 +514,7 @@ export default function Carousel({
             if (isPrevDisabled) {
                 // Set disabled state immediately
                 gsap.set(leftButton, {
-                    opacity: arrows.opacity,
+                    opacity: 0.3,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -538,7 +538,7 @@ export default function Carousel({
             if (isNextDisabled) {
                 // Set disabled state immediately
                 gsap.set(rightButton, {
-                    opacity: arrows.opacity,
+                    opacity: 0.3,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -567,7 +567,7 @@ export default function Carousel({
                 if (isPrevDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(leftButton, {
-                        opacity: arrows.opacity,
+                        opacity: 0.3,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
                             animation.easing || "power1.inOut"
@@ -588,7 +588,7 @@ export default function Carousel({
                 if (isNextDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(rightButton, {
-                        opacity: arrows.opacity,
+                        opacity: 0.3,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
                             animation.easing || "power1.inOut"
@@ -2156,14 +2156,10 @@ export default function Carousel({
             if (!isFullyInitialized) {
                 setIsFullyInitialized(true)
             }
-            // CRITICAL FIX: Also set isCentered to ensure component is visible
-            if (!isCentered) {
-                setIsCentered(true)
-            }
         }, 2000) // 2 second fallback
 
         return () => clearTimeout(fallbackTimeout)
-    }, [isFullyInitialized, isCentered])
+    }, [isFullyInitialized])
 
     // Update slide visuals when effects props change
     useEffect(() => {
@@ -2336,8 +2332,8 @@ export default function Carousel({
 
                                     // In canvas mode, re-initialize the timeline for proper centering
                                     if (canvasMode && loopRef.current) {
-                                        // DON'T reset isCentered during resize - keep component visible
-                                        // setIsCentered(false) - REMOVED to prevent flashing
+                                        // Reset centered state during resize
+                                        setIsCentered(false)
 
                                         // Pause current timeline
                                         loopRef.current.pause()
@@ -2382,7 +2378,10 @@ export default function Carousel({
                                                     })
                                                 }
 
-                                                // Component remains visible - no need to reset isCentered
+                                                // Set centered state after re-initialization
+                                                setTimeout(() => {
+                                                    setIsCentered(true)
+                                                }, 100)
                                             }
                                         }, 50)
                                     }
@@ -2424,7 +2423,7 @@ export default function Carousel({
 
             if (isPrevDisabled) {
                 gsap.to(leftButton, {
-                    opacity: arrows.opacity,
+                    opacity: 0.3,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2444,7 +2443,7 @@ export default function Carousel({
 
             if (isNextDisabled) {
                 gsap.to(rightButton, {
-                    opacity: arrows.opacity,
+                    opacity: 0.3,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2480,8 +2479,8 @@ export default function Carousel({
 
         // Force complete re-initialization when mode changes (simplest approach)
         setIsFullyInitialized(false)
-        // CRITICAL FIX: Keep component visible during mode change
-        // Don't reset isCentered - prevents "invisible carousel on reload" bug
+        // DON'T set isCentered to false - keep slides visible during mode change
+        // setIsCentered(false)
 
         // Small delay to ensure DOM is updated after re-render
         const timeoutId = setTimeout(() => {
@@ -2586,10 +2585,6 @@ export default function Carousel({
                 }
 
                 setContainerReady(true)
-                
-                // CRITICAL FIX: Set isCentered early to make component visible during initialization
-                // This prevents the "invisible on reload" issue
-                setIsCentered(true)
 
                 /**
                  * Create the horizontal loop with configuration
@@ -2802,8 +2797,8 @@ export default function Carousel({
                                     animateDots(0) // First dot is active by default
                                 }
 
-                                // Component is already visible from earlier setIsCentered(true)
-                                // No need to set it again here
+                                // Only show component after all visual styling is complete
+                                setIsCentered(true)
                             }, 100) // Small delay to ensure DOM is ready
 
                             // Mark as fully initialized after visual styling is complete
