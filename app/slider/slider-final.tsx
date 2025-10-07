@@ -264,7 +264,10 @@ export default function Carousel({
     const resizeObserverRef = useRef<ResizeObserver | null>(null) // Reference to ResizeObserver
     const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null) // Debounce timeout for resize
     const [forceRender, setForceRender] = useState(0) // Force re-render trigger
-    const [canvasMode, setCanvasMode] = useState(false) // Track if we're in canvas mode
+    // Removed canvasMode state - use RenderTarget.current() === RenderTarget.canvas instead
+    const isCanvasStableRef = useRef(false) // Stable detection captured post-hydration
+    const singleInitDoneRef = useRef(false) // Prevent duplicate GSAP init across reloads/renders
+    const revealDoneRef = useRef(false) // Ensure we reveal only once per mount
 
     // Stable box widths - generated once and reused to prevent animation issues
     // CRITICAL: Box widths must remain stable across React re-renders to prevent
@@ -283,6 +286,15 @@ export default function Carousel({
     const [isFullyInitialized, setIsFullyInitialized] = useState(false) // Track when all GSAP setup and centering is complete
     const [isDragging, setIsDragging] = useState(false) // Track dragging state for cursor updates
     const [isCentered, setIsCentered] = useState(false) // Track when slides are properly centered
+    const [renderEpoch, setRenderEpoch] = useState(0) // Force a one-time remount to avoid reload glitches
+
+    // Debug helper - safe no-op if console not available
+    const log = (...args: any[]) => {
+        try {
+            // eslint-disable-next-line no-console
+            console.log('[Carousel]', ...args)
+        } catch {}
+    }
     const [arrowsVisible, setArrowsVisible] = useState(false) // Track when arrows should be visible
     const arrowsRef = useRef<HTMLDivElement>(null) // Reference to arrows container
     const prevArrowElRef = useRef<HTMLElement | null>(null) // Reference to prev arrow element
@@ -514,7 +526,7 @@ export default function Carousel({
             if (isPrevDisabled) {
                 // Set disabled state immediately
                 gsap.set(leftButton, {
-                    opacity: 0.3,
+                    opacity: arrows.opacity,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -538,7 +550,7 @@ export default function Carousel({
             if (isNextDisabled) {
                 // Set disabled state immediately
                 gsap.set(rightButton, {
-                    opacity: 0.3,
+                    opacity: arrows.opacity,
                     immediateRender: true,
                     duration: 0,
                 })
@@ -567,7 +579,7 @@ export default function Carousel({
                 if (isPrevDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(leftButton, {
-                        opacity: 0.3,
+                        opacity: arrows.opacity,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
                             animation.easing || "power1.inOut"
@@ -588,7 +600,7 @@ export default function Carousel({
                 if (isNextDisabled) {
                     // For disabled buttons, animate to disabled state with user timing
                     gsap.to(rightButton, {
-                        opacity: 0.3,
+                        opacity: arrows.opacity,
                         duration: animation.duration || 0.4,
                         ease: getEasingString(
                             animation.easing || "power1.inOut"
@@ -2210,16 +2222,20 @@ export default function Carousel({
         getEasingString,
     ])
 
-    // Detect canvas mode once on mount
+    // Stable canvas detection after hydration: sample on next frame and store
     useEffect(() => {
-        // Detect if we're in Framer canvas mode
-        const isCanvasMode =
-            window.location.href.includes("framer.com") ||
-            window.location.href.includes("localhost") ||
-            document.querySelector("[data-framer-name]") !== null
-
-        setCanvasMode(isCanvasMode)
+        const raf = requestAnimationFrame(() => {
+            try {
+                const rect = wrapperRef.current?.getBoundingClientRect()
+                const isCanvas = RenderTarget.current() === RenderTarget.canvas
+                isCanvasStableRef.current = isCanvas
+                log('mount:stable', { isCanvas, rect })
+            } catch {}
+        })
+        return () => cancelAnimationFrame(raf)
     }, [])
+
+    // Removed remounting - it was causing race conditions and multiple GSAP loop recreations
 
     // Handle arrow fade-in effect by observing actual arrow elements
     useEffect(() => {
@@ -2289,123 +2305,10 @@ export default function Carousel({
 
     // Log when heights are measured - removed duplicate logging
 
-    // Resize detection for Framer canvas mode - only triggers on actual resize
+    // Disabled editor-only MutationObserver (avoids production races). ResizeObserver covers real resizes.
     useEffect(() => {
-        if (!wrapperRef.current) return
-
-        // Use MutationObserver to detect style changes (Framer resizing)
-        const mutationObserver = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (
-                    mutation.type === "attributes" &&
-                    mutation.attributeName === "style"
-                ) {
-                    // Debounce the resize detection
-                    if (resizeTimeoutRef.current) {
-                        clearTimeout(resizeTimeoutRef.current)
-                    }
-
-                    resizeTimeoutRef.current = setTimeout(() => {
-                        if (wrapperRef.current) {
-                            const rect =
-                                wrapperRef.current.getBoundingClientRect()
-                            if (rect.width > 0 && rect.height > 0) {
-                                const prevWidth =
-                                    containerDimensions.current.width
-                                const prevHeight =
-                                    containerDimensions.current.height
-
-                                // Only update when aspect ratio changes (more performant)
-                                const prevRatio =
-                                    prevWidth / Math.max(prevHeight || 1, 1)
-                                const newRatio =
-                                    rect.width / Math.max(rect.height || 1, 1)
-                                const aspectChanged =
-                                    Math.abs(newRatio - prevRatio) > 0.0001
-
-                                // Only trigger re-render if aspect ratio actually changed
-                                if (aspectChanged) {
-                                    containerDimensions.current = {
-                                        width: rect.width,
-                                        height: rect.height,
-                                    }
-
-                                    // In canvas mode, re-initialize the timeline for proper centering
-                                    if (canvasMode && loopRef.current) {
-                                        // Reset centered state during resize
-                                        setIsCentered(false)
-
-                                        // Pause current timeline
-                                        loopRef.current.pause()
-
-                                        // Re-initialize after a short delay to ensure DOM is updated
-                                        setTimeout(() => {
-                                            if (
-                                                wrapperRef.current &&
-                                                boxesRef.current.length > 0
-                                            ) {
-                                                // Recreate the timeline with new dimensions
-                                                if (finiteMode) {
-                                                    loopRef.current =
-                                                        createFiniteTimeline(
-                                                            boxesRef.current,
-                                                            {
-                                                                gap: gap || 20,
-                                                                center: true,
-                                                                draggable:
-                                                                    draggable,
-                                                                paused: false,
-                                                            }
-                                                        )
-                                                } else {
-                                                    loopRef.current =
-                                                        createHorizontalLoop(
-                                                            boxesRef.current,
-                                                            {
-                                                                gap: gap || 20,
-                                                                center: true,
-                                                                draggable:
-                                                                    draggable,
-                                                                paused: false,
-                                                            }
-                                                        )
-                                                }
-
-                                                // Center on the first slide
-                                                if (loopRef.current) {
-                                                    loopRef.current.toIndex(0, {
-                                                        duration: 0,
-                                                    })
-                                                }
-
-                                                // Set centered state after re-initialization
-                                                setTimeout(() => {
-                                                    setIsCentered(true)
-                                                }, 100)
-                                            }
-                                        }, 50)
-                                    }
-
-                                    // Force re-render only for relevant change
-                                    setForceRender((prev) => prev + 1)
-                                }
-                            }
-                        }
-                    }, 100) // debounce to ~10fps during canvas resize
-                }
-            })
-        })
-
-        // Observe the wrapper element for style changes
-        mutationObserver.observe(wrapperRef.current, {
-            attributes: true,
-            attributeFilter: ["style"],
-        })
-
-        return () => {
-            mutationObserver.disconnect()
-        }
-    }, [canvasMode, finiteMode, gap, draggable])
+        return
+    }, [finiteMode, gap, draggable])
 
     // Update button visuals when buttonsUI props change
     useEffect(() => {
@@ -2423,7 +2326,7 @@ export default function Carousel({
 
             if (isPrevDisabled) {
                 gsap.to(leftButton, {
-                    opacity: 0.3,
+                    opacity: arrows.opacity,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2443,7 +2346,7 @@ export default function Carousel({
 
             if (isNextDisabled) {
                 gsap.to(rightButton, {
-                    opacity: 0.3,
+                    opacity: arrows.opacity,
                     duration: animation.duration || 0.4,
                     ease: getEasingString(animation.easing || "power1.inOut"),
                 })
@@ -2531,11 +2434,21 @@ export default function Carousel({
      */
     useGSAP(
         () => {
-            // Prevent multiple simultaneous initializations
+            // Post-hydration visibility: ensure reveal exactly once after GSAP setup begins
+            try {
+                const rect = wrapperRef.current?.getBoundingClientRect()
+                log('hydration:begin', { rect })
+            } catch {}
+            // Prevent duplicate GSAP initializations across re-renders/reloads
+            if (singleInitDoneRef.current) {
+                log('init:skipped-duplicate')
+                return
+            }
             if (
                 initializationRef.current.isInitializing ||
                 initializationRef.current.isInitialized
             ) {
+                log('init:skipped-inprogress')
                 return
             }
 
@@ -2760,6 +2673,14 @@ export default function Carousel({
                         if (loop) {
                             loopRef.current = loop
                             initializationRef.current.isInitialized = true
+                            try {
+                                const rect = wrapperRef.current?.getBoundingClientRect()
+                                log('init:loop-created', {
+                                    mode: finiteMode ? 'finite' : 'infinite',
+                                    slides: finalValidSlides.length,
+                                    rect,
+                                })
+                            } catch {}
 
                             // Click navigation is now handled through the draggable system
 
@@ -2778,7 +2699,11 @@ export default function Carousel({
                                         duration: 0,
                                         ease: "none",
                                     })
-                                    gsap.ticker.flush()
+                                    // Don't reveal here - let the post-init effect handle it to avoid races
+                                    try {
+                                        const rect = wrapperRef.current?.getBoundingClientRect()
+                                        log('init:centered', { rect })
+                                    } catch {}
                                 }
                             } catch (e) {}
 
@@ -2796,9 +2721,11 @@ export default function Carousel({
                                 if (dotsUI.enabled) {
                                     animateDots(0) // First dot is active by default
                                 }
-
-                                // Only show component after all visual styling is complete
-                                setIsCentered(true)
+                                // Styling done; visibility handled by post-hydration effect
+                                try {
+                                    const rect = wrapperRef.current?.getBoundingClientRect()
+                                    log('init:styling-done', { rect })
+                                } catch {}
                             }, 100) // Small delay to ensure DOM is ready
 
                             // Mark as fully initialized after visual styling is complete
@@ -2806,6 +2733,7 @@ export default function Carousel({
                                 setIsFullyInitialized(true)
                                 // Allow animations for subsequent interactions
                                 isInitialSetupRef.current = false
+                                singleInitDoneRef.current = true
                             }, 150) // Slightly longer delay to ensure all styling is applied
 
                             // Return cleanup function - useGSAP will handle this automatically
@@ -2861,6 +2789,51 @@ export default function Carousel({
             ],
         }
     ) // Scope to wrapper element
+
+    // Single reveal path: only after GSAP is fully initialized AND a safe delay
+    useEffect(() => {
+        if (!isFullyInitialized || isCentered || revealDoneRef.current) return
+
+        const raf = requestAnimationFrame(() => {
+            setTimeout(() => {
+                try {
+                    const rect = wrapperRef.current?.getBoundingClientRect()
+                    log('reveal:final', { rect, hasLoop: !!loopRef.current })
+                    setIsCentered(true)
+                    revealDoneRef.current = true
+                } catch {}
+            }, 50)
+        })
+
+        return () => cancelAnimationFrame(raf)
+    }, [isFullyInitialized, isCentered])
+
+    // Re-center once visible to correct any width/measure races
+    useEffect(() => {
+        if (!isCentered || !loopRef.current) return
+        const raf = requestAnimationFrame(() => {
+            try {
+                const loop = loopRef.current as any
+                const rect = wrapperRef.current?.getBoundingClientRect()
+                log('recenter:start', { rect, hasLoop: !!loop })
+                
+                // Force refresh the loop's internal calculations if available
+                if (loop && typeof loop.refresh === 'function') {
+                    loop.refresh(true)
+                    log('recenter:refreshed')
+                }
+                
+                // Then center to index 0
+                if (loop && typeof loop.toIndex === 'function') {
+                    loop.toIndex(0, { duration: 0, ease: 'none' })
+                    log('recenter:centered', { rect })
+                }
+            } catch (e) {
+                log('recenter:error', { error: String(e) })
+            }
+        })
+        return () => cancelAnimationFrame(raf)
+    }, [isCentered])
 
     /**
      * Autoplay Functions
@@ -3502,7 +3475,7 @@ export default function Carousel({
 
     return (
         <div
-            key={`carousel-${finiteMode ? "finite" : "infinite"}`}
+            key={`carousel-${finiteMode ? "finite" : "infinite"}-${renderEpoch}`}
             style={{
                 color: "white",
                 textAlign: "center" as const,
