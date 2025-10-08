@@ -2558,6 +2558,16 @@ export default function Carousel({
                     const allSlidesAfterDelay = boxesRef.current.filter(Boolean)
 
                     if (allSlidesAfterDelay.length < slideData.finalCount) {
+                        // Not all slides are mounted yet; nudge a re-run instead of bailing.
+                        setTimeout(() => {
+                            try {
+                                initializationRef.current.isInitializing = false
+                                initializationRef.current.isInitialized = false
+                                setContainerReady((v) => !v)
+                            } catch (_) {
+                                setContainerReady((v) => !v)
+                            }
+                        }, 30)
                         return
                     }
 
@@ -2572,6 +2582,15 @@ export default function Carousel({
                     )
 
                     if (finalValidSlides.length === 0) {
+                        setTimeout(() => {
+                            try {
+                                initializationRef.current.isInitializing = false
+                                initializationRef.current.isInitialized = false
+                                setContainerReady((v) => !v)
+                            } catch (_) {
+                                setContainerReady((v) => !v)
+                            }
+                        }, 30)
                         return
                     }
 
