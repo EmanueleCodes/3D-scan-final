@@ -269,6 +269,25 @@ export default function Carousel({
     const singleInitDoneRef = useRef(false) // Prevent duplicate GSAP init across reloads/renders
     const revealDoneRef = useRef(false) // Ensure we reveal only once per mount
 
+    // Helper: detect real editor canvas, not preview/production
+    const isRealCanvas = useCallback(() => {
+        try {
+            // Quick reject if RenderTarget isn't canvas
+            if (RenderTarget.current() !== RenderTarget.canvas) return false
+            // In preview/production, the DOM won't have canvas-specific markers
+            const canvasMarker =
+                document.querySelector('[data-framer-canvas-root]') ||
+                document.querySelector('[data-framer-canvas]') ||
+                document.querySelector('[data-framer-editor]')
+            // Treat framer.app public/preview hosting as non-canvas even if target reports canvas
+            const host = window.location && window.location.hostname
+            const isFramerHosted = typeof host === 'string' && host.endsWith('framer.app')
+            return Boolean(canvasMarker && !isFramerHosted)
+        } catch (_) {
+            return false
+        }
+    }, [])
+
     // Stable box widths - generated once and reused to prevent animation issues
     // CRITICAL: Box widths must remain stable across React re-renders to prevent
     // GSAP animation calculations from breaking. Random widths calculated during
@@ -2227,7 +2246,7 @@ export default function Carousel({
         const raf = requestAnimationFrame(() => {
             try {
                 const rect = wrapperRef.current?.getBoundingClientRect()
-                const isCanvas = RenderTarget.current() === RenderTarget.canvas
+                const isCanvas = isRealCanvas()
                 isCanvasStableRef.current = isCanvas
                 log('mount:stable', { isCanvas, rect })
             } catch {}
@@ -2305,10 +2324,13 @@ export default function Carousel({
 
     // Log when heights are measured - removed duplicate logging
 
-    // Disabled editor-only MutationObserver (avoids production races). ResizeObserver covers real resizes.
+    // Disabled editor-only MutationObserver (avoids production races).
+    // If we ever re-enable, guard with isRealCanvas() strictly.
     useEffect(() => {
+        if (!isRealCanvas()) return
+        // Currently no-op in preview/production
         return
-    }, [finiteMode, gap, draggable])
+    }, [isRealCanvas, finiteMode, gap, draggable])
 
     // Update button visuals when buttonsUI props change
     useEffect(() => {
@@ -2790,19 +2812,37 @@ export default function Carousel({
         }
     ) // Scope to wrapper element
 
-    // Single reveal path: only after GSAP is fully initialized AND a safe delay
+    // Single reveal path: only after GSAP is fully initialized AND loop exists
     useEffect(() => {
         if (!isFullyInitialized || isCentered || revealDoneRef.current) return
 
         const raf = requestAnimationFrame(() => {
-            setTimeout(() => {
-                try {
-                    const rect = wrapperRef.current?.getBoundingClientRect()
-                    log('reveal:final', { rect, hasLoop: !!loopRef.current })
-                    setIsCentered(true)
-                    revealDoneRef.current = true
-                } catch {}
-            }, 50)
+            // Poll briefly until loopRef is ready to avoid early reveal with hasLoop=false
+            let tries = 0
+            const maxTries = 10 // ~160ms max
+            const tick = () => {
+                if (loopRef.current) {
+                    try {
+                        const rect = wrapperRef.current?.getBoundingClientRect()
+                        log('reveal:final', { rect, hasLoop: !!loopRef.current })
+                        setIsCentered(true)
+                        revealDoneRef.current = true
+                    } catch {}
+                    return
+                }
+                if (tries++ < maxTries) {
+                    setTimeout(tick, 16)
+                } else {
+                    // Fallback reveal anyway
+                    try {
+                        const rect = wrapperRef.current?.getBoundingClientRect()
+                        log('reveal:fallback-no-loop', { rect, hasLoop: !!loopRef.current })
+                        setIsCentered(true)
+                        revealDoneRef.current = true
+                    } catch {}
+                }
+            }
+            setTimeout(tick, 50)
         })
 
         return () => cancelAnimationFrame(raf)
@@ -3427,16 +3467,10 @@ export default function Carousel({
                             border: "none",
                             borderRadius: "0px",
 
-                            transform: "none",
-                            scale: `${Math.max(
-                                i === activeSlideIndex
-                                    ? effects.current || 1.1
-                                    : effects.scale || 1,
-                                0.1
-                            )})`, // Ensure scale is positive
+                            // Transforms are fully controlled by GSAP; avoid inline transform/scale here
                             opacity: 1, // Always full opacity
                             fontSize: "clamp(16px, 4vw, 36px)", // Responsive font size
-                            fontWeight: "medium",
+                            fontWeight: 500,
                             overflow: "visible",
                             color: "#3D3D3D",
                             textAlign: "center",
