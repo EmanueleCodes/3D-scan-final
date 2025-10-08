@@ -1026,6 +1026,11 @@ export default function Carousel({
 
             return tl.toIndex(prevIndex)
         }
+        ;(tl as any).refresh = () => {
+            try {
+                tl.toIndex(lastIndex, { duration: 0, ease: 'none' })
+            } catch (_) {}
+        }
 
         // Set up draggable for finite mode: NO throwing, threshold-based one-slide advance
         if (config.draggable) {
@@ -1614,6 +1619,7 @@ export default function Carousel({
                 ? tl.time(times[curIndex], true)
                 : tl.progress(progress, true)
         }
+        ;(tl as any).refresh = refresh
 
         const onResize = () => refresh(true)
         let proxy: HTMLElement
@@ -2483,14 +2489,28 @@ export default function Carousel({
 
                 // DYNAMIC FIX: Ensure we have enough slides to fill the container
                 if (allSlides.length < slideData.finalCount) {
-                    // Retry after a short delay
+                    // Wait briefly and re-trigger the init instead of bailing out permanently.
+                    // We flip a dependency (containerReady) to cause useGSAP to run again
+                    // once more slides have mounted.
                     setTimeout(() => {
-                        const retrySlides = boxesRef.current.filter(Boolean)
-                        if (retrySlides.length >= slideData.finalCount) {
-                            // Re-run the initialization logic here
-                        } else {
+                        try {
+                            const retrySlides = boxesRef.current.filter(Boolean)
+                            if (retrySlides.length >= slideData.finalCount) {
+                                initializationRef.current.isInitializing = false
+                                initializationRef.current.isInitialized = false
+                                setContainerReady((v) => !v)
+                            } else {
+                                // One more nudge; if still not enough, the next render will try again
+                                initializationRef.current.isInitializing = false
+                                initializationRef.current.isInitialized = false
+                                setContainerReady((v) => !v)
+                            }
+                        } catch (_) {
+                            initializationRef.current.isInitializing = false
+                            initializationRef.current.isInitialized = false
+                            setContainerReady((v) => !v)
                         }
-                    }, 100)
+                    }, 50)
                     return
                 }
 
