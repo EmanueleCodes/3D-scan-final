@@ -1109,7 +1109,9 @@ export default function Carousel({
                     },
                     onDrag(this: any) {
                         const x = this.pointerX || this.x || 0
-                        const moved = Math.abs(x - startX) > 5
+                        const cardWidth = items[0]?.offsetWidth || 300
+                        const clickVsDragThreshold = Math.max(10, cardWidth * 0.05)
+                        const moved = Math.abs(x - startX) > clickVsDragThreshold
                         if (moved && isClick) {
                             isClick = false
                             allowDrag = true
@@ -1285,34 +1287,22 @@ export default function Carousel({
             }
         }
 
-        // Fallback click handler for when draggable is disabled but click navigation is enabled
-        if (!config.draggable && clickNavigation) {
+        // Primary per-slide click handler when clickNavigation is enabled
+        if (clickNavigation) {
             items.forEach((item, index) => {
                 const handler = (e: Event) => {
-                    // Disable click navigation while throwing
-                    if (isThrowingRef.current) {
-                        ;(e as any).stopPropagation?.()
-                        ;(e as any).preventDefault?.()
-                        return
-                    }
-                    ;(e as any).stopPropagation?.()
+                    // Ignore during throw or active drag
+                    if (isThrowingRef.current || isDraggingRef.current) return
                     try {
-                        stopAutoplay() // Stop autoplay when user clicks
-
-                        // Use the same simple pattern as buttons navigation
-                        // Just call toIndex directly, let onChange handle the visual updates
+                        stopAutoplay()
                         tl.toIndex(index, {
                             duration: animation.duration,
                             ease: getEasingString(
                                 animation.easing || "power1.inOut"
                             ),
                         })
-
-                        // Restart autoplay after user interaction
-                        if (autoplay) {
-                            setTimeout(startAutoplay, 10)
-                        }
-                    } catch (error) {}
+                        if (autoplay) setTimeout(startAutoplay, 10)
+                    } catch (_) {}
                 }
                 item.addEventListener("click", handler as EventListener)
                 itemClickHandlers.push({ el: item, handler })
@@ -1950,48 +1940,8 @@ export default function Carousel({
                     if (this.isClick) {
                         if (clickNavigation && !isThrowingRef.current) {
                             // This was a click with click nav enabled - trigger navigation
-                            const clickedElement = document.elementFromPoint(
-                                this.pressX,
-                                this.pressY
-                            )
-                            if (clickedElement) {
-                                // Find which slide was clicked
-                                const slideElement =
-                                    clickedElement.closest(".box")
-                                if (slideElement) {
-                                    const slideIndex = Array.from(
-                                        boxesRef.current
-                                    ).indexOf(slideElement as HTMLDivElement)
-                                    if (
-                                        slideIndex !== -1 &&
-                                        loopRef.current &&
-                                        loopRef.current.toIndex
-                                    ) {
-                                        // Use the same simple pattern as buttons navigation
-                                        try {
-                                            stopAutoplay() // Stop autoplay when user clicks
-
-                                            // Just call toIndex directly, let onChange handle the visual updates
-                                            loopRef.current.toIndex(
-                                                slideIndex,
-                                                {
-                                                    duration:
-                                                        animation.duration,
-                                                    ease: getEasingString(
-                                                        animation.easing ||
-                                                            "power1.inOut"
-                                                    ),
-                                                }
-                                            )
-
-                                            // Restart autoplay after user interaction
-                                            if (autoplay) {
-                                                setTimeout(startAutoplay, 10)
-                                            }
-                                        } catch (error) {}
-                                    }
-                                }
-                            }
+                            // Prefer the per-slide click handler; this branch is a fallback
+                            // No-op to avoid duplicate navigation
                         } else {
                             // This was just a click with click nav disabled - ignore completely
                         }
@@ -4202,7 +4152,6 @@ addPropertyControls(Carousel, {
         segmentedControlDirection: "vertical",
         hidden: (props: any) => !props.autoplay,
     },
-
     draggable: {
         type: ControlType.Boolean,
         title: "Draggable",
