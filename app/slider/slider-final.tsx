@@ -1090,8 +1090,14 @@ export default function Carousel({
                             0
                         )
                         const excess = Math.max(0, currentTotalWidth - containerWidth)
-                        minGroupX = baseGroupX - excess
-                        maxGroupX = baseGroupX
+                        const slideW = items[0]?.offsetWidth || 0
+                        const centerOffset = (containerWidth - slideW) / 2
+                        // Bounds that respect centered alignment for first and last slide, with small slack to avoid first-pixel snap
+                        const absMax = centerOffset
+                        const absMin = -excess + centerOffset
+                        const slack = 2
+                        maxGroupX = Math.max(absMax, baseGroupX + slack)
+                        minGroupX = Math.min(absMin, baseGroupX - slack)
                         // snap current index - prefer lastIndex (timeline source of truth),
                         // fallback to activeSlideIndex
                         startIndex =
