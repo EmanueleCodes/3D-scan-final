@@ -1053,6 +1053,9 @@ export default function Carousel({
                 let isClick = true
                 let allowDrag = false
                 let baseGroupX = 0
+                let minGroupX = 0
+                let maxGroupX = 0
+                let baseXByIndex: number[] = []
 
                 // Create a proxy to drive drag without attaching to items directly
                 const proxy = document.createElement("div")
@@ -1072,6 +1075,23 @@ export default function Carousel({
                         // capture current group offset from first item
                         baseGroupX =
                             (gsap.getProperty(items[0], "x") as number) || 0
+                        // capture per-slide base x positions to allow smooth delta shifting
+                        baseXByIndex = items.map((it) =>
+                            (gsap.getProperty(it, "x") as number) || 0
+                        )
+                        // compute drag bounds RELATIVE to current group position so
+                        // the first movement doesn't clamp and create a jump
+                        const containerWidth = containerEl.offsetWidth || 0
+                        const currentTotalWidth = items.reduce(
+                            (sum, item, i) =>
+                                sum +
+                                item.offsetWidth +
+                                (i < items.length - 1 ? config.gap || 0 : 0),
+                            0
+                        )
+                        const excess = Math.max(0, currentTotalWidth - containerWidth)
+                        minGroupX = baseGroupX - excess
+                        maxGroupX = baseGroupX
                         // snap current index - prefer lastIndex (timeline source of truth),
                         // fallback to activeSlideIndex
                         startIndex =
@@ -1091,26 +1111,16 @@ export default function Carousel({
                         if (!allowDrag) return
 
                         // Follow cursor by translating the group (all items) with clamping
-                        const containerWidth = containerEl.offsetWidth || 0
-                        // Recompute totalWidth defensively in case widths changed
-                        const currentTotalWidth = items.reduce(
-                            (sum, item, i) =>
-                                sum +
-                                item.offsetWidth +
-                                (i < items.length - 1 ? config.gap || 0 : 0),
-                            0
-                        )
-                        const minX = -Math.max(
-                            0,
-                            currentTotalWidth - containerWidth
-                        )
-                        const maxX = 0
                         const dragDelta = x - startX
                         const targetX = Math.max(
-                            minX,
-                            Math.min(maxX, baseGroupX + dragDelta)
+                            minGroupX,
+                            Math.min(maxGroupX, baseGroupX + dragDelta)
                         )
-                        gsap.set(items, { x: targetX })
+                        // Apply uniform delta from each slide's own base x to avoid jumps
+                        const groupDelta = targetX - baseGroupX
+                        gsap.set(items, {
+                            x: (i: number) => (baseXByIndex[i] || 0) + groupDelta,
+                        })
                     },
                     onRelease(this: any) {
                         if (isClick) {
@@ -1596,13 +1606,11 @@ export default function Carousel({
                 distanceToStart =
                     item.offsetLeft + curX - startX + spaceBefore[0]
 
-                // For infinite loop, add gap after last slide to ensure proper spacing
-                const gap = (config as any).gap ?? 0
-                const isLastSlide = i === length - 1
+                // For infinite loop, do NOT add an extra gap at the wrap seam.
+                // Keeping the wrap distance uniform prevents duplicate-adjacent seam artifacts.
                 distanceToLoop =
                     distanceToStart +
-                    widths[i] * (gsap.getProperty(item, "scaleX") as number) +
-                    (isLastSlide ? gap : 0)
+                    widths[i] * (gsap.getProperty(item, "scaleX") as number)
 
                 tl.to(
                     item,
@@ -2805,17 +2813,31 @@ export default function Carousel({
                                 startAutoplay()
                             }
 
-                            // Force-set the initial index using the same code path as navigation
+                            // Force-set the initial index to a position where the left neighbor differs
                             try {
+                                let initialStartIndex = 0
+                                try {
+                                    const totalSlides = finalValidSlides.length
+                                    if (totalSlides > 1) {
+                                        for (let i = 0; i < totalSlides; i++) {
+                                            const prev = (i - 1 + totalSlides) % totalSlides
+                                            const ci = getContentIndexForSlide(i)
+                                            const cp = getContentIndexForSlide(prev)
+                                            if (ci !== cp) {
+                                                initialStartIndex = i
+                                                break
+                                            }
+                                        }
+                                    }
+                                } catch (_) {}
                                 if ((loop as any).toIndex) {
-                                    ;(loop as any).toIndex(0, {
+                                    ;(loop as any).toIndex(initialStartIndex, {
                                         duration: 0,
                                         ease: "none",
                                     })
-                                    // Don't reveal here - let the post-init effect handle it to avoid races
                                     try {
                                         const rect = wrapperRef.current?.getBoundingClientRect()
-                                        log('init:centered', { rect })
+                                        log('init:centered', { rect, initialStartIndex })
                                     } catch {}
                                 }
                             } catch (e) {}
@@ -3336,14 +3358,16 @@ export default function Carousel({
             // For very wide containers, we might need more than 1.5x to ensure smooth scrolling
             const minSlidesForWideContainer =
                 Math.ceil(containerWidth / slideWidthWithGap) + actualSlideCount
+            // Align safety requirement to a multiple of visible content count
+            const minSlidesForWideContainerMultiple =
+                Math.ceil(minSlidesForWideContainer / actualSlideCount) * actualSlideCount
             const finalCountWithSafety = Math.max(
                 finalCount,
-                minSlidesForWideContainer
+                minSlidesForWideContainerMultiple
             )
             const finalFinalCount = finiteMode
                 ? finalCount // Finite mode: use exact count (no safety check)
-                : Math.ceil(finalCountWithSafety / actualSlideCount) *
-                  actualSlideCount // Infinite modes: ensure multiples
+                : Math.ceil(finalCountWithSafety / actualSlideCount) * actualSlideCount // Enforce multiple after safety
 
             return {
                 finalCount: finalFinalCount,
@@ -3377,10 +3401,12 @@ export default function Carousel({
             // Use reasonable fallback dimensions that work well in canvas
             const fallbackWidth = 400
             const fallbackHeight = 300
-            // Finite mode should render exactly the content count (no duplication)
+            // Ensure infinite mode count is a MULTIPLE of the visible content count
+            // to avoid adjacent duplicates at the seam even during early canvas fallback.
+            const desiredBase = finiteMode ? finalCount : Math.max(finalCount, 6)
             const canvasFinalCount = finiteMode
-                ? finalCount
-                : Math.max(finalCount, 6)
+                ? desiredBase
+                : Math.ceil(desiredBase / Math.max(actualSlideCount, 1)) * Math.max(actualSlideCount, 1)
             boxWidths.current = Array.from(
                 { length: canvasFinalCount },
                 () => fallbackWidth
@@ -3472,9 +3498,20 @@ export default function Carousel({
                     indices[i] = (indices[i] + 1) % visibleCount
                 }
             }
-            if (indices[indices.length - 1] === indices[0]) {
+            // Only adjust the seam when the total number of slides
+            // is NOT a multiple of the visible content count.
+            // If it IS a clean multiple, the natural modulo pattern already yields a valid seam.
+            if (
+                indices[indices.length - 1] === indices[0] &&
+                (indices.length % visibleCount !== 0)
+            ) {
                 indices[indices.length - 1] =
                     (indices[indices.length - 1] + 1) % visibleCount
+                // Edge case: if this creates a duplicate with the previous index, bump once more
+                if (indices.length > 1 && indices[indices.length - 1] === indices[indices.length - 2]) {
+                    indices[indices.length - 1] =
+                        (indices[indices.length - 1] + 1) % visibleCount
+                }
             }
         }
         return indices
