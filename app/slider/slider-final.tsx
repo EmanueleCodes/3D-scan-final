@@ -925,6 +925,9 @@ export default function Carousel({
         // Create a simple timeline
         const tl = gsap.timeline({ paused: true }) as any
 
+        // Track per-item click handlers for proper cleanup
+        const itemClickHandlers: Array<{ el: HTMLElement; handler: (e: Event) => void }> = []
+
         // Calculate total width and positions
         const containerWidth = items[0]?.parentElement?.offsetWidth || 0
         const totalWidth = items.reduce((sum, item, i) => {
@@ -1260,14 +1263,14 @@ export default function Carousel({
         // Fallback click handler for when draggable is disabled but click navigation is enabled
         if (!config.draggable && clickNavigation) {
             items.forEach((item, index) => {
-                item.addEventListener("click", (e) => {
+                const handler = (e: Event) => {
                     // Disable click navigation while throwing
                     if (isThrowingRef.current) {
-                        e.stopPropagation()
-                        e.preventDefault?.()
+                        ;(e as any).stopPropagation?.()
+                        ;(e as any).preventDefault?.()
                         return
                     }
-                    e.stopPropagation()
+                    ;(e as any).stopPropagation?.()
                     try {
                         stopAutoplay() // Stop autoplay when user clicks
 
@@ -1285,8 +1288,25 @@ export default function Carousel({
                             setTimeout(startAutoplay, 10)
                         }
                     } catch (error) {}
-                })
+                }
+                item.addEventListener("click", handler as EventListener)
+                itemClickHandlers.push({ el: item, handler })
             })
+        }
+
+        // Expose cleanup to kill draggable and remove click handlers
+        ;(tl as any).cleanup = () => {
+            try {
+                if ((tl as any).draggable && (tl as any).draggable.kill) {
+                    ;(tl as any).draggable.kill()
+                }
+            } catch (_) {}
+            try {
+                itemClickHandlers.forEach(({ el, handler }) => {
+                    try { el.removeEventListener("click", handler as any) } catch (_) {}
+                })
+                itemClickHandlers.length = 0
+            } catch (_) {}
         }
 
         return tl
@@ -2133,13 +2153,21 @@ export default function Carousel({
         lastIndex = curIndex
         onChange && onChange(items[curIndex], curIndex)
 
-        // Store cleanup function for later use
-        ;(tl as any).cleanup = () => {
+        // Store cleanup function for later use (merged with item/draggable cleanup above)
+        const baseCleanup = () => {
             window.removeEventListener("resize", onResize)
-            // Clean up global drag event listeners if they exist
             if ((tl as any).cleanupGlobalDrag) {
                 ;(tl as any).cleanupGlobalDrag()
             }
+        }
+        const prevCleanup = (tl as any).cleanup
+        ;(tl as any).cleanup = () => {
+            try { baseCleanup() } catch (_) {}
+            try {
+                if (prevCleanup && typeof prevCleanup === 'function') {
+                    prevCleanup()
+                }
+            } catch (_) {}
         }
 
         // Fallback click handler for when draggable is disabled but click navigation is enabled
