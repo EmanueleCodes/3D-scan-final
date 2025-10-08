@@ -1115,6 +1115,8 @@ export default function Carousel({
                         if (moved && isClick) {
                             isClick = false
                             allowDrag = true
+                            isDraggingRef.current = true
+                            setIsDragging(true)
                         }
                         if (!allowDrag) return
 
@@ -1243,6 +1245,10 @@ export default function Carousel({
                             )
                         } catch (_) {}
 
+                        // Reset dragging state
+                        isDraggingRef.current = false
+                        setIsDragging(false)
+                        
                         // Restart autoplay if needed
                         if (autoplay) setTimeout(startAutoplay, 10)
                     },
@@ -1830,9 +1836,11 @@ export default function Carousel({
                     if (!this.allowDrag && this.isClick) {
                         const currentX = this.pointerX || this.x || 0
                         const currentY = this.pointerY || this.y || 0
+                        const cardWidth = items[0]?.offsetWidth || 300
+                        const clickVsDragThreshold = Math.max(10, cardWidth * 0.05)
                         const hasMoved =
-                            Math.abs(currentX - (this.pressX || 0)) > 5 ||
-                            Math.abs(currentY - (this.pressY || 0)) > 5
+                            Math.abs(currentX - (this.pressX || 0)) > clickVsDragThreshold ||
+                            Math.abs(currentY - (this.pressY || 0)) > clickVsDragThreshold
 
                         if (hasMoved) {
                             this.isClick = false
@@ -2143,15 +2151,12 @@ export default function Carousel({
             } catch (_) {}
         }
 
-        // Fallback click handler for when draggable is disabled but click navigation is enabled
-        if (
-            (!config.draggable || (finiteMode && clickNavigation)) &&
-            clickNavigation
-        ) {
+        // Primary per-slide click handler when clickNavigation is enabled (both finite and infinite modes)
+        if (clickNavigation) {
             items.forEach((item, index) => {
                 item.addEventListener("click", (e) => {
-                    // Disable click navigation while throwing
-                    if (isThrowingRef.current) {
+                    // Disable click navigation while dragging or throwing
+                    if (isDraggingRef.current || isThrowingRef.current) {
                         e.stopPropagation()
                         e.preventDefault?.()
                         return
@@ -3569,7 +3574,7 @@ export default function Carousel({
                             position: "relative" as const,
                             cursor: (() => {
                                 if (isDragging) return "grabbing"
-                                if (draggable && !finiteMode) return "grab"
+                                if (draggable) return "grab"
                                 if (clickNavigation) return "pointer"
                                 return "default"
                             })(),
@@ -3964,8 +3969,8 @@ export default function Carousel({
                     overflowX: "clip",
                     cursor: (() => {
                         if (isDragging) return "grabbing"
-                        if (draggable && !finiteMode) return "grab"
-                        return "default"
+                        if (draggable) return "grab"
+                        return clickNavigation ? "pointer" : "default"
                     })(),
                 }}
             >
