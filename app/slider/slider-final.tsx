@@ -318,6 +318,14 @@ export default function Carousel({
     const arrowsRef = useRef<HTMLDivElement>(null) // Reference to arrows container
     const prevArrowElRef = useRef<HTMLElement | null>(null) // Reference to prev arrow element
     const nextArrowElRef = useRef<HTMLElement | null>(null) // Reference to next arrow element
+    // Dots: single source of truth for visible dot count
+    const dotCountRef = useRef<number>(0)
+    const dotsContainerRef = useRef<HTMLDivElement | null>(null)
+    const normalizeToDotIndex = useCallback((i: number) => {
+        const n = Math.max(dotCountRef.current || 0, 0)
+        if (n <= 0) return 0
+        return ((i % n) + n) % n
+    }, [])
 
     // Refs for tracking drag state without causing re-renders
     const isDraggingRef = useRef(false) // Track if user is currently dragging
@@ -500,11 +508,12 @@ export default function Carousel({
      */
     const animateDots = useCallback(
         (activeIndex: number) => {
-            const dots = document.querySelectorAll("[data-dot-index]")
+            const scope = dotsContainerRef.current || document
+            const dots = scope.querySelectorAll("[data-dot-index]")
             const totalDots = dots.length
             if (!totalDots) return
-            const normalizedActiveIndex =
-                ((activeIndex % totalDots) + totalDots) % totalDots
+            dotCountRef.current = totalDots
+            const normalizedActiveIndex = normalizeToDotIndex(activeIndex)
 
             dots.forEach((dot, index) => {
                 const isActive = index === normalizedActiveIndex
@@ -521,7 +530,7 @@ export default function Carousel({
                 })
             })
         },
-        [dotsUI, animation.duration, animation.easing, getEasingString]
+        [dotsUI, animation.duration, animation.easing, getEasingString, normalizeToDotIndex]
     )
 
     /**
@@ -688,7 +697,7 @@ export default function Carousel({
                 return targetContentIndex
             }
 
-            const contentCount = content.length || 1
+            const contentCount = Math.max(dotCountRef.current || 0, 1)
 
             // Get the actual current slide position from GSAP timeline
             let currentIndex = activeSlideIndex
@@ -702,7 +711,7 @@ export default function Carousel({
             }
 
             // Calculate the current content index (which content we're currently viewing)
-            const currentContentIndex = currentIndex % contentCount
+            const currentContentIndex = ((currentIndex % contentCount) + contentCount) % contentCount
 
             // Calculate how many slides to move based on dot index difference
             let slidesToMove = targetContentIndex - currentContentIndex
@@ -717,7 +726,7 @@ export default function Carousel({
 
             return targetSlideIndex
         },
-        [finiteMode, activeSlideIndex, content.length]
+        [finiteMode, activeSlideIndex]
     )
 
     /**
@@ -2427,8 +2436,24 @@ export default function Carousel({
     // Update dots when dotsUI props change
     useEffect(() => {
         if (!isFullyInitialized || !dotsUI.enabled) return
-        animateDots(activeSlideIndex)
-    }, [dotsUI, activeSlideIndex, isFullyInitialized, animateDots])
+        const idx = normalizeToDotIndex(activeSlideIndex)
+        animateDots(idx)
+    }, [dotsUI, activeSlideIndex, isFullyInitialized, animateDots, normalizeToDotIndex])
+
+    // Keep dotCountRef in sync with actual DOM-rendered dots (scoped to this component)
+    useEffect(() => {
+        if (!dotsUI.enabled) return
+        try {
+            const raf = requestAnimationFrame(() => {
+                const scope = dotsContainerRef.current || document
+                const dots = scope.querySelectorAll('[data-dot-index]')
+                if (dots && dots.length > 0) {
+                    dotCountRef.current = dots.length
+                }
+            })
+            return () => cancelAnimationFrame(raf)
+        } catch (_) {}
+    }, [dotsUI.enabled, containerReady, isFullyInitialized])
 
     // Trigger centering when mode changes - force complete re-initialization
     useEffect(() => {
@@ -2747,17 +2772,9 @@ export default function Carousel({
                                                 )
                                             }
 
-                                            // Animate dots
+                                            // Animate dots using dotCountRef normalization (infinite mode)
                                             if (dotsUI.enabled) {
-                                                const totalDots =
-                                                    slideData?.validContent
-                                                        ?.length || 0
-                                                const normalizedIndex =
-                                                    totalDots
-                                                        ? ((index % totalDots) +
-                                                              totalDots) %
-                                                          totalDots
-                                                        : index
+                                                const normalizedIndex = normalizeToDotIndex(index)
                                                 animateDots(normalizedIndex)
                                             }
                                         } catch (error) {}
@@ -3436,6 +3453,48 @@ export default function Carousel({
 
     // Reset refs each render so removed slides don't linger in boxesRef
     boxesRef.current = []
+
+    // Precompute content indices for rendering to avoid adjacent duplicates in infinite mode
+    const contentIndicesForRender = useMemo(() => {
+        const totalSlides = finiteMode
+            ? slideData?.actualSlideCount || 0
+            : slideData.finalCount
+        const visibleCount = Math.max(slideData.validContent.length, 1)
+
+        const indices = Array.from({ length: totalSlides }, (_, i) =>
+            visibleCount > 0 ? i % visibleCount : 0
+        )
+
+        if (!finiteMode && visibleCount > 1 && indices.length > 1) {
+            // Ensure no two adjacent indices are equal, including the seam (last-next-to-first)
+            for (let i = 1; i < indices.length; i++) {
+                if (indices[i] === indices[i - 1]) {
+                    indices[i] = (indices[i] + 1) % visibleCount
+                }
+            }
+            if (indices[indices.length - 1] === indices[0]) {
+                indices[indices.length - 1] =
+                    (indices[indices.length - 1] + 1) % visibleCount
+            }
+        }
+        return indices
+        // Depend only on counts that affect mapping
+    }, [finiteMode, slideData?.actualSlideCount, slideData.finalCount, slideData.validContent.length])
+
+    // Map a loop slide index -> content index, respecting our precomputed mapping
+    const getContentIndexForSlide = useCallback(
+        (slideIndex: number) => {
+            const totalSlides = finiteMode
+                ? slideData?.actualSlideCount || 0
+                : slideData.finalCount
+            if (!totalSlides) return 0
+            const wrapped = ((slideIndex % totalSlides) + totalSlides) % totalSlides
+            const visibleCount = Math.max(slideData.validContent.length, 1)
+            return contentIndicesForRender[wrapped] ?? (visibleCount > 0 ? wrapped % visibleCount : 0)
+        },
+        [finiteMode, slideData?.actualSlideCount, slideData.finalCount, slideData.validContent.length, contentIndicesForRender]
+    )
+
     const boxes = Array.from(
         {
             length: finiteMode
@@ -3446,8 +3505,8 @@ export default function Carousel({
             const { validContent, finalCount } = slideData
             const actualSlideCount = Math.max(validContent.length, 1)
 
-            // NEW APPROACH: Cycle through content for each static slide
-            const contentIndex = actualSlideCount > 0 ? i % actualSlideCount : 0
+            // Use precomputed content index to avoid adjacent duplicates
+            const contentIndex = contentIndicesForRender[i] ?? 0
 
             // Content cycling for static slides
 
@@ -3941,6 +4000,9 @@ export default function Carousel({
             {/* Dots Navigation - Show when enabled */}
             {showDots && (
                 <div
+                    ref={(el) => {
+                        dotsContainerRef.current = el
+                    }}
                     style={{
                         ...calculateDotsPosition(),
                         overflow: "visible",
@@ -3957,7 +4019,7 @@ export default function Carousel({
                         {
                             length: finiteMode
                                 ? slideData?.actualSlideCount || 0
-                                : slideData?.validContent?.length || 0,
+                                : Math.max(dotCountRef.current || 0, slideData?.validContent?.length || 0),
                         },
                         (_, index) => (
                             <button
@@ -4010,33 +4072,18 @@ export default function Carousel({
                                     opacity: (() => {
                                         const totalDots = finiteMode
                                             ? slideData?.actualSlideCount || 0
-                                            : slideData?.validContent?.length ||
-                                              0
-                                        const normalized = totalDots
-                                            ? finiteMode
-                                                ? activeSlideIndex
-                                                : ((activeSlideIndex %
-                                                      totalDots) +
-                                                      totalDots) %
-                                                  totalDots
-                                            : 0
+                                            : Math.max(dotCountRef.current || 0, slideData?.validContent?.length || 0)
+                                        const normalized = finiteMode
+                                            ? activeSlideIndex
+                                            : normalizeToDotIndex(activeSlideIndex)
                                         return index === normalized
                                             ? dotsUI.current || 1
                                             : dotsUI.opacity || 0.5
                                     })(),
                                     transform: (() => {
-                                        const totalDots = finiteMode
-                                            ? slideData?.actualSlideCount || 0
-                                            : slideData?.validContent?.length ||
-                                              0
-                                        const normalized = totalDots
-                                            ? finiteMode
-                                                ? activeSlideIndex
-                                                : ((activeSlideIndex %
-                                                      totalDots) +
-                                                      totalDots) %
-                                                  totalDots
-                                            : 0
+                                        const normalized = finiteMode
+                                            ? activeSlideIndex
+                                            : normalizeToDotIndex(activeSlideIndex)
                                         return index === normalized
                                             ? `scale(${dotsUI.scale || 1.2})`
                                             : "scale(1)"
