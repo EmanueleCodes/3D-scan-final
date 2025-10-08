@@ -2214,6 +2214,7 @@ export default function Carousel({
         isInitialized: false,
     })
     const isInitialSetupRef = useRef(true) // Track if we're in initial setup phase
+    const usedFallbackDimsRef = useRef(false) // If true, first init used fallback 600x400
 
     // Fallback timeout to ensure component shows up even if initialization fails
     useEffect(() => {
@@ -2496,7 +2497,7 @@ export default function Carousel({
                 log('hydration:begin', { rect })
             } catch {}
             // Prevent duplicate GSAP initializations across re-renders/reloads
-            if (singleInitDoneRef.current) {
+            if (singleInitDoneRef.current && !usedFallbackDimsRef.current) {
                 log('init:skipped-duplicate')
                 return
             }
@@ -2560,10 +2561,16 @@ export default function Carousel({
                 if (containerRect.width === 0 || containerRect.height === 0) {
                     // Use fallback dimensions instead of retrying
                     containerDimensions.current = { width: 600, height: 400 }
+                    usedFallbackDimsRef.current = true
                 } else {
                     containerDimensions.current = {
                         width: containerRect.width,
                         height: containerRect.height,
+                    }
+                    // If we previously initialized with fallback, allow a re-init once real size is known
+                    if (usedFallbackDimsRef.current) {
+                        usedFallbackDimsRef.current = false
+                        singleInitDoneRef.current = false
                     }
                 }
 
