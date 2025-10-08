@@ -2474,7 +2474,7 @@ export default function Carousel({
         }, 50)
 
         return () => clearTimeout(timeoutId)
-    }, [containerDimensions.current.height, isFullyInitialized])
+    }, [containerReady, isFullyInitialized])
 
     /**
      * Initialize the horizontal loop using useGSAP
