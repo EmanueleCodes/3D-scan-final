@@ -2886,41 +2886,29 @@ export default function Carousel({
         }
     ) // Scope to wrapper element
 
-    // Single reveal path: only after GSAP is fully initialized AND loop exists
+    // Reveal once: when loop exists and container has non-zero size
     useEffect(() => {
-        if (!isFullyInitialized || isCentered || revealDoneRef.current) return
+        if (revealDoneRef.current || isCentered) return
 
-        const raf = requestAnimationFrame(() => {
-            // Poll briefly until loopRef is ready to avoid early reveal with hasLoop=false
-            let tries = 0
-            const maxTries = 10 // ~160ms max
-            const tick = () => {
-                if (loopRef.current) {
-                    try {
-                        const rect = wrapperRef.current?.getBoundingClientRect()
-                        log('reveal:final', { rect, hasLoop: !!loopRef.current })
-                        setIsCentered(true)
-                        revealDoneRef.current = true
-                    } catch {}
-                    return
-                }
-                if (tries++ < maxTries) {
-                    setTimeout(tick, 16)
-                } else {
-                    // Fallback reveal anyway
-                    try {
-                        const rect = wrapperRef.current?.getBoundingClientRect()
-                        log('reveal:fallback-no-loop', { rect, hasLoop: !!loopRef.current })
-                        setIsCentered(true)
-                        revealDoneRef.current = true
-                    } catch {}
-                }
+        const hasLoop = !!loopRef.current
+        const rect = wrapperRef.current?.getBoundingClientRect()
+        const hasSize = !!rect && rect.width > 0 && rect.height > 0
+
+        if (!hasLoop || !hasSize) return
+
+        try {
+            const loop = loopRef.current as any
+            if (loop && typeof loop.refresh === 'function') {
+                loop.refresh(true)
             }
-            setTimeout(tick, 50)
-        })
+            if (loop && typeof loop.toIndex === 'function') {
+                loop.toIndex(0, { duration: 0, ease: 'none' })
+            }
+        } catch (_) {}
 
-        return () => cancelAnimationFrame(raf)
-    }, [isFullyInitialized, isCentered])
+        setIsCentered(true)
+        revealDoneRef.current = true
+    }, [loopRef.current, containerReady, isCentered])
 
     // Re-center once visible to correct any width/measure races
     useEffect(() => {
