@@ -10,7 +10,8 @@ import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
  * @framerDisableUnlink
  */
 export default function PixelWiggleImage(props: Props) {
-    const { image, tileWidth, tileHeight, offset, speed, preview, style } = props
+    const { image, tileWidth, tileHeight, offset, speed, preview, style } =
+        props
 
     // Container and canvas refs
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -31,18 +32,39 @@ export default function PixelWiggleImage(props: Props) {
     const isInViewRef = useRef<boolean>(true)
     const devicePixelRatioRef = useRef<number>(1) // Safe default for SSR
     const previewRef = useRef<boolean>(preview)
+    const stillTimeRef = useRef<number>(0)
+    const resizeDebounceRef = useRef<number | null>(null)
 
     // Set device pixel ratio on client side only
     useEffect(() => {
         if (typeof window !== "undefined") {
-            devicePixelRatioRef.current = Math.min(window.devicePixelRatio || 1, 2)
+            devicePixelRatioRef.current = Math.min(
+                window.devicePixelRatio || 1,
+                2
+            )
         }
     }, [])
 
-    // Update preview ref when prop changes
+    // Update preview ref when prop changes and trigger render if needed
     useEffect(() => {
+        const wasPreview = previewRef.current
         previewRef.current = preview
-    }, [preview])
+        
+        // If preview changed from true to false, trigger one render to show the still frame
+        if (wasPreview && !preview && RenderTarget.current() === RenderTarget.canvas) {
+            // Freeze at the current time and draw once
+            stillTimeRef.current = performance.now()
+            drawStillFrame()
+        }
+    }, [preview, tileWidth, tileHeight, offset, speed])
+
+    // If effect props change while paused, redraw the still frame to reflect them
+    useEffect(() => {
+        const isPaused = !previewRef.current && RenderTarget.current() === RenderTarget.canvas
+        if (isPaused && textureReadyRef.current) {
+            drawStillFrame()
+        }
+    }, [tileWidth, tileHeight, offset, speed])
 
     // Inline styles only. The outer sizing is controlled by Framer; inner fills 100%.
     const containerStyle: React.CSSProperties = {
@@ -64,9 +86,73 @@ export default function PixelWiggleImage(props: Props) {
         width: "100%",
         height: "100%",
         display: "flex",
+        opacity: isTextureReady ? 1 : 0, // Hide canvas until texture is ready to avoid flashes
+        pointerEvents: "none",
+        transition: "opacity 120ms ease-out",
     }
 
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
+
+    // Draw a single still frame with current uniforms/state
+    const drawStillFrame = () => {
+        const gl = glRef.current
+        const canvas = canvasRef.current
+        const program = programRef.current
+        const texture = textureRef.current
+        if (!gl || !canvas || !program || !texture || !textureReadyRef.current)
+            return
+
+        // Ensure program and texture are bound
+        gl.useProgram(program)
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+
+        // Keep viewport in sync
+        gl.viewport(0, 0, canvas.width, canvas.height)
+
+        // Re-bind buffer and attribute in case state was lost
+        const positionLocation = gl.getAttribLocation(program, "a_position")
+        if (bufferRef.current) {
+            gl.bindBuffer(gl.ARRAY_BUFFER, bufferRef.current)
+            gl.enableVertexAttribArray(positionLocation)
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
+        }
+
+        const uTime = uniformsRef.current["u_time"]
+        const uTileWidth = uniformsRef.current["u_tile_width"]
+        const uTileHeight = uniformsRef.current["u_tile_height"]
+        const uOffset = uniformsRef.current["u_offset"]
+        const uSpeed = uniformsRef.current["u_speed"]
+        const uContainerAspect = uniformsRef.current["u_container_aspect"]
+        const uImageAspect = uniformsRef.current["u_image_aspect"]
+
+        if (uTime) gl.uniform1f(uTime, stillTimeRef.current)
+        if (uTileWidth) {
+            const scaleX =
+                canvas.clientWidth > 0 ? tileWidth / canvas.clientWidth : 1
+            gl.uniform1f(uTileWidth, scaleX)
+        }
+        if (uTileHeight) {
+            const scaleY =
+                canvas.clientHeight > 0 ? tileHeight / canvas.clientHeight : 1
+            gl.uniform1f(uTileHeight, scaleY)
+        }
+        if (uOffset) gl.uniform1f(uOffset, offset)
+        if (uSpeed) gl.uniform1f(uSpeed, speed * 3)
+        if (uContainerAspect) {
+            const w = Math.max(canvas.clientWidth, 2)
+            const h = Math.max(canvas.clientHeight, 2)
+            gl.uniform1f(uContainerAspect, w / h)
+        }
+        if (uImageAspect && imageObjRef.current) {
+            const img = imageObjRef.current
+            if (img.naturalWidth && img.naturalHeight) {
+                gl.uniform1f(uImageAspect, img.naturalWidth / img.naturalHeight)
+            }
+        }
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+    }
 
     // Shaders converted from reference.html
     const vertexShaderSource = useMemo(
@@ -97,6 +183,7 @@ uniform float u_offset;
 uniform float u_speed;
 uniform float u_container_aspect;
 uniform float u_image_aspect;
+uniform float u_visibility_threshold;
 
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -138,7 +225,40 @@ void main () {
   warped_container_uv.y *= u_tile_height;
   warped_container_uv += 0.5;
 
-  // 2) Apply cover mapping AFTER the tile warp so the image maintains aspect
+  // 2) Visibility mask per-tile: check if WARPED tile position crosses boundaries
+  // Hide tiles with >50% outside, but only randomly hide about half of them
+  vec2 tileSizeContainer = vec2(u_tile_width, u_tile_height);
+  vec2 warpedTileCenter = warped_container_uv;
+  vec2 halfSize = 0.5 * tileSizeContainer;
+  
+  // Check each edge separately for cleaner boundaries
+  float leftEdge = warpedTileCenter.x - halfSize.x;
+  float rightEdge = warpedTileCenter.x + halfSize.x;
+  float topEdge = warpedTileCenter.y - halfSize.y;
+  float bottomEdge = warpedTileCenter.y + halfSize.y;
+  
+  // Calculate how much of the tile is outside each boundary
+  float outsideLeft = max(0.0, -leftEdge);
+  float outsideRight = max(0.0, rightEdge - 1.0);
+  float outsideTop = max(0.0, -topEdge);
+  float outsideBottom = max(0.0, bottomEdge - 1.0);
+  
+  // Calculate visible area
+  float visibleWidth = max(0.0, min(rightEdge, 1.0) - max(leftEdge, 0.0));
+  float visibleHeight = max(0.0, min(bottomEdge, 1.0) - max(topEdge, 0.0));
+  float visibleArea = visibleWidth * visibleHeight;
+  float totalTileArea = tileSizeContainer.x * tileSizeContainer.y;
+  float visibleRatio = totalTileArea > 0.0 ? visibleArea / totalTileArea : 0.0;
+  
+  // Simple hash function for per-tile randomness based on grid position
+  float random = fract(sin(dot(grid_floor, vec2(12.9898, 78.233))) * 43758.5453);
+  
+  // Hide tile if: (1) less than 50% is visible AND (2) random > 0.5
+  float isBorderTile = step(visibleRatio, 0.5);
+  float shouldHide = step(0.5, random);
+  float tileMask = 1.0 - (isBorderTile * shouldHide);
+
+  // 3) Apply cover mapping AFTER the tile warp so the image maintains aspect
   vec2 base_uv = warped_container_uv;
   base_uv.y = 1.0 - base_uv.y; // flip Y once for texture space
 
@@ -157,7 +277,7 @@ void main () {
   vec4 img_shifted = texture2D(u_image_texture, uv_clamped);
   float alphaX = step(0.0, fit_uv.x) * (1.0 - step(1.0, fit_uv.x));
   float alphaY = step(0.0, fit_uv.y) * (1.0 - step(1.0, fit_uv.y));
-  float alpha = alphaX * alphaY;
+  float alpha = alphaX * alphaY * tileMask;
   img_shifted.a *= alpha;
   gl_FragColor = img_shifted;
 }
@@ -172,8 +292,14 @@ void main () {
         if (!canvas || !container) return
 
         const gl =
-            (canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true }) as WebGLRenderingContext | null) ||
-            (canvas.getContext("experimental-webgl", { alpha: true, premultipliedAlpha: true }) as WebGLRenderingContext | null)
+            (canvas.getContext("webgl", {
+                alpha: true,
+                premultipliedAlpha: true,
+            }) as WebGLRenderingContext | null) ||
+            (canvas.getContext("experimental-webgl", {
+                alpha: true,
+                premultipliedAlpha: true,
+            }) as WebGLRenderingContext | null)
         if (!gl) {
             // Graceful fallback: show a message in the container
             return
@@ -187,7 +313,10 @@ void main () {
             gl.shaderSource(shader, source)
             gl.compileShader(shader)
             if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-                console.error("Shader compile error:", gl.getShaderInfoLog(shader))
+                console.error(
+                    "Shader compile error:",
+                    gl.getShaderInfoLog(shader)
+                )
                 gl.deleteShader(shader)
                 return null
             }
@@ -212,10 +341,7 @@ void main () {
 
         // Create quad buffer for two triangles covering clip space
         const vertices = new Float32Array([
-            -1.0, -1.0,
-             1.0, -1.0,
-            -1.0,  1.0,
-             1.0,  1.0,
+            -1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0,
         ])
         const buffer = gl.createBuffer()
         if (!buffer) return
@@ -230,7 +356,10 @@ void main () {
         // Collect uniforms
         const getUniforms = (prog: WebGLProgram) => {
             const uniforms: Record<string, WebGLUniformLocation | null> = {}
-            const count = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS) as number
+            const count = gl.getProgramParameter(
+                prog,
+                gl.ACTIVE_UNIFORMS
+            ) as number
             for (let i = 0; i < count; i++) {
                 const info = gl.getActiveUniform(prog, i)
                 if (!info) continue
@@ -253,8 +382,9 @@ void main () {
         textureRef.current = texture
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, texture)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+        // Use LINEAR for initial placeholder and smoother sampling
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
         const uImage = uniformsRef.current["u_image_texture"]
@@ -275,11 +405,23 @@ void main () {
                 canvas.height = height
             }
             gl.viewport(0, 0, canvas.width, canvas.height)
-            
+
             // Update container aspect ratio uniform
             const containerAspect = w / h
             const uContainerAspect = uniformsRef.current["u_container_aspect"]
-            if (uContainerAspect) gl.uniform1f(uContainerAspect, containerAspect)
+            if (uContainerAspect)
+                gl.uniform1f(uContainerAspect, containerAspect)
+
+            // If paused on canvas, debounce a still-frame redraw at new size
+            const isPaused = !previewRef.current && RenderTarget.current() === RenderTarget.canvas
+            if (isPaused && textureReadyRef.current) {
+                if (resizeDebounceRef.current) {
+                    try { window.clearTimeout(resizeDebounceRef.current) } catch {}
+                }
+                resizeDebounceRef.current = (window.setTimeout(() => {
+                    drawStillFrame()
+                }, 120) as unknown) as number
+            }
         }
 
         resize()
@@ -315,40 +457,38 @@ void main () {
         const uTileHeight = uniformsRef.current["u_tile_height"]
         const uOffset = uniformsRef.current["u_offset"]
         const uSpeed = uniformsRef.current["u_speed"]
+        const uVisibilityThreshold = uniformsRef.current["u_visibility_threshold"]
         const render = () => {
             if (!gl || !programRef.current) return
-            
+
             // Check if we're in Canvas mode and preview is off
             const isCanvas = RenderTarget.current() === RenderTarget.canvas
             const isPaused = !previewRef.current && isCanvas
-            
+
             // Only animate if component is in view
             if (!isInViewRef.current) {
                 animRef.current = requestAnimationFrame(render)
                 return
             }
-            
+
             // Skip drawing until the texture is ready (keeps canvas transparent)
             if (!textureReadyRef.current) {
                 animRef.current = requestAnimationFrame(render)
                 return
             }
 
-            // If paused in Canvas mode, render once then stop the loop
-            if (isPaused) {
-                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                animRef.current = null
-                return // Don't schedule next frame
-            }
-
-            // Update uniforms
+            // Update uniforms (always update tile size, offset, and speed)
             if (uTime) gl.uniform1f(uTime, performance.now())
             if (uTileWidth) {
-                const scaleX = canvas.clientWidth > 0 ? tileWidth / canvas.clientWidth : 1
+                const scaleX =
+                    canvas.clientWidth > 0 ? tileWidth / canvas.clientWidth : 1
                 gl.uniform1f(uTileWidth, scaleX)
             }
             if (uTileHeight) {
-                const scaleY = canvas.clientHeight > 0 ? tileHeight / canvas.clientHeight : 1
+                const scaleY =
+                    canvas.clientHeight > 0
+                        ? tileHeight / canvas.clientHeight
+                        : 1
                 gl.uniform1f(uTileHeight, scaleY)
             }
             if (uOffset) gl.uniform1f(uOffset, offset)
@@ -357,8 +497,18 @@ void main () {
                 const mappedSpeed = speed * 3
                 gl.uniform1f(uSpeed, mappedSpeed)
             }
+            if (uVisibilityThreshold) gl.uniform1f(uVisibilityThreshold, 0.5)
 
+            // Draw the frame
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+
+            // If paused in Canvas mode, capture the current time and stop the loop
+            if (isPaused) {
+                stillTimeRef.current = performance.now()
+                animRef.current = null
+                return // Don't schedule next frame
+            }
+
             animRef.current = requestAnimationFrame(render)
         }
         render()
@@ -366,13 +516,29 @@ void main () {
         return () => {
             if (animRef.current) cancelAnimationFrame(animRef.current)
             if (resizeObserverRef.current) {
-                try { resizeObserverRef.current.disconnect() } catch {}
+                try {
+                    resizeObserverRef.current.disconnect()
+                } catch {}
             }
             if (intersectionObserverRef.current) {
-                try { intersectionObserverRef.current.disconnect() } catch {}
+                try {
+                    intersectionObserverRef.current.disconnect()
+                } catch {}
+            }
+            if (resizeDebounceRef.current) {
+                try { window.clearTimeout(resizeDebounceRef.current) } catch {}
             }
         }
-    }, [vertexShaderSource, fragmentShaderSource, tileWidth, tileHeight, offset, speed, preview, image])
+    }, [
+        vertexShaderSource,
+        fragmentShaderSource,
+        tileWidth,
+        tileHeight,
+        offset,
+        speed,
+        preview,
+        image,
+    ])
 
     // (Re)load texture when image prop changes
     useEffect(() => {
@@ -388,12 +554,20 @@ void main () {
         img.onload = () => {
             gl.activeTexture(gl.TEXTURE0)
             gl.bindTexture(gl.TEXTURE_2D, texture)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+            // Use LINEAR for smoother visual during load and final render
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
             gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0)
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img)
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                img
+            )
 
             // Update image aspect ratio uniform for cover behavior
             const imageAspect = img.naturalWidth / img.naturalHeight
@@ -403,6 +577,13 @@ void main () {
             // Mark texture as ready so we start rendering
             textureReadyRef.current = true
             setIsTextureReady(true)
+
+            // If paused on canvas, immediately draw a still frame of the loaded image
+            const isPaused = !previewRef.current && RenderTarget.current() === RenderTarget.canvas
+            if (isPaused) {
+                if (!stillTimeRef.current) stillTimeRef.current = performance.now()
+                drawStillFrame()
+            }
         }
 
         return () => {
@@ -428,46 +609,48 @@ void main () {
         <div ref={containerRef} style={containerStyle}>
             {image?.src ? (
                 <>
+                    {/* Fallback plain image while WebGL texture initializes to prevent flashes */}
                     {!isTextureReady && (
-                        isCanvas ? (
-                            <ComponentMessage
-                                title="Loading image…"
-                                subtitle="Preparing the pixel wiggle texture"
-                            />
-                        ) : (
-                            <div
-                                style={{
-                                    position: "absolute",
-                                    inset: 0,
-                                    width: "100%",
-                                    height: "100%",
-                                }}
-                            />
-                        )
+                        <img
+                            src={image.src}
+                            alt={image.alt || ""}
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                                userSelect: "none",
+                                pointerEvents: "none",
+                            }}
+                        />
+                    )}
+                    {isCanvas && !isTextureReady && (
+                        <ComponentMessage
+                            title="Loading image…"
+                            subtitle="Preparing the pixel wiggle texture"
+                        />
                     )}
                     <canvas ref={canvasRef} style={canvasStyle} />
                 </>
+            ) : isCanvas ? (
+                <ComponentMessage
+                    title="Pixel Wiggle Image"
+                    subtitle="Add an image in the properties to see the pixel wiggle effect"
+                />
             ) : (
-                isCanvas ? (
-                    <ComponentMessage
-                        title="Pixel Wiggle Image"
-                        subtitle="Add an image in the properties to see the pixel wiggle effect"
-                    />
-                ) : (
-                    <div
-                        style={{
-                            position: "absolute",
-                            inset: 0,
-                            width: "100%",
-                            height: "100%",
-                        }}
-                    />
-                )
+                <div
+                    style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                    }}
+                />
             )}
         </div>
     )
 }
-
 
 // Types
 interface ResponsiveImageProp {
@@ -492,7 +675,6 @@ interface Props {
 // Property Controls (one-word titles, last control with Framer University link)
 // Note: Font controls are not needed here; we expose image and effect parameters only.
 addPropertyControls(PixelWiggleImage, {
-    
     image: {
         type: ControlType.ResponsiveImage,
         title: "Image",
@@ -540,10 +722,6 @@ addPropertyControls(PixelWiggleImage, {
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
-    
 })
 
-// Component name for Framer UI
-PixelWiggleImage.displayName = "PixelWiggleImage"
-
-
+PixelWiggleImage.displayName = "Pixel Wiggle Image"
