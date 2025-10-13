@@ -72,6 +72,7 @@ export default function PixelWiggleImage(props: Props) {
         position: "relative",
         width: "100%",
         height: "100%",
+        borderRadius: 0,
         overflow: "visible",
         display: "flex",
         alignItems: "center",
@@ -86,6 +87,7 @@ export default function PixelWiggleImage(props: Props) {
         width: "100%",
         height: "100%",
         display: "flex",
+        borderRadius: 0,
         opacity: isTextureReady ? 1 : 0, // Hide canvas until texture is ready to avoid flashes
         pointerEvents: "none",
         transition: "opacity 120ms ease-out",
@@ -217,44 +219,43 @@ void main () {
   vec2 grid_uv = vUv - 0.5;
   grid_uv.x /= u_tile_width;
   grid_uv.y /= u_tile_height;
-  vec2 grid_fract = fract(grid_uv);
-  vec2 grid_floor = floor(grid_uv);
-  grid_fract.x += u_offset * snoise(grid_floor + 0.001 * u_time * u_speed);
+  // Compute a per-tile wiggle from the unshifted tile id
+  vec2 base_floor = floor(grid_uv);
+  float wiggle = u_offset * snoise(base_floor + 0.001 * u_time * u_speed);
+  // Shift the tile grid itself so blocks move as units
+  vec2 shifted = grid_uv;
+  shifted.x += wiggle;
+  vec2 grid_floor = floor(shifted);
+  vec2 grid_fract = fract(shifted);
   vec2 warped_container_uv = (grid_floor + grid_fract);
   warped_container_uv.x *= u_tile_width;
   warped_container_uv.y *= u_tile_height;
   warped_container_uv += 0.5;
 
-  // 2) Visibility mask per-tile: check if WARPED tile position crosses boundaries
-  // Hide tiles with >50% outside, but only randomly hide about half of them
+  // 2) Visibility mask per-tile: evaluate using UNWARPED tile center so mask is stable
+  // and edges remain straight; wiggle affects only sampling, not border detection.
   vec2 tileSizeContainer = vec2(u_tile_width, u_tile_height);
-  vec2 warpedTileCenter = warped_container_uv;
+  // Border detection uses the SAME grid_floor that drives the wiggling blocks,
+  // but without applying the per-tile offset to the center itself, so tiles are
+  // considered border tiles consistently while still visually moving.
+  vec2 tileCenterContainer = (grid_floor + vec2(0.5)) * tileSizeContainer + 0.5;
   vec2 halfSize = 0.5 * tileSizeContainer;
-  
-  // Check each edge separately for cleaner boundaries
-  float leftEdge = warpedTileCenter.x - halfSize.x;
-  float rightEdge = warpedTileCenter.x + halfSize.x;
-  float topEdge = warpedTileCenter.y - halfSize.y;
-  float bottomEdge = warpedTileCenter.y + halfSize.y;
-  
-  // Calculate how much of the tile is outside each boundary
-  float outsideLeft = max(0.0, -leftEdge);
-  float outsideRight = max(0.0, rightEdge - 1.0);
-  float outsideTop = max(0.0, -topEdge);
-  float outsideBottom = max(0.0, bottomEdge - 1.0);
-  
-  // Calculate visible area
+
+  float leftEdge = tileCenterContainer.x - halfSize.x;
+  float rightEdge = tileCenterContainer.x + halfSize.x;
+  float topEdge = tileCenterContainer.y - halfSize.y;
+  float bottomEdge = tileCenterContainer.y + halfSize.y;
+
+  // Only consider horizontal overflow for the jagged edge effect
   float visibleWidth = max(0.0, min(rightEdge, 1.0) - max(leftEdge, 0.0));
-  float visibleHeight = max(0.0, min(bottomEdge, 1.0) - max(topEdge, 0.0));
-  float visibleArea = visibleWidth * visibleHeight;
-  float totalTileArea = tileSizeContainer.x * tileSizeContainer.y;
-  float visibleRatio = totalTileArea > 0.0 ? visibleArea / totalTileArea : 0.0;
-  
-  // Simple hash function for per-tile randomness based on grid position
+  float visibleRatioX = tileSizeContainer.x > 0.0 ? visibleWidth / tileSizeContainer.x : 0.0;
+
+  // Simple hash for deterministic per-tile randomness
   float random = fract(sin(dot(grid_floor, vec2(12.9898, 78.233))) * 43758.5453);
-  
+
   // Hide tile if: (1) less than 50% is visible AND (2) random > 0.5
-  float isBorderTile = step(visibleRatio, 0.5);
+  // Hide only if more than half of the tile is outside horizontally
+  float isBorderTile = step(visibleRatioX, 0.5);
   float shouldHide = step(0.5, random);
   float tileMask = 1.0 - (isBorderTile * shouldHide);
 
@@ -620,6 +621,7 @@ void main () {
                                 width: "100%",
                                 height: "100%",
                                 objectFit: "cover",
+                                borderRadius: 0,
                                 userSelect: "none",
                                 pointerEvents: "none",
                             }}
