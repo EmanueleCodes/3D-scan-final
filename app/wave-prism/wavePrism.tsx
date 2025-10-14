@@ -73,6 +73,44 @@ function parseColorToRgba(input: string): {
     }
     return { r: 0, g: 0, b: 0, a: 1 }
 }
+
+// UI → shader mapping helpers for better property control UX
+function mapLinear(
+    value: number,
+    inMin: number,
+    inMax: number,
+    outMin: number,
+    outMax: number
+): number {
+    if (inMax === inMin) return outMin
+    const t = (value - inMin) / (inMax - inMin)
+    return outMin + t * (outMax - outMin)
+}
+
+// Speed: UI [0.1..1] → internal [0.1..5]
+function mapSpeedUiToInternal(ui: number): number {
+    return mapLinear(ui, 0.1, 1.0, 0.1, 5.0)
+}
+
+// Thickness: UI [0.1..1] → internal [0.01..0.2]
+function mapThicknessUiToInternal(ui: number): number {
+    return mapLinear(ui, 0.1, 1.0, 0.01, 0.2)
+}
+
+// Distortion: UI [0..1] → internal [0..0.2]
+function mapDistortionUiToInternal(ui: number): number {
+    return mapLinear(ui, 0, 1.0, 0, 0.2)
+}
+
+// Frequency: UI [0.1..1] → internal [0.1..3]
+function mapFrequencyUiToInternal(ui: number): number {
+    return mapLinear(ui, 0.1, 1.0, 0.1, 3.0)
+}
+
+// Amplitude: UI [0.1..1] → internal [0.1..2]
+function mapAmplitudeUiToInternal(ui: number): number {
+    return mapLinear(ui, 0.1, 1.0, 0.1, 2.0)
+}
 import {
     Scene,
     OrthographicCamera,
@@ -86,15 +124,6 @@ import {
     Color,
 } from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/wave-prism-1.js"
 
-
-/**
- * @framerSupportedLayoutWidth any-prefer-fixed
- * @framerSupportedLayoutHeight any-prefer-fixed
- * @framerIntrinsicWidth 400
- * @framerIntrinsicHeight 400
- * @framerDisableUnlink
- */
-
 type Props = {
     speed?: number
     beamThickness?: number
@@ -105,13 +134,21 @@ type Props = {
     preview?: boolean
 }
 
+/**
+ * @framerSupportedLayoutWidth any-prefer-fixed
+ * @framerSupportedLayoutHeight any-prefer-fixed
+ * @framerIntrinsicWidth 600
+ * @framerIntrinsicHeight 400
+ * @framerDisableUnlink
+ */
+
 export default function WavePrism(props: Props) {
     const {
-        speed = 1.0,
-        beamThickness = 0.05,
-        distortion = 0.05,
-        xScale = 1.0,
-        yScale = 0.5,
+        speed = 0.2, // UI default 0.2 maps to internal 1.0
+        beamThickness = 0.25, // UI default 0.25 maps to internal 0.05
+        distortion = 0.25, // UI default 0.25 maps to internal 0.05
+        xScale = 0.2, // UI default 0.2 maps to internal 0.1
+        yScale = 0.25, // UI default 0.25 maps to internal 0.1
         backgroundColor = "#000000",
         preview = false
     } = props
@@ -124,7 +161,7 @@ export default function WavePrism(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lastRef = useRef<{ w: number; h: number; aspect: number; zoom: number; ts: number }>({ w: 0, h: 0, aspect: 0, zoom: 0, ts: 0 })
-    const speedRef = useRef<number>(speed)
+    const speedRef = useRef<number>(mapSpeedUiToInternal(speed))
   const sceneRef = useRef<{
 		scene: typeof Scene | null
         camera:typeof OrthographicCamera | null
@@ -210,11 +247,11 @@ export default function WavePrism(props: Props) {
       refs.uniforms = {
                 resolution: { value: [1, 1] },
         time: { value: 0.0 },
-                xScale: { value: xScale },
-                yScale: { value: yScale },
-                distortion: { value: distortion },
+                xScale: { value: mapFrequencyUiToInternal(xScale) },
+                yScale: { value: mapAmplitudeUiToInternal(yScale) },
+                distortion: { value: mapDistortionUiToInternal(distortion) },
                 yOffset: { value: -1 },
-                beamThickness: { value: beamThickness },
+                beamThickness: { value: mapThicknessUiToInternal(beamThickness) },
                 bgColor: { value: [backgroundColorRgba.r, backgroundColorRgba.g, backgroundColorRgba.b] },
       }
 
@@ -251,6 +288,11 @@ export default function WavePrism(props: Props) {
             refs.uniforms.resolution.value = [cw, ch]
             // Use the yOffset prop value
             refs.uniforms.yOffset.value = -1
+            
+            // Force a render after resize to ensure the canvas is updated
+            if (refs.scene && refs.camera) {
+                refs.renderer.render(refs.scene, refs.camera)
+            }
         }
 
         const renderSingleFrame = () => {
@@ -281,18 +323,12 @@ export default function WavePrism(props: Props) {
                     const timeOk = !lastRef.current.ts || (now || performance.now()) - lastRef.current.ts >= TICK_MS
                     const aspectChanged = Math.abs(aspect - lastRef.current.aspect) > EPSPECT
                     const zoomChanged = Math.abs(zoom - lastRef.current.zoom) > EPSZOOM
+                    const sizeChanged = Math.abs(cw - lastRef.current.w) > 1 || Math.abs(ch - lastRef.current.h) > 1
 
-                    if (timeOk && (aspectChanged || zoomChanged)) {
+                    if (timeOk && (aspectChanged || zoomChanged || sizeChanged)) {
                         lastRef.current = { w: cw, h: ch, aspect, zoom, ts: now || performance.now() }
-                        if (aspectChanged) {
-                            handleResize()
-                        } else {
-                            // Only zoom changed; just sync buffer size without altering mapping
-                            if (refs.renderer && refs.uniforms) {
-                                refs.renderer.setSize(cw, ch, false)
-                                refs.uniforms.resolution.value = [cw, ch]
-                            }
-                        }
+                        // Always call handleResize() for any size/aspect change to ensure proper rendering
+                        handleResize()
                     }
                 }
                 rafId = requestAnimationFrame(tick)
@@ -322,11 +358,11 @@ export default function WavePrism(props: Props) {
         const { current: refs } = sceneRef
         
         if (refs.uniforms) {
-            refs.uniforms.xScale.value = xScale
-            refs.uniforms.yScale.value = yScale
-            refs.uniforms.distortion.value = distortion
+            refs.uniforms.xScale.value = mapFrequencyUiToInternal(xScale)
+            refs.uniforms.yScale.value = mapAmplitudeUiToInternal(yScale)
+            refs.uniforms.distortion.value = mapDistortionUiToInternal(distortion)
             refs.uniforms.yOffset.value = -1
-            refs.uniforms.beamThickness.value = beamThickness
+            refs.uniforms.beamThickness.value = mapThicknessUiToInternal(beamThickness)
             // Update background color uniform
             const resolvedBgColor = resolveTokenColor(backgroundColor)
             const bg = parseColorToRgba(resolvedBgColor)
@@ -341,7 +377,7 @@ export default function WavePrism(props: Props) {
 
     // Update speed ref when speed prop changes (works in both canvas and live mode)
     useEffect(() => {
-        speedRef.current = speed
+        speedRef.current = mapSpeedUiToInternal(speed)
     }, [speed])
 
     // Update canvas background color when backgroundColor prop changes
@@ -431,41 +467,41 @@ addPropertyControls(WavePrism, {
         type: ControlType.Number,
         title: "Speed",
         min: 0.1,
-        max: 5,
+        max: 1,
         step: 0.1,
-        defaultValue: 1.0,
+        defaultValue: 0.2,
     },
     beamThickness: {
         type: ControlType.Number,
         title: "Thickness",
-        min: 0.01,
-        max: 0.2,
-        step: 0.01,
-        defaultValue: 0.05,
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
     },
     distortion: {
         type: ControlType.Number,
         title: "Distortion",
         min: 0,
-        max: 0.2,
-        step: 0.01,
-        defaultValue: 0.05,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.25,
     },
     xScale: {
         type: ControlType.Number,
         title: "Frequency",
         min: 0.1,
-        max: 3,
+        max: 1,
         step: 0.1,
-        defaultValue: 1.0,
+        defaultValue: 0.5,
     },
     yScale: {
         type: ControlType.Number,
         title: "Amplitude",
         min: 0.1,
-        max: 2,
+        max: 1,
         step: 0.1,
-        defaultValue: 0.5,
+        defaultValue: 0.3,
     },
     
     backgroundColor: {
@@ -476,3 +512,5 @@ addPropertyControls(WavePrism, {
         description: "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
+
+WavePrism.displayName = "Wave Prism"
