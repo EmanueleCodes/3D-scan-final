@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react"
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
 
 interface CirclingElementsProps {
@@ -25,6 +25,8 @@ interface CirclingElementsProps {
   pauseOnHover: boolean
   itemWidth: number
   itemHeight: number
+  sizing: "fixed" | "fit-content"
+  preview: boolean
   style?: React.CSSProperties
 }
 
@@ -59,9 +61,12 @@ export default function CirclingElements({
   pauseOnHover = false,
   itemWidth = 80,
   itemHeight = 80,
+  sizing = "fixed",
+  preview = true,
   style,
 }: CirclingElementsProps) {
   const [isHovered, setIsHovered] = useState(false)
+  const isCanvas = RenderTarget.current() === RenderTarget.canvas
   
   // Get images array
   const images = [
@@ -100,6 +105,7 @@ export default function CirclingElements({
     fixedAngle,
     itemWidth,
     itemHeight,
+    preview,
     imagesKey,
   ].join("-")
 
@@ -148,7 +154,7 @@ export default function CirclingElements({
           animationIterationCount: "infinite",
           animationDirection: direction,
           animationDelay: `${animationDelaySeconds}s`,
-          animationPlayState: pauseOnHover && isHovered ? "paused" : "running",
+          animationPlayState: (isCanvas && !preview) || (pauseOnHover && isHovered) ? "paused" : "running",
         }
 
         const radiusWrapperStyle: React.CSSProperties = {
@@ -182,8 +188,9 @@ export default function CirclingElements({
             <div style={radiusWrapperStyle}>
               <div
                 style={{
-                  width: itemWidth,
-                  height: itemHeight,
+                  ...(mode === "components" && sizing === "fit-content"
+                    ? { display: "inline-block" }
+                    : { width: itemWidth, height: itemHeight }),
                   position: "relative",
                   borderRadius: 8,
                   overflow: "hidden",
@@ -193,7 +200,7 @@ export default function CirclingElements({
                   animationIterationCount: "infinite",
                   animationDirection: direction,
                   animationDelay: `${animationDelaySeconds}s`,
-                  animationPlayState: pauseOnHover && isHovered ? "paused" : "running",
+                  animationPlayState: (isCanvas && !preview) || (pauseOnHover && isHovered) ? "paused" : "running",
                   transform: orientation === "rotate" ? `rotate(${itemRotation}deg)` : "none",
                   backgroundColor: mode === "images" && !itemImage ? "rgba(243, 239, 255, 0.8)" : "transparent",
                   backdropFilter: mode === "images" && !itemImage ? "blur(10px)" : "none",
@@ -215,14 +222,12 @@ export default function CirclingElements({
                   )
                 ) : (
                   itemComponent ? (
-                    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+                    <div style={{ position: "relative", ...(sizing === "fixed" ? { width: "100%", height: "100%" } : {}) }}>
                       {React.cloneElement(itemComponent as any, {
                         style: {
-                          width: "100%",
-                          height: "100%",
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
+                          ...(sizing === "fixed"
+                            ? { width: "100%", height: "100%", position: "absolute", top: 0, left: 0 }
+                            : {}),
                           ...(itemComponent as any).props?.style,
                         },
                       })}
@@ -271,6 +276,36 @@ addPropertyControls(CirclingElements, {
     step: 1,
     defaultValue: 4,
     hidden: (props) => props.mode === "components",
+  },
+  sizing: {
+    type: ControlType.Enum,
+    title: "Sizing",
+    options: ["fixed", "fit-content"],
+    optionTitles: ["Fixed", "Fit content"],
+    defaultValue: "fixed",
+    hidden: (props) => props.mode !== "components",
+    displaySegmentedControl: true,
+    segmentedControlDirection: "vertical",
+  },
+  itemWidth: {
+    type: ControlType.Number,
+    title: "Width",
+    min: 20,
+    max: 600,
+    step: 1,
+    defaultValue: 80,
+    unit: "px",
+    hidden: (props) => props.mode === "components" && props.sizing === "fit-content",
+  },
+  itemHeight: {
+    type: ControlType.Number,
+    title: "Height",
+    min: 20,
+    max: 600,
+    step: 1,
+    defaultValue: 80,
+    unit: "px",
+    hidden: (props) => props.mode === "components" && props.sizing === "fit-content",
   },
   image1: {
     type: ControlType.ResponsiveImage,
@@ -325,7 +360,7 @@ addPropertyControls(CirclingElements, {
   radius: {
     type: ControlType.Number,
     title: "Radius",
-    min: 50,
+    min: 0,
     max: 500,
     step: 10,
     defaultValue: 120,
@@ -339,6 +374,13 @@ addPropertyControls(CirclingElements, {
     step: 1,
     defaultValue: 10,
     unit: "s",
+  },
+  preview: {
+    type: ControlType.Boolean,
+    title: "Preview",
+    defaultValue: true,
+    enabledTitle: "On",
+    disabledTitle: "Off",
   },
   orientation: {
     type: ControlType.Enum,
@@ -382,24 +424,6 @@ addPropertyControls(CirclingElements, {
     defaultValue: false,
     enabledTitle: "Pause",
     disabledTitle: "None",
-  },
-  itemWidth: {
-    type: ControlType.Number,
-    title: "Width",
-    min: 20,
-    max: 600,
-    step: 1,
-    defaultValue: 80,
-    unit: "px",
-  },
-  itemHeight: {
-    type: ControlType.Number,
-    title: "Height",
-    min: 20,
-    max: 600,
-    step: 1,
-    defaultValue: 80,
-    unit: "px",
     description: "More components at [Framer University](https://frameruni.link/cc).",
   },
 })
