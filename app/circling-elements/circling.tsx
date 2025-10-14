@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import { ComponentMessage } from "https://framer.com/m/Utils-FINc.js"
 
@@ -67,6 +67,13 @@ export default function CirclingElements({
 }: CirclingElementsProps) {
   const [isHovered, setIsHovered] = useState(false)
   const isCanvas = RenderTarget.current() === RenderTarget.canvas
+
+  // Measure intrinsic sizes of child components when sizing = "fit-content"
+  const contentMeasureRefs = useRef<(HTMLDivElement | null)[]>([])
+  const zoomProbeRef = useRef<HTMLDivElement>(null)
+  const [maxContentSize, setMaxContentSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
+
+  // measurement useEffect is declared after actualCount to avoid TS "used before declaration" warning
   
   // Get images array
   const images = [
@@ -92,6 +99,29 @@ export default function CirclingElements({
     // This effect will trigger a re-render when actualCount changes
   }, [actualCount])
 
+  // Measure intrinsic sizes of child components when sizing = "fit-content"
+  useEffect(() => {
+    if (!(mode === "components" && sizing === "fit-content")) return
+    const t = setTimeout(() => {
+      const probe = zoomProbeRef.current
+      const editorZoom = probe ? probe.getBoundingClientRect().width / 20 : 1
+      const safeZoom = Math.max(editorZoom, 0.0001)
+      let maxW = 0
+      let maxH = 0
+      for (const el of contentMeasureRefs.current) {
+        if (!el) continue
+        const child = el.firstElementChild as HTMLElement | null
+        const rect = (child ?? el).getBoundingClientRect()
+        const adjustedW = rect.width / safeZoom
+        const adjustedH = rect.height / safeZoom
+        if (adjustedW > maxW) maxW = adjustedW
+        if (adjustedH > maxH) maxH = adjustedH
+      }
+      setMaxContentSize({ width: maxW, height: maxH })
+    }, 0)
+    return () => clearTimeout(t)
+  }, [mode, sizing, content, actualCount, itemWidth, itemHeight])
+
   // Build a key that forces a full remount when any relevant prop changes
   const imagesKey = images.map((img) => (img && (img as any).src) ? (img as any).src : "").join("|")
   const remountKey = [
@@ -105,6 +135,9 @@ export default function CirclingElements({
     fixedAngle,
     itemWidth,
     itemHeight,
+    sizing,
+    maxContentSize.width,
+    maxContentSize.height,
     preview,
     imagesKey,
   ].join("-")
@@ -222,7 +255,12 @@ export default function CirclingElements({
                   )
                 ) : (
                   itemComponent ? (
-                    <div style={{ position: "relative", ...(sizing === "fixed" ? { width: "100%", height: "100%" } : {}) }}>
+                    <div
+                      ref={(el) => {
+                        contentMeasureRefs.current[index] = el
+                      }}
+                      style={{ position: "relative", ...(sizing === "fixed" ? { width: "100%", height: "100%" } : {}) }}
+                    >
                       {React.cloneElement(itemComponent as any, {
                         style: {
                           ...(sizing === "fixed"
@@ -244,6 +282,32 @@ export default function CirclingElements({
           </div>
         )
       })}
+      {/* Hidden 20x20 probe to detect editor zoom in canvas */}
+      <div
+        ref={zoomProbeRef}
+        style={{ position: "absolute", width: 20, height: 20, opacity: 0, pointerEvents: "none" }}
+      />
+      {/* Invisible sizing element to prevent collapse: diameter + half max item size */}
+      {(() => {
+        const effectiveItemW =
+          mode === "components" && sizing === "fit-content" ? Math.max(maxContentSize.width, 0) : itemWidth
+        const effectiveItemH =
+          mode === "components" && sizing === "fit-content" ? Math.max(maxContentSize.height, 0) : itemHeight
+        const w = 2 * radius + effectiveItemW
+        const h = 2 * radius + effectiveItemH
+        return (
+          <div
+            style={{
+              position: "relative",
+              width: w,
+              height: h,
+              opacity: 0,
+              pointerEvents: "none",
+              zIndex: -1,
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }
@@ -291,9 +355,9 @@ addPropertyControls(CirclingElements, {
     type: ControlType.Number,
     title: "Width",
     min: 20,
-    max: 600,
-    step: 1,
-    defaultValue: 80,
+    max: 1000,
+    step: 10,
+    defaultValue: 200,
     unit: "px",
     hidden: (props) => props.mode === "components" && props.sizing === "fit-content",
   },
@@ -301,9 +365,9 @@ addPropertyControls(CirclingElements, {
     type: ControlType.Number,
     title: "Height",
     min: 20,
-    max: 600,
-    step: 1,
-    defaultValue: 80,
+    max: 1000,
+    step: 10,
+    defaultValue: 200,
     unit: "px",
     hidden: (props) => props.mode === "components" && props.sizing === "fit-content",
   },
@@ -363,16 +427,16 @@ addPropertyControls(CirclingElements, {
     min: 0,
     max: 500,
     step: 10,
-    defaultValue: 120,
+    defaultValue: 100,
     unit: "px",
   },
   duration: {
     type: ControlType.Number,
     title: "Duration",
     min: 1,
-    max: 60,
+    max: 120,
     step: 1,
-    defaultValue: 10,
+    defaultValue: 90,
     unit: "s",
   },
   preview: {
@@ -387,7 +451,7 @@ addPropertyControls(CirclingElements, {
     title: "Orientation",
     options: ["rotate", "pin"],
     optionTitles: ["Fixed", "Pin"],
-    defaultValue: "rotate",
+    defaultValue: "pin",
     displaySegmentedControl: true,
     segmentedControlDirection: "vertical",
   },
