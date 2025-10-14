@@ -1,5 +1,78 @@
 import { useEffect, useRef } from "react"
-import { RenderTarget } from "framer"
+import { RenderTarget, addPropertyControls, ControlType } from "framer"
+
+// CSS variable token and color parsing (hex/rgba/var())
+const cssVariableRegex =
+    /var\s*\(\s*(--[\w-]+)(?:\s*,\s*((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*))?\s*\)/
+function extractDefaultValue(cssVar: string): string {
+    if (!cssVar || !cssVar.startsWith("var(")) return cssVar
+    const match = cssVariableRegex.exec(cssVar)
+    if (!match) return cssVar
+    const fallback = (match[2] || "").trim()
+    if (fallback.startsWith("var(")) return extractDefaultValue(fallback)
+    return fallback || cssVar
+}
+function resolveTokenColor(input: any): any {
+    if (typeof input !== "string") return input
+    if (!input.startsWith("var(")) return input
+    return extractDefaultValue(input)
+}
+function parseColorToRgba(input: string): {
+    r: number
+    g: number
+    b: number
+    a: number
+} {
+    if (!input) return { r: 0, g: 0, b: 0, a: 1 }
+    const str = input.trim()
+    const rgbaMatch = str.match(
+        /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
+    )
+    if (rgbaMatch) {
+        const r = Math.max(0, Math.min(255, parseFloat(rgbaMatch[1]))) / 255
+        const g = Math.max(0, Math.min(255, parseFloat(rgbaMatch[2]))) / 255
+        const b = Math.max(0, Math.min(255, parseFloat(rgbaMatch[3]))) / 255
+        const a =
+            rgbaMatch[4] !== undefined
+                ? Math.max(0, Math.min(1, parseFloat(rgbaMatch[4])))
+                : 1
+        return { r, g, b, a }
+    }
+    const hex = str.replace(/^#/, "")
+    if (hex.length === 8) {
+        return {
+            r: parseInt(hex.slice(0, 2), 16) / 255,
+            g: parseInt(hex.slice(2, 4), 16) / 255,
+            b: parseInt(hex.slice(4, 6), 16) / 255,
+            a: parseInt(hex.slice(6, 8), 16) / 255,
+        }
+    }
+    if (hex.length === 6) {
+        return {
+            r: parseInt(hex.slice(0, 2), 16) / 255,
+            g: parseInt(hex.slice(2, 4), 16) / 255,
+            b: parseInt(hex.slice(4, 6), 16) / 255,
+            a: 1,
+        }
+    }
+    if (hex.length === 4) {
+        return {
+            r: parseInt(hex[0] + hex[0], 16) / 255,
+            g: parseInt(hex[1] + hex[1], 16) / 255,
+            b: parseInt(hex[2] + hex[2], 16) / 255,
+            a: parseInt(hex[3] + hex[3], 16) / 255,
+        }
+    }
+    if (hex.length === 3) {
+        return {
+            r: parseInt(hex[0] + hex[0], 16) / 255,
+            g: parseInt(hex[1] + hex[1], 16) / 255,
+            b: parseInt(hex[2] + hex[2], 16) / 255,
+            a: 1,
+        }
+    }
+    return { r: 0, g: 0, b: 0, a: 1 }
+}
 import {
     Scene,
     OrthographicCamera,
@@ -22,31 +95,56 @@ import {
  * @framerDisableUnlink
  */
 
-export default function WavePrism() {
+type Props = {
+    speed?: number
+    beamThickness?: number
+    distortion?: number
+    xScale?: number
+    yScale?: number
+    backgroundColor?: string
+    preview?: boolean
+}
+
+export default function WavePrism(props: Props) {
+    const {
+        speed = 1.0,
+        beamThickness = 0.05,
+        distortion = 0.05,
+        xScale = 1.0,
+        yScale = 0.5,
+        backgroundColor = "#000000",
+        preview = false
+    } = props
+    
+    // Resolve background color from Framer tokens and parse to RGBA
+    const resolvedBackgroundColor = resolveTokenColor(backgroundColor)
+    const backgroundColorRgba = parseColorToRgba(resolvedBackgroundColor)
+    
     const containerRef = useRef<HTMLDivElement>(null)
-    const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lastRef = useRef<{ w: number; h: number; aspect: number; zoom: number; ts: number }>({ w: 0, h: 0, aspect: 0, zoom: 0, ts: 0 })
-    const sceneRef = useRef<{
+    const speedRef = useRef<number>(speed)
+  const sceneRef = useRef<{
 		scene: typeof Scene | null
         camera:typeof OrthographicCamera | null
         renderer:typeof WebGLRenderer | null
         mesh:typeof Mesh | null
-        uniforms: any
-        animationId: number | null
-    }>({
-        scene: null,
-        camera: null,
-        renderer: null,
-        mesh: null,
-        uniforms: null,
-        animationId: null,
-    })
+    uniforms: any
+    animationId: number | null
+  }>({
+    scene: null,
+    camera: null,
+    renderer: null,
+    mesh: null,
+    uniforms: null,
+    animationId: null,
+  })
 
-    useEffect(() => {
+  useEffect(() => {
         if (!canvasRef.current || !containerRef.current) return
 
-        const canvas = canvasRef.current
+    const canvas = canvasRef.current
         const container = containerRef.current
 
         // Ensure canvas fills the component bounds
@@ -55,16 +153,16 @@ export default function WavePrism() {
         canvas.style.width = "100%"
         canvas.style.height = "100%"
         canvas.style.display = "block"
-        const { current: refs } = sceneRef
+    const { current: refs } = sceneRef
 
-        const vertexShader = `
+    const vertexShader = `
       attribute vec3 position;
       void main() {
         gl_Position = vec4(position, 1.0);
       }
     `
 
-        const fragmentShader = `
+    const fragmentShader = `
       precision highp float;
       uniform vec2 resolution;
       uniform float time;
@@ -72,6 +170,8 @@ export default function WavePrism() {
       uniform float yScale;
       uniform float yOffset; // vertical offset to center the wave
       uniform float distortion;
+      uniform float beamThickness;
+      uniform vec3 bgColor; // background color from controls
 
       void main() {
         // Use a 'cover' mapping that fills the canvas while preserving aspect
@@ -83,76 +183,84 @@ export default function WavePrism() {
         float gx = p.x;
         float bx = p.x * (1.0 - d);
 
-        float r = 0.05 / abs((p.y + yOffset) + sin((rx + time) * xScale) * yScale);
-        float g = 0.05 / abs((p.y + yOffset) + sin((gx + time) * xScale) * yScale);
-        float b = 0.05 / abs((p.y + yOffset) + sin((bx + time) * xScale) * yScale);
-        
-        gl_FragColor = vec4(r, g, b, 1.0);
+        float r = beamThickness / abs((p.y + yOffset) + sin((rx + time) * xScale) * yScale);
+        float g = beamThickness / abs((p.y + yOffset) + sin((gx + time) * xScale) * yScale);
+        float b = beamThickness / abs((p.y + yOffset) + sin((bx + time) * xScale) * yScale);
+        // Additive glow on top of user background color
+        vec3 wave = vec3(r, g, b);
+        vec3 col = clamp(bgColor + wave, 0.0, 1.0);
+        gl_FragColor = vec4(col, 1.0);
       }
     `
 
-        const initScene = () => {
-            refs.scene = new Scene()
-            refs.renderer = new WebGLRenderer({ canvas })
+    const initScene = () => {
+      refs.scene = new Scene()
+            refs.renderer = new WebGLRenderer({ 
+                canvas,
+                preserveDrawingBuffer: true, // Prevent flashing during resize
+                antialias: false // Disable for better performance
+            })
             refs.renderer.setPixelRatio(window.devicePixelRatio)
-            refs.renderer.setClearColor(new Color(0x000000))
+            refs.renderer.setClearColor(new Color(backgroundColorRgba.r, backgroundColorRgba.g, backgroundColorRgba.b))
             // Ensure no prior scissor state crops the output
             refs.renderer.setScissorTest(false)
 
-            refs.camera = new OrthographicCamera(-1, 1, 1, -1, 0, -1)
+      refs.camera = new OrthographicCamera(-1, 1, 1, -1, 0, -1)
 
-            refs.uniforms = {
+      refs.uniforms = {
                 resolution: { value: [1, 1] },
-                time: { value: 0.0 },
-                xScale: { value: 1.0 },
-                yScale: { value: 0.5 },
-                distortion: { value: 0.05 },
-                yOffset: { value: 0.0 },
-            }
+        time: { value: 0.0 },
+                xScale: { value: xScale },
+                yScale: { value: yScale },
+                distortion: { value: distortion },
+                yOffset: { value: -1 },
+                beamThickness: { value: beamThickness },
+                bgColor: { value: [backgroundColorRgba.r, backgroundColorRgba.g, backgroundColorRgba.b] },
+      }
 
-            const position = [
+      const position = [
                 -1.0, -1.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, 1.0, -1.0, 0.0,
                 -1.0, 1.0, 0.0, 1.0, 1.0, 0.0,
-            ]
+      ]
 
-            const positions = new BufferAttribute(new Float32Array(position), 3)
-            const geometry = new BufferGeometry()
-            geometry.setAttribute("position", positions)
+      const positions = new BufferAttribute(new Float32Array(position), 3)
+      const geometry = new BufferGeometry()
+      geometry.setAttribute("position", positions)
 
-            const material = new RawShaderMaterial({
-                vertexShader,
-                fragmentShader,
-                uniforms: refs.uniforms,
-                side: DoubleSide,
-            })
+      const material = new RawShaderMaterial({
+        vertexShader,
+        fragmentShader,
+        uniforms: refs.uniforms,
+        side: DoubleSide,
+      })
 
-            refs.mesh = new Mesh(geometry, material)
-            refs.scene.add(refs.mesh)
+      refs.mesh = new Mesh(geometry, material)
+      refs.scene.add(refs.mesh)
 
-            handleResize()
-        }
-
-        const animate = () => {
-            if (refs.uniforms) refs.uniforms.time.value += 0.01
-            if (refs.renderer && refs.scene && refs.camera) {
-                refs.renderer.render(refs.scene, refs.camera)
-            }
-            refs.animationId = requestAnimationFrame(animate)
-        }
+      handleResize()
+    }
 
         const handleResize = () => {
             if (!refs.renderer || !refs.uniforms || !container) return
             const cw = container.clientWidth || container.offsetWidth || 1
             const ch = container.clientHeight || container.offsetHeight || 1
+            
+            // Update size without forcing buffer recreation (false = don't update style)
             refs.renderer.setSize(cw, ch, false)
-            // Fill canvas; shader uses 'contain' mapping, so resolution is full canvas
+            // Update shader resolution uniform - this is what actually affects rendering
             refs.uniforms.resolution.value = [cw, ch]
-            // Nudge wave upward so the colorful band sits near the vertical middle
-            refs.uniforms.yOffset.value = -1.0
+            // Use the yOffset prop value
+            refs.uniforms.yOffset.value = -1
+        }
+
+        const renderSingleFrame = () => {
+            // Render one frame without animation - used in canvas mode when props change
+            if (refs.renderer && refs.scene && refs.camera) {
+                refs.renderer.render(refs.scene, refs.camera)
+            }
         }
 
         initScene()
-        animate()
         window.addEventListener("resize", handleResize)
 
         // In Framer Canvas: watch aspect ratio changes only; ignore pure zoom changes
@@ -180,7 +288,7 @@ export default function WavePrism() {
                             handleResize()
                         } else {
                             // Only zoom changed; just sync buffer size without altering mapping
-                            if (sceneRef.current && canvasRef.current && refs.renderer && refs.uniforms) {
+                            if (refs.renderer && refs.uniforms) {
                                 refs.renderer.setSize(cw, ch, false)
                                 refs.uniforms.resolution.value = [cw, ch]
                             }
@@ -193,19 +301,98 @@ export default function WavePrism() {
             return () => cancelAnimationFrame(rafId)
         }
 
-        return () => {
-            if (refs.animationId) cancelAnimationFrame(refs.animationId)
-            window.removeEventListener("resize", handleResize)
-            if (refs.mesh) {
-                refs.scene?.remove(refs.mesh)
-                refs.mesh.geometry.dispose()
-                if (refs.mesh.material instanceof Material) {
-                    refs.mesh.material.dispose()
-                }
-            }
-            refs.renderer?.dispose()
+    return () => {
+      if (refs.animationId) {
+        cancelAnimationFrame(refs.animationId)
+      }
+      window.removeEventListener("resize", handleResize)
+      if (refs.mesh) {
+        refs.scene?.remove(refs.mesh)
+        refs.mesh.geometry.dispose()
+        if (refs.mesh.material instanceof Material) {
+          refs.mesh.material.dispose()
         }
-    }, [])
+      }
+      refs.renderer?.dispose()
+        }
+    }, [speed, beamThickness, distortion, xScale, yScale, backgroundColor, preview])
+
+    // Update uniforms when props change - this works in both canvas and live mode
+    useEffect(() => {
+        const { current: refs } = sceneRef
+        
+        if (refs.uniforms) {
+            refs.uniforms.xScale.value = xScale
+            refs.uniforms.yScale.value = yScale
+            refs.uniforms.distortion.value = distortion
+            refs.uniforms.yOffset.value = -1
+            refs.uniforms.beamThickness.value = beamThickness
+            // Update background color uniform
+            const resolvedBgColor = resolveTokenColor(backgroundColor)
+            const bg = parseColorToRgba(resolvedBgColor)
+            refs.uniforms.bgColor.value = [bg.r, bg.g, bg.b]
+        }
+        
+        // In canvas mode, render a single frame when props change
+        if (RenderTarget.current() === RenderTarget.canvas && refs.renderer && refs.scene && refs.camera) {
+            refs.renderer.render(refs.scene, refs.camera)
+        }
+    }, [speed, beamThickness, distortion, xScale, yScale])
+
+    // Update speed ref when speed prop changes (works in both canvas and live mode)
+    useEffect(() => {
+        speedRef.current = speed
+    }, [speed])
+
+    // Update canvas background color when backgroundColor prop changes
+    useEffect(() => {
+        const canvas = canvasRef.current
+        const { current: refs } = sceneRef
+        
+        if (canvas && refs.renderer) {
+            const resolvedBgColor = resolveTokenColor(backgroundColor)
+            const bgColorRgba = parseColorToRgba(resolvedBgColor)
+            
+            // Set the WebGL clear color
+            refs.renderer.setClearColor(new Color(bgColorRgba.r, bgColorRgba.g, bgColorRgba.b))
+            
+            // Force a render to show the new background immediately
+            if (refs.scene && refs.camera) {
+                refs.renderer.render(refs.scene, refs.camera)
+            }
+        }
+    }, [backgroundColor])
+
+    // Restart animation loop when preview prop changes
+    useEffect(() => {
+        const { current: refs } = sceneRef
+        
+        // Cancel existing animation
+        if (refs.animationId) {
+            cancelAnimationFrame(refs.animationId)
+            refs.animationId = null
+        }
+        
+        // Start new animation loop based on current preview setting
+        const animate = () => {
+            const isCanvas = RenderTarget.current() === RenderTarget.canvas
+            
+            if (isCanvas && !preview) {
+                // Canvas mode with preview disabled: NO animation loop for maximum performance
+                return
+            } else {
+                // Live mode OR canvas mode with preview enabled: full animation
+                if (refs.uniforms) refs.uniforms.time.value += 0.01 * speedRef.current
+                if (refs.renderer && refs.scene && refs.camera) {
+                    refs.renderer.render(refs.scene, refs.camera)
+                }
+                refs.animationId = requestAnimationFrame(animate)
+            }
+        }
+        
+        // Start the animation loop
+        animate()
+    }, [preview])
 
     return (
         <div
@@ -229,4 +416,63 @@ export default function WavePrism() {
     )
 }
 
-WavePrism.displayName = "WavePrism"
+WavePrism.displayName = "Wave Prism"
+
+// Property Controls
+addPropertyControls(WavePrism, {
+	preview: {
+        type: ControlType.Boolean,
+        title: "Preview",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+    },
+    speed: {
+        type: ControlType.Number,
+        title: "Speed",
+        min: 0.1,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1.0,
+    },
+    beamThickness: {
+        type: ControlType.Number,
+        title: "Thickness",
+        min: 0.01,
+        max: 0.2,
+        step: 0.01,
+        defaultValue: 0.05,
+    },
+    distortion: {
+        type: ControlType.Number,
+        title: "Distortion",
+        min: 0,
+        max: 0.2,
+        step: 0.01,
+        defaultValue: 0.05,
+    },
+    xScale: {
+        type: ControlType.Number,
+        title: "Frequency",
+        min: 0.1,
+        max: 3,
+        step: 0.1,
+        defaultValue: 1.0,
+    },
+    yScale: {
+        type: ControlType.Number,
+        title: "Amplitude",
+        min: 0.1,
+        max: 2,
+        step: 0.1,
+        defaultValue: 0.5,
+    },
+    
+    backgroundColor: {
+        type: ControlType.Color,
+        title: "Background",
+        defaultValue: "#000000",
+        optional: true,
+        description: "More components at [Framer University](https://frameruni.link/cc).",
+    },
+})
