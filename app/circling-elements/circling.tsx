@@ -68,9 +68,17 @@ export default function CirclingElements({
     const [isHovered, setIsHovered] = useState(false)
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
-    // Convert speed (0.1 to 1) to duration (120s to 1s)
-    // Lower speed = longer duration, higher speed = shorter duration
-    const duration = 119 * ((1 - speed) / 0.9) + 1
+    // Linear mapping of speed (0.1 to 1) to rotations per second
+    // This ensures equal speed increments = equal rotation speed increments
+    const minSpeed = 0.1
+    const maxSpeed = 1.0
+    const minRotationsPerSec = 1 / 300 // slowest: 1 rotation per 5 minutes
+    const maxRotationsPerSec = 1 / 3 // fastest: 1 rotation per 3 seconds
+    const normalizedSpeed = (speed - minSpeed) / (maxSpeed - minSpeed)
+    const rotationsPerSec =
+        minRotationsPerSec +
+        normalizedSpeed * (maxRotationsPerSec - minRotationsPerSec)
+    const duration = 1 / rotationsPerSec
 
     // Measure intrinsic sizes of child components when sizing = "fit-content"
     const contentMeasureRefs = useRef<(HTMLDivElement | null)[]>([])
