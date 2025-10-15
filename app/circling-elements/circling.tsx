@@ -142,31 +142,10 @@ export default function CirclingElements({
         return () => clearTimeout(t)
     }, [mode, sizing, content, actualCount, itemWidth, itemHeight])
 
-    // Build a key that forces a full remount when any relevant prop changes
-    const imagesKey = images
-        .map((img) => (img && (img as any).src ? (img as any).src : ""))
-        .join("|")
-    const remountKey = [
-        mode,
-        actualCount,
-        radius,
-        speed,
-        direction,
-        orientation,
-        rotationAlignment,
-        fixedAngle,
-        itemWidth,
-        itemHeight,
-        sizing,
-        maxContentSize.width,
-        maxContentSize.height,
-        preview,
-        imagesKey,
-    ].join("-")
+    // Removed forced remount key to prevent animation restarts
 
     return (
         <div
-            key={remountKey}
             style={{
                 ...style,
                 position: "relative",
@@ -183,8 +162,8 @@ export default function CirclingElements({
             {/* Inline keyframes for orbiting rotation */}
             <style>{`
         @keyframes rotate360 {
-          from { transform: translate(-50%, -50%) rotate(0deg); }
-          to { transform: translate(-50%, -50%) rotate(360deg); }
+          from { transform: translate3d(-50%, -50%, 0) rotate(0deg); }
+          to { transform: translate3d(-50%, -50%, 0) rotate(360deg); }
         }
         @keyframes counterRotate360 {
           from { transform: rotate(0deg); }
@@ -204,7 +183,7 @@ export default function CirclingElements({
                     position: "absolute",
                     top: "50%",
                     left: "50%",
-                    transform: "translate(-50%, -50%)",
+                    transform: "translate3d(-50%, -50%, 0)",
                     transformOrigin: "center",
                     willChange: "transform",
                     animationName: "rotate360",
