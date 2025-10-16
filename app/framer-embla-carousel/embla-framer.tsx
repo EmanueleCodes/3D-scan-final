@@ -33,6 +33,8 @@ const styles = {
 		maxWidth: '100%',
 		margin: 'auto',
 		width: '100%',
+		position: 'relative',
+		height: '100%',
 	} as React.CSSProperties,
 
 	// Viewport - enables overflow scrolling
@@ -47,10 +49,9 @@ const styles = {
 		marginLeft: '-32px', // Negative slide spacing
 	} as React.CSSProperties,
 
-	// Individual slide
+	// Individual slide (flex basis is set dynamically based on slidesPerView)
 	slide: {
 		transform: 'translate3d(0, 0, 0)',
-		flex: '0 0 100%',
 		minWidth: 0,
 		paddingLeft: '32px', // Slide spacing
 	} as React.CSSProperties,
@@ -384,6 +385,7 @@ export const NextButton: React.FC<NextButtonPropType> = (props) => {
 type PropType = {
 	slides?: number[]
 	slideCount: number
+	slidesPerView: number
 	loop: boolean
 	autoplay: boolean
 	autoplayDelay: number
@@ -392,7 +394,20 @@ type PropType = {
 	dragFree: boolean
 	containScroll: boolean
 	skipSnaps: boolean
-	/** Dots UI customization (appearance only) */
+	/** Content mode and inputs */
+	mode?: "images" | "components"
+	content?: ControlType.ComponentInstance[]
+	image1?: any
+	image2?: any
+	image3?: any
+	image4?: any
+	image5?: any
+	image6?: any
+	image7?: any
+	image8?: any
+	image9?: any
+	image10?: any
+	/** Dots UI customization and positioning */
 	dotsUI?: {
  		enabled?: boolean
  		width?: number
@@ -407,12 +422,25 @@ type PropType = {
  		current?: number
  		scale?: number
  		blur?: number
-			borderWidth?: number
-			borderColor?: string
-			currentBorderWidth?: number
-			currentBorderColor?: string
+		borderWidth?: number
+		borderColor?: string
+		currentBorderWidth?: number
+		currentBorderColor?: string
+		verticalAlign?: "top" | "center" | "bottom"
  		horizontalAlign?: "left" | "center" | "right"
+		offsetX?: number
+		offsetY?: number
  	}
+	/** Arrows UI customization and positioning */
+	arrowsUI?: {
+		enabled?: boolean
+		mode?: "group" | "space-between"
+		verticalAlign?: "top" | "center" | "bottom"
+		horizontalAlign?: "left" | "center" | "right"
+		gap?: number
+		offsetX?: number
+		offsetY?: number
+	}
 }
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
@@ -425,6 +453,19 @@ export default function EmblaCarousel(props: PropType) {
 	const { 
 		slides,
 		slideCount = 5,
+		slidesPerView = 1,
+		mode = "images",
+		content = [],
+		image1,
+		image2,
+		image3,
+		image4,
+		image5,
+		image6,
+		image7,
+		image8,
+		image9,
+		image10,
 		loop = true,
 		autoplay = true,
 		autoplayDelay = 3000,
@@ -447,12 +488,38 @@ export default function EmblaCarousel(props: PropType) {
 			current: 1,
 			scale: 1.1,
 			blur: 0,
-			horizontalAlign: "right",
+			verticalAlign: "bottom",
+			horizontalAlign: "center",
+			offsetX: 0,
+			offsetY: 20,
+		},
+		arrowsUI = {
+			enabled: true,
+			mode: "space-between",
+			verticalAlign: "center",
+			horizontalAlign: "center",
+			gap: 10,
+			offsetX: 20,
+			offsetY: 0,
 		}
 	} = props
 	
-	// Generate slides if not provided
-	const slidesArray = slides || Array.from({ length: slideCount }, (_, i) => i)
+	// Determine actual slide count based on mode
+	const actualSlideCount =
+		mode === "components"
+			? (content?.length ?? 0) > 0
+				? content!.length
+				: Math.max(1, Math.min(5, slideCount))
+			: slideCount
+
+	// Build images list for images mode
+	const images = [image1, image2, image3, image4, image5, image6, image7, image8, image9, image10]
+
+	// Generate slides array indices
+	const slidesArray = Array.from({ length: actualSlideCount }, (_, i) => i)
+	
+	// Calculate slide width based on slidesPerView
+	const slideWidthPercentage = (100 / slidesPerView).toFixed(4) + '%'
 	
 	// Build options object from props
 	const options: EmblaOptionsType = {
@@ -499,38 +566,167 @@ export default function EmblaCarousel(props: PropType) {
 		onNextButtonClick
 	} = usePrevNextButtons(emblaApi, onNavButtonClick)
 
+	// Calculate arrow positioning styles based on arrowsUI settings
+	const getArrowsContainerStyle = (): React.CSSProperties => {
+		const mode = arrowsUI.mode ?? "space-between"
+		const vAlign = arrowsUI.verticalAlign ?? "center"
+		const hAlign = arrowsUI.horizontalAlign ?? "center"
+		const offsetX = arrowsUI.offsetX ?? 20
+		const offsetY = arrowsUI.offsetY ?? 0
+		const gap = arrowsUI.gap ?? 10
+
+		const baseStyle: React.CSSProperties = {
+			position: 'absolute',
+			display: 'flex',
+			pointerEvents: 'none', // Let clicks pass through container
+			zIndex: 10,
+		}
+
+		// Vertical positioning
+		if (vAlign === "top") {
+			baseStyle.top = `${offsetY}px`
+		} else if (vAlign === "bottom") {
+			baseStyle.bottom = `${offsetY}px`
+		} else {
+			baseStyle.top = '50%'
+			baseStyle.transform = `translateY(calc(-50% + ${offsetY}px))`
+		}
+
+		// Horizontal positioning based on mode
+		if (mode === "space-between") {
+			baseStyle.left = `${offsetX}px`
+			baseStyle.right = `${offsetX}px`
+			baseStyle.justifyContent = 'space-between'
+		} else {
+			// Group mode
+			baseStyle.gap = `${gap}px`
+			if (hAlign === "left") {
+				baseStyle.left = `${offsetX}px`
+			} else if (hAlign === "right") {
+				baseStyle.right = `${offsetX}px`
+			} else {
+				baseStyle.left = '50%'
+				const translateX = mode === "group" ? '-50%' : '0'
+				baseStyle.transform = vAlign === "center" 
+					? `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px))`
+					: `translateX(calc(-50% + ${offsetX}px))`
+			}
+		}
+
+		return baseStyle
+	}
+
+	// Calculate dots positioning styles based on dotsUI settings
+	const getDotsContainerStyle = (): React.CSSProperties => {
+		const vAlign = dotsUI.verticalAlign ?? "bottom"
+		const hAlign = dotsUI.horizontalAlign ?? "center"
+		const offsetX = dotsUI.offsetX ?? 0
+		const offsetY = dotsUI.offsetY ?? 20
+
+		const baseStyle: React.CSSProperties = {
+			position: 'absolute',
+			display: 'flex',
+			pointerEvents: 'none', // Let clicks pass through container
+			zIndex: 10,
+		}
+
+		// Vertical positioning
+		if (vAlign === "top") {
+			baseStyle.top = `${offsetY}px`
+		} else if (vAlign === "bottom") {
+			baseStyle.bottom = `${offsetY}px`
+		} else {
+			baseStyle.top = '50%'
+			baseStyle.transform = `translateY(calc(-50% + ${offsetY}px))`
+		}
+
+		// Horizontal positioning
+		if (hAlign === "left") {
+			baseStyle.left = `${offsetX}px`
+		} else if (hAlign === "right") {
+			baseStyle.right = `${offsetX}px`
+		} else {
+			baseStyle.left = '50%'
+			baseStyle.transform = vAlign === "center" 
+				? `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px))`
+				: `translateX(calc(-50% + ${offsetX}px))`
+		}
+
+		return baseStyle
+	}
+
 	return (
 		<section style={styles.embla}>
 			{/* Carousel viewport and slides */}
 			<div style={styles.viewport} ref={emblaRef}>
 				<div style={styles.container}>
 					{slidesArray?.map((index) => (
-						<div style={styles.slide} key={index}>
-							<div style={styles.slideNumber}>{index + 1}</div>
+						<div 
+							style={{
+								...styles.slide,
+								flex: `0 0 ${slideWidthPercentage}`
+							}} 
+							key={index}
+						>
+							{mode === "images" ? (
+								images[index] ? (
+									<img
+										src={images[index].src}
+										alt={`Slide ${index + 1}`}
+										style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
+									/>
+								) : (
+									<div style={{
+										...styles.slideNumber,
+										height: '100%'
+									}}>{index + 1}</div>
+								)
+							) : (
+								content[index] ? (
+									<div style={{
+										position: 'relative',
+										width: '100%',
+										height: '100%',
+										display: 'flex',
+										alignItems: 'center',
+										justifyContent: 'center',
+									}}>
+										<div style={{ position: 'relative', display: 'inline-block' }}>
+											{React.cloneElement(content[index] as any, {
+												style: {
+													// Preserve any user-provided styles on the child; do not force sizing
+													...(content[index] as any)?.props?.style,
+												},
+											})}
+										</div>
+									</div>
+								) : (
+									<div style={{
+										...styles.slideNumber,
+										height: '100%'
+									}}>{index + 1}</div>
+								)
+							)}
 						</div>
 					)) || []}
 				</div>
 			</div>
 
-			{/* Navigation controls */}
-			<div style={styles.controls}>
-				{/* Arrow buttons */}
-				<div style={styles.buttons}>
-					<PrevButton onClick={onPrevButtonClick} disabled={prevBtnDisabled} />
-					<NextButton onClick={onNextButtonClick} disabled={nextBtnDisabled} />
+			{/* Arrow buttons - absolutely positioned */}
+			{arrowsUI?.enabled !== false && (
+				<div style={getArrowsContainerStyle()}>
+					<div style={{ pointerEvents: 'auto' }}>
+						<PrevButton onClick={onPrevButtonClick} disabled={prevBtnDisabled} />
+					</div>
+					<div style={{ pointerEvents: 'auto' }}>
+						<NextButton onClick={onNextButtonClick} disabled={nextBtnDisabled} />
+					</div>
 				</div>
+			)}
 
-			{/* Dot navigation */}
+			{/* Dot navigation - absolutely positioned */}
 			{dotsUI?.enabled !== false && (
-				<div
-					style={{
-						...styles.dots,
-						justifyContent:
-							(dotsUI.horizontalAlign === "left" && "flex-start") ||
-							(dotsUI.horizontalAlign === "center" && "center") ||
-							/* default/right */ "flex-end",
-					}}
-				>
+				<div style={getDotsContainerStyle()}>
 					<div
 						style={{
 							display: 'inline-flex',
@@ -538,6 +734,7 @@ export default function EmblaCarousel(props: PropType) {
 							backgroundColor: dotsUI.backdrop || 'transparent',
 							borderRadius: dotsUI.backdropRadius ?? 20,
 							padding: dotsUI.padding ?? 0,
+							pointerEvents: 'auto',
 						}}
 					>
 						{scrollSnaps?.map((_, index) => {
@@ -578,7 +775,6 @@ export default function EmblaCarousel(props: PropType) {
 					</div>
 				</div>
 			)}
-			</div>
 		</section>
 	)
 }
@@ -586,6 +782,23 @@ export default function EmblaCarousel(props: PropType) {
 EmblaCarousel.displayName = "Embla Carousel"
 
 addPropertyControls(EmblaCarousel, {
+	mode: {
+		type: ControlType.Enum,
+		title: "Mode",
+		options: ["images", "components"],
+		optionTitles: ["Images", "Components"],
+		defaultValue: "images",
+		displaySegmentedControl: true,
+		segmentedControlDirection: "vertical",
+	},
+	content: {
+		type: ControlType.Array,
+		title: "Content",
+		control: {
+			type: ControlType.ComponentInstance,
+		},
+		hidden: (props) => props.mode === "images",
+	},
 	slideCount: {
 		type: ControlType.Number,
 		title: "Slide Count",
@@ -595,6 +808,25 @@ addPropertyControls(EmblaCarousel, {
 		defaultValue: 5,
 		description: "Number of slides in the carousel",
 	},
+	slidesPerView: {
+		type: ControlType.Number,
+		title: "Slides Count",
+		min: 0.5,
+		max: 4,
+		step: 0.1,
+		defaultValue: 1,
+		description: "Number of slides visible at once (supports decimals like 1.5 or 2.4)",
+	},
+	image1: { type: ControlType.ResponsiveImage, title: "Image 1", hidden: (p) => p.mode !== "images" },
+	image2: { type: ControlType.ResponsiveImage, title: "Image 2", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 2 },
+	image3: { type: ControlType.ResponsiveImage, title: "Image 3", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 3 },
+	image4: { type: ControlType.ResponsiveImage, title: "Image 4", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 4 },
+	image5: { type: ControlType.ResponsiveImage, title: "Image 5", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 5 },
+	image6: { type: ControlType.ResponsiveImage, title: "Image 6", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 6 },
+	image7: { type: ControlType.ResponsiveImage, title: "Image 7", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 7 },
+	image8: { type: ControlType.ResponsiveImage, title: "Image 8", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 8 },
+	image9: { type: ControlType.ResponsiveImage, title: "Image 9", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 9 },
+	image10: { type: ControlType.ResponsiveImage, title: "Image 10", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 10 },
 	loop: {
 		type: ControlType.Boolean,
 		title: "Loop",
@@ -805,14 +1037,110 @@ addPropertyControls(EmblaCarousel, {
 				defaultValue: "#000000",
 				hidden: (props) => !props.enabled,
 			},
+			verticalAlign: {
+				type: ControlType.Enum,
+				title: "Vertical",
+				options: ["top", "center", "bottom"],
+				optionTitles: ["Top", "Center", "Bottom"],
+				defaultValue: "bottom",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "vertical",
+				hidden: (props) => !props.enabled,
+			},
 			horizontalAlign: {
 				type: ControlType.Enum,
-				title: "Align",
+				title: "Horizontal",
 				options: ["left", "center", "right"],
 				optionTitles: ["Left", "Center", "Right"],
-				defaultValue: "right",
+				defaultValue: "center",
 				displaySegmentedControl: true,
 				segmentedControlDirection: "horizontal",
+				hidden: (props) => !props.enabled,
+			},
+			offsetX: {
+				type: ControlType.Number,
+				title: "Offset X",
+				min: -200,
+				max: 200,
+				step: 5,
+				defaultValue: 0,
+				hidden: (props) => !props.enabled,
+			},
+			offsetY: {
+				type: ControlType.Number,
+				title: "Offset Y",
+				min: -200,
+				max: 200,
+				step: 5,
+				defaultValue: 20,
+				hidden: (props) => !props.enabled,
+			},
+		},
+	},
+	/** Arrows UI controls */
+	arrowsUI: {
+		type: ControlType.Object,
+		title: "Arrows",
+		controls: {
+			enabled: {
+				type: ControlType.Boolean,
+				title: "Show",
+				defaultValue: true,
+			},
+			mode: {
+				type: ControlType.Enum,
+				title: "Mode",
+				options: ["group", "space-between"],
+				optionTitles: ["Group", "Space Between"],
+				defaultValue: "space-between",
+				displaySegmentedControl: true,
+				hidden: (props) => !props.enabled,
+			},
+			verticalAlign: {
+				type: ControlType.Enum,
+				title: "Vertical",
+				options: ["top", "center", "bottom"],
+				optionTitles: ["Top", "Center", "Bottom"],
+				defaultValue: "center",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "vertical",
+				hidden: (props) => !props.enabled,
+			},
+			horizontalAlign: {
+				type: ControlType.Enum,
+				title: "Horizontal",
+				options: ["left", "center", "right"],
+				optionTitles: ["Left", "Center", "Right"],
+				defaultValue: "center",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "horizontal",
+				hidden: (props) => props.mode === "space-between" || !props.enabled,
+			},
+			gap: {
+				type: ControlType.Number,
+				title: "Gap",
+				min: 0,
+				max: 100,
+				step: 5,
+				defaultValue: 10,
+				hidden: (props) => props.mode === "space-between" || !props.enabled,
+			},
+			offsetX: {
+				type: ControlType.Number,
+				title: "Offset X",
+				min: -200,
+				max: 200,
+				step: 5,
+				defaultValue: 20,
+				hidden: (props) => !props.enabled,
+			},
+			offsetY: {
+				type: ControlType.Number,
+				title: "Offset Y",
+				min: -200,
+				max: 200,
+				step: 5,
+				defaultValue: 0,
 				hidden: (props) => !props.enabled,
 			},
 		},
