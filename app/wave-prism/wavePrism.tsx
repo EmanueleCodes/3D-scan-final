@@ -23,7 +23,7 @@ function parseColorToRgba(input: string): {
     b: number
     a: number
 } {
-    if (!input) return { r: 0, g: 0, b: 0, a: 1 }
+    if (!input) return { r: 0, g: 0, b: 0, a: 0 }
     const str = input.trim()
     const rgbaMatch = str.match(
         /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
@@ -151,12 +151,15 @@ export default function WavePrism(props: Props) {
         xScale = 0.2, // UI default 0.2 maps to internal 0.1
         yScale = 0.25, // UI default 0.25 maps to internal 0.1
         glow = 1, // Multiplier [0..1] for additive glow intensity
-        backgroundColor = "#000000",
+        backgroundColor,
         preview = false,
     } = props
 
     // Resolve background color from Framer tokens and parse to RGBA
-    const resolvedBackgroundColor = resolveTokenColor(backgroundColor)
+    const resolvedBackgroundColor =
+        typeof backgroundColor === "string"
+            ? resolveTokenColor(backgroundColor)
+            : ""
     const backgroundColorRgba = parseColorToRgba(resolvedBackgroundColor)
 
     const containerRef = useRef<HTMLDivElement>(null)
@@ -217,7 +220,6 @@ export default function WavePrism(props: Props) {
       uniform float distortion;
       uniform float beamThickness;
       uniform float glow; // glow multiplier from controls
-      uniform vec3 bgColor; // background color from controls
 
       void main() {
         // Use a 'cover' mapping that fills the canvas while preserving aspect
@@ -232,14 +234,15 @@ export default function WavePrism(props: Props) {
         float r = beamThickness / abs((p.y + yOffset) + sin((rx + time) * xScale) * yScale);
         float g = beamThickness / abs((p.y + yOffset) + sin((gx + time) * xScale) * yScale);
         float b = beamThickness / abs((p.y + yOffset) + sin((bx + time) * xScale) * yScale);
-        // Additive glow on top of user background color
         // Split low-intensity tails (halo) from bright core; only scale the halo
         vec3 wave = vec3(r, g, b);
-        float haloCap = 0.3; // intensities up to this are considered halo
+        float haloCap = 2.0; // intensities up to this are considered halo
         vec3 halo = min(wave, vec3(haloCap));
         vec3 core = wave - halo; // remains unchanged by Glow
-        vec3 col = clamp(bgColor + core + halo * glow, 0.0, 1.0);
-        gl_FragColor = vec4(col, 1.0);
+        vec3 col = clamp(core + halo * glow, 0.0, 1.0);
+        // Use a soft alpha derived from intensity so the CSS background shows through
+        float outAlpha = clamp(max(max(col.r, col.g), col.b) / 2.5, 0.0, 1.0);
+        gl_FragColor = vec4(col, outAlpha);
       }
     `
 
@@ -249,15 +252,11 @@ export default function WavePrism(props: Props) {
                 canvas,
                 preserveDrawingBuffer: true, // Prevent flashing during resize
                 antialias: false, // Disable for better performance
+                alpha: true, // allow transparent backgrounds
             })
             refs.renderer.setPixelRatio(window.devicePixelRatio)
-            refs.renderer.setClearColor(
-                new Color(
-                    backgroundColorRgba.r,
-                    backgroundColorRgba.g,
-                    backgroundColorRgba.b
-                )
-            )
+            // Keep canvas fully transparent; let parent div provide background with alpha
+            refs.renderer.setClearColor(new Color(0, 0, 0), 0)
             // Ensure no prior scissor state crops the output
             refs.renderer.setScissorTest(false)
 
@@ -274,13 +273,6 @@ export default function WavePrism(props: Props) {
                     value: mapThicknessUiToInternal(beamThickness),
                 },
                 glow: { value: glow },
-                bgColor: {
-                    value: [
-                        backgroundColorRgba.r,
-                        backgroundColorRgba.g,
-                        backgroundColorRgba.b,
-                    ],
-                },
             }
 
             const position = [
@@ -420,10 +412,6 @@ export default function WavePrism(props: Props) {
             refs.uniforms.beamThickness.value =
                 mapThicknessUiToInternal(beamThickness)
             refs.uniforms.glow.value = glow
-            // Update background color uniform
-            const resolvedBgColor = resolveTokenColor(backgroundColor)
-            const bg = parseColorToRgba(resolvedBgColor)
-            refs.uniforms.bgColor.value = [bg.r, bg.g, bg.b]
         }
 
         // In canvas mode, render a single frame when props change
@@ -451,10 +439,8 @@ export default function WavePrism(props: Props) {
             const resolvedBgColor = resolveTokenColor(backgroundColor)
             const bgColorRgba = parseColorToRgba(resolvedBgColor)
 
-            // Set the WebGL clear color
-            refs.renderer.setClearColor(
-                new Color(bgColorRgba.r, bgColorRgba.g, bgColorRgba.b)
-            )
+            // Keep WebGL clear fully transparent so CSS background opacity shows through
+            refs.renderer.setClearColor(new Color(0, 0, 0), 0)
 
             // Force a render to show the new background immediately
             if (refs.scene && refs.camera) {
@@ -505,6 +491,8 @@ export default function WavePrism(props: Props) {
                 display: "block",
                 margin: 0,
                 padding: 0,
+                // Let CSS background with alpha show through WebGL canvas
+                background: backgroundColor || "transparent",
             }}
         >
             {/* Hidden 20x20 probe to detect editor zoom level in canvas */}
@@ -586,7 +574,7 @@ addPropertyControls(WavePrism, {
     backgroundColor: {
         type: ControlType.Color,
         title: "Background",
-        defaultValue: "#000000",
+        defaultValue: undefined as any,
         optional: true,
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
