@@ -30,7 +30,7 @@ type EmblaOptionsType = Parameters<typeof useEmblaCarousel>[0]
 const styles = {
 	// Main carousel container
 	embla: {
-		maxWidth: '768px',
+		maxWidth: '100%',
 		margin: 'auto',
 		width: '100%',
 	} as React.CSSProperties,
@@ -125,7 +125,6 @@ const styles = {
 		flexWrap: 'wrap' as const,
 		justifyContent: 'flex-end',
 		alignItems: 'center',
-		marginRight: 'calc((41.6px - 22.4px) / 2 * -1)',
 	} as React.CSSProperties,
 
 	// Individual dot button
@@ -230,17 +229,20 @@ export const useDotButton = (
 
 type DotButtonPropType = ComponentPropsWithRef<'button'> & {
 	isSelected?: boolean
+	buttonStyle?: React.CSSProperties
+	innerStyle?: React.CSSProperties
 }
 
 export const DotButton: React.FC<DotButtonPropType> = (props) => {
-	const { children, isSelected, ...restProps } = props
+	const { children, isSelected, buttonStyle, innerStyle, ...restProps } = props
 
 	return (
-		<button type="button" style={styles.dot} {...restProps}>
+		<button type="button" style={{ ...styles.dot, ...(buttonStyle || {}) }} {...restProps}>
 			<div
 				style={{
 					...styles.dotInner,
 					...(isSelected ? styles.dotInnerSelected : {}),
+					...(innerStyle || {}),
 				}}
 			>
 				{children}
@@ -390,13 +392,54 @@ type PropType = {
 	dragFree: boolean
 	containScroll: boolean
 	skipSnaps: boolean
+	/** Dots UI customization (appearance only) */
+	dotsUI?: {
+		enabled?: boolean
+		width?: number
+		height?: number
+		gap?: number
+		fill?: string
+		padding?: number
+		backdrop?: string
+		backdropRadius?: number
+		radius?: number
+		opacity?: number
+		current?: number
+		scale?: number
+		blur?: number
+		borderWidth?: number
+		borderColor?: string
+		currentBorderWidth?: number
+		currentBorderColor?: string
+		horizontalAlign?: "left" | "center" | "right"
+	}
+	/** Arrows UI customization (appearance only) */
+	arrowsUI?: {
+		show?: boolean
+		fill?: string
+		fadeIn?: boolean
+		distance?: "space" | "group"
+		verticalAlign?: "top" | "center" | "bottom"
+		gap?: number
+		insetX?: number
+		insetXReference?: "container" | "central-slide"
+		insetXUnit?: "px" | "%"
+		insetY?: number
+		opacity?: number
+		fadeInControls?: {
+			duration?: number
+			easing?: string
+			delay?: number
+		}
+	}
 }
-
 /**
- * @framerSupportedLayoutWidth any
+ * @framerSupportedLayoutWidth any-prefer-fixed
+ * @framerSupportedLayoutHeight any-prefer-fixed
+ * @framerIntrinsicWidth 600
+ * @framerIntrinsicHeight 400
  * @framerDisableUnlink
  */
-
 export default function EmblaCarousel(props: PropType) {
 	const { 
 		slides,
@@ -408,7 +451,41 @@ export default function EmblaCarousel(props: PropType) {
 		align = "start",
 		dragFree = false,
 		containScroll = false,
-		skipSnaps = false
+		skipSnaps = false,
+		dotsUI = {
+			enabled: true,
+			width: 10,
+			height: 10,
+			gap: 10,
+			fill: "#FFFFFF",
+			padding: 0,
+			backdrop: "transparent",
+			backdropRadius: 20,
+			radius: 50,
+			opacity: 0.5,
+			current: 1,
+			scale: 1.1,
+			blur: 0,
+			horizontalAlign: "right",
+		},
+		arrowsUI = {
+			show: true,
+			fill: "#000000",
+			fadeIn: false,
+			distance: "space",
+			verticalAlign: "center",
+			gap: 20,
+			insetX: 20,
+			insetXReference: "container",
+			insetXUnit: "px",
+			insetY: 20,
+			opacity: 0.7,
+			fadeInControls: {
+				duration: 0.5,
+				easing: "power1.inOut",
+				delay: 0.2,
+			},
+		}
 	} = props
 	
 	// Generate slides if not provided
@@ -480,16 +557,64 @@ export default function EmblaCarousel(props: PropType) {
 					<NextButton onClick={onNextButtonClick} disabled={nextBtnDisabled} />
 				</div>
 
-				{/* Dot navigation */}
-				<div style={styles.dots}>
-					{scrollSnaps?.map((_, index) => (
-						<DotButton
-							key={index}
-							onClick={() => onDotButtonClick(index)}
-							isSelected={index === selectedIndex}
-						/>
-					)) || []}
+			{/* Dot navigation */}
+			{dotsUI?.enabled !== false && (
+				<div
+					style={{
+						...styles.dots,
+						justifyContent:
+							(dotsUI.horizontalAlign === "left" && "flex-start") ||
+							(dotsUI.horizontalAlign === "center" && "center") ||
+							/* default/right */ "flex-end",
+					}}
+				>
+					<div
+						style={{
+							display: 'inline-flex',
+							gap: `${dotsUI.gap ?? 10}px`,
+							backgroundColor: dotsUI.backdrop || 'transparent',
+							borderRadius: dotsUI.backdropRadius ?? 20,
+							padding: dotsUI.padding ?? 0,
+						}}
+					>
+						{scrollSnaps?.map((_, index) => {
+							const isSel = index === selectedIndex
+							const baseSizeW = Math.max(dotsUI.width ?? 10, 2)
+							const baseSizeH = Math.max(dotsUI.height ?? 10, 2)
+							const baseRadius = dotsUI.radius ?? 50
+							const targetScale = isSel ? dotsUI.scale ?? 1.1 : 1
+							const targetOpacity = isSel ? dotsUI.current ?? 1 : dotsUI.opacity ?? 0.5
+							const bw = dotsUI.borderWidth ?? 0
+							const bws = dotsUI.currentBorderWidth ?? bw
+							const bc = dotsUI.borderColor ?? 'transparent'
+							const bcs = dotsUI.currentBorderColor ?? bc
+							return (
+								<DotButton
+									key={index}
+									onClick={() => onDotButtonClick(index)}
+									isSelected={isSel}
+									buttonStyle={{
+										width: `${baseSizeW}px`,
+										height: `${baseSizeH}px`,
+										borderRadius: `${baseRadius}px`,
+									}}
+									innerStyle={{
+										width: `${baseSizeW}px`,
+										height: `${baseSizeH}px`,
+										borderRadius: `${baseRadius}px`,
+										backgroundColor: dotsUI.fill || "#FFFFFF",
+										filter: `blur(${dotsUI.blur ?? 0}px)`,
+										transform: `scale(${targetScale})`,
+										opacity: targetOpacity,
+										border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
+										boxShadow: 'none',
+									}}
+								/>
+							)
+						}) || []}
+					</div>
 				</div>
+			)}
 			</div>
 		</section>
 	)
@@ -574,5 +699,347 @@ addPropertyControls(EmblaCarousel, {
 		enabledTitle: "Skip",
 		disabledTitle: "Include",
 		description: "Skip intermediate snap points",
+	},
+	/** Dots UI controls */
+	dotsUI: {
+		type: ControlType.Object,
+		title: "Dots",
+		controls: {
+			enabled: {
+				type: ControlType.Boolean,
+				title: "Show",
+				defaultValue: true,
+			},
+			width: {
+				type: ControlType.Number,
+				title: "Width",
+				min: 4,
+				max: 50,
+				step: 1,
+				defaultValue: 10,
+				hidden: (props) => !props.enabled,
+			},
+			height: {
+				type: ControlType.Number,
+				title: "Height",
+				min: 4,
+				max: 50,
+				step: 1,
+				defaultValue: 10,
+				hidden: (props) => !props.enabled,
+			},
+			gap: {
+				type: ControlType.Number,
+				title: "Gap",
+				min: 0,
+				max: 50,
+				step: 1,
+				defaultValue: 10,
+				hidden: (props) => !props.enabled,
+			},
+			fill: {
+				type: ControlType.Color,
+				title: "Fill",
+				defaultValue: "#FFFFFF",
+				hidden: (props) => !props.enabled,
+			},
+			backdrop: {
+				type: ControlType.Color,
+				title: "Backdrop",
+				defaultValue: "rgba(0,0,0,0.2)",
+				hidden: (props) => !props.enabled,
+			},
+			padding: {
+				type: ControlType.Number,
+				title: "Padding",
+				min: 0,
+				max: 50,
+				step: 1,
+				defaultValue: 16,
+				hidden: (props) => !props.enabled,
+			},
+			backdropRadius: {
+				type: ControlType.Number,
+				title: "Out Radius",
+				min: 0,
+				max: 50,
+				step: 1,
+				defaultValue: 20,
+				hidden: (props) => !props.enabled,
+			},
+			radius: {
+				type: ControlType.Number,
+				title: "Radius",
+				min: 0,
+				max: 50,
+				step: 1,
+				defaultValue: 50,
+				hidden: (props) => !props.enabled,
+			},
+			opacity: {
+				type: ControlType.Number,
+				title: "Opacity",
+				min: 0,
+				max: 1,
+				step: 0.1,
+				defaultValue: 0.5,
+				hidden: (props) => !props.enabled,
+			},
+			current: {
+				type: ControlType.Number,
+				title: "Current",
+				min: 0,
+				max: 1,
+				step: 0.1,
+				defaultValue: 1,
+				hidden: (props) => !props.enabled,
+			},
+			scale: {
+				type: ControlType.Number,
+				title: "Scale",
+				min: 0.5,
+				max: 2,
+				step: 0.1,
+				defaultValue: 1.1,
+				hidden: (props) => !props.enabled,
+			},
+			blur: {
+				type: ControlType.Number,
+				title: "Blur",
+				min: 0,
+				max: 20,
+				step: 1,
+				defaultValue: 0,
+				hidden: (props) => !props.enabled,
+			},
+			borderWidth: {
+				type: ControlType.Number,
+				title: "Border",
+				min: 0,
+				max: 10,
+				step: 1,
+				defaultValue: 0,
+				hidden: (props) => !props.enabled,
+			},
+			borderColor: {
+				type: ControlType.Color,
+				title: "Border Color",
+				defaultValue: "#000000",
+				hidden: (props) => !props.enabled,
+			},
+			currentBorderWidth: {
+				type: ControlType.Number,
+				title: "Active Border",
+				min: 0,
+				max: 10,
+				step: 1,
+				defaultValue: 0,
+				hidden: (props) => !props.enabled,
+			},
+			currentBorderColor: {
+				type: ControlType.Color,
+				title: "Active Border Color",
+				defaultValue: "#000000",
+				hidden: (props) => !props.enabled,
+			},
+			horizontalAlign: {
+				type: ControlType.Enum,
+				title: "Align",
+				options: ["left", "center", "right"],
+				optionTitles: ["Left", "Center", "Right"],
+				defaultValue: "right",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "horizontal",
+				hidden: (props) => !props.enabled,
+			},
+		},
+	},
+	/** Arrows UI controls */
+	arrowsUI: {
+		type: ControlType.Object,
+		title: "Arrows",
+		controls: {
+			show: {
+				type: ControlType.Boolean,
+				title: "Show",
+				defaultValue: true,
+			},
+			fadeIn: {
+				type: ControlType.Boolean,
+				title: "Fade In",
+				defaultValue: false,
+				hidden: (props: any) => !props.show,
+			},
+			fadeInControls: {
+				type: ControlType.Object,
+				title: "Animation",
+				hidden: (props: any) => !props.fadeIn,
+				controls: {
+					duration: {
+						type: ControlType.Number,
+						title: "Duration",
+						min: 0,
+						max: 1,
+						step: 0.01,
+						defaultValue: 0.5,
+					},
+					easing: {
+						type: ControlType.Enum,
+						title: "Easing",
+						options: [
+							"none",
+							"power1.inOut",
+							"power1.in",
+							"power1.out",
+							"power2.inOut",
+							"power2.in",
+							"power2.out",
+							"power3.inOut",
+							"power3.in",
+							"power3.out",
+							"back.inOut",
+							"back.in",
+							"back.out",
+							"elastic.inOut",
+							"elastic.in",
+							"elastic.out",
+							"bounce.inOut",
+							"bounce.in",
+							"bounce.out",
+							"circ.inOut",
+							"circ.in",
+							"circ.out",
+							"expo.inOut",
+							"expo.in",
+							"expo.out",
+							"sine.inOut",
+							"sine.in",
+							"sine.out",
+						],
+						optionTitles: [
+							"None",
+							"Power1 InOut",
+							"Power1 In",
+							"Power1 Out",
+							"Power2 InOut",
+							"Power2 In",
+							"Power2 Out",
+							"Power3 InOut",
+							"Power3 In",
+							"Power3 Out",
+							"Back InOut",
+							"Back In",
+							"Back Out",
+							"Elastic InOut",
+							"Elastic In",
+							"Elastic Out",
+							"Bounce InOut",
+							"Bounce In",
+							"Bounce Out",
+							"Circ InOut",
+							"Circ In",
+							"Circ Out",
+							"Expo InOut",
+							"Expo In",
+							"Expo Out",
+							"Sine InOut",
+							"Sine In",
+							"Sine Out",
+						],
+						defaultValue: "power1.inOut",
+					},
+					delay: {
+						type: ControlType.Number,
+						title: "Delay",
+						min: 0,
+						max: 1,
+						step: 0.01,
+						defaultValue: 0.2,
+					},
+				},
+			},
+			distance: {
+				type: ControlType.Enum,
+				title: "Distance",
+				options: ["space", "group"],
+				optionTitles: ["Space", "Group"],
+				defaultValue: "space",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "vertical",
+				hidden: (props: any) => !props.show,
+			},
+			verticalAlign: {
+				type: ControlType.Enum,
+				title: "Vertical",
+				options: ["top", "center", "bottom"],
+				optionTitles: ["Top", "Center", "Bottom"],
+				defaultValue: "center",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "horizontal",
+				hidden: (props: any) => !props.show,
+			},
+			gap: {
+				type: ControlType.Number,
+				title: "Gap",
+				min: 0,
+				max: 100,
+				step: 5,
+				defaultValue: 20,
+				hidden: (props: any) =>
+					props.distance !== "group" || !props.show,
+			},
+			insetXReference: {
+				type: ControlType.Enum,
+				title: "Reference",
+				options: ["container", "central-slide"],
+				optionTitles: ["Container", "Central Slide"],
+				defaultValue: "container",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "vertical",
+				hidden: (props: any) =>
+					props.distance !== "space" || !props.show,
+			},
+			insetXUnit: {
+				type: ControlType.Enum,
+				title: "X Inset Unit",
+				options: ["px", "%"],
+				optionTitles: ["px", "%"],
+				defaultValue: "px",
+				displaySegmentedControl: true,
+				segmentedControlDirection: "horizontal",
+				hidden: (props: any) =>
+					props.distance !== "space" || !props.show,
+			},
+			insetX: {
+				type: ControlType.Number,
+				title: "X Inset",
+				min: -500,
+				max: 500,
+				step: 5,
+				defaultValue: 20,
+				hidden: (props: any) =>
+					props.distance !== "space" || !props.show,
+			},
+			insetY: {
+				type: ControlType.Number,
+				title: "Y Inset",
+				min: -100,
+				max: 100,
+				step: 5,
+				defaultValue: 20,
+				hidden: (props: any) =>
+					!props.show || props.verticalAlign === "center",
+			},
+			opacity: {
+				type: ControlType.Number,
+				title: "Opacity",
+				min: 0,
+				max: 1,
+				step: 0.1,
+				defaultValue: 0.7,
+				description: "Disabled arrows opacity",
+				hidden: (props: any) => !props.show,
+			},
+		},
 	},
 })
