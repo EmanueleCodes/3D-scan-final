@@ -394,44 +394,25 @@ type PropType = {
 	skipSnaps: boolean
 	/** Dots UI customization (appearance only) */
 	dotsUI?: {
-		enabled?: boolean
-		width?: number
-		height?: number
-		gap?: number
-		fill?: string
-		padding?: number
-		backdrop?: string
-		backdropRadius?: number
-		radius?: number
-		opacity?: number
-		current?: number
-		scale?: number
-		blur?: number
-		borderWidth?: number
-		borderColor?: string
-		currentBorderWidth?: number
-		currentBorderColor?: string
-		horizontalAlign?: "left" | "center" | "right"
-	}
-	/** Arrows UI customization (appearance only) */
-	arrowsUI?: {
-		show?: boolean
-		fill?: string
-		fadeIn?: boolean
-		distance?: "space" | "group"
-		verticalAlign?: "top" | "center" | "bottom"
-		gap?: number
-		insetX?: number
-		insetXReference?: "container" | "central-slide"
-		insetXUnit?: "px" | "%"
-		insetY?: number
-		opacity?: number
-		fadeInControls?: {
-			duration?: number
-			easing?: string
-			delay?: number
-		}
-	}
+ 		enabled?: boolean
+ 		width?: number
+ 		height?: number
+ 		gap?: number
+ 		fill?: string
+ 		padding?: number
+ 		backdrop?: string
+ 		backdropRadius?: number
+ 		radius?: number
+ 		opacity?: number
+ 		current?: number
+ 		scale?: number
+ 		blur?: number
+			borderWidth?: number
+			borderColor?: string
+			currentBorderWidth?: number
+			currentBorderColor?: string
+ 		horizontalAlign?: "left" | "center" | "right"
+ 	}
 }
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
@@ -467,24 +448,6 @@ export default function EmblaCarousel(props: PropType) {
 			scale: 1.1,
 			blur: 0,
 			horizontalAlign: "right",
-		},
-		arrowsUI = {
-			show: true,
-			fill: "#000000",
-			fadeIn: false,
-			distance: "space",
-			verticalAlign: "center",
-			gap: 20,
-			insetX: 20,
-			insetXReference: "container",
-			insetXUnit: "px",
-			insetY: 20,
-			opacity: 0.7,
-			fadeInControls: {
-				duration: 0.5,
-				easing: "power1.inOut",
-				delay: 0.2,
-			},
 		}
 	} = props
 	
@@ -851,194 +814,6 @@ addPropertyControls(EmblaCarousel, {
 				displaySegmentedControl: true,
 				segmentedControlDirection: "horizontal",
 				hidden: (props) => !props.enabled,
-			},
-		},
-	},
-	/** Arrows UI controls */
-	arrowsUI: {
-		type: ControlType.Object,
-		title: "Arrows",
-		controls: {
-			show: {
-				type: ControlType.Boolean,
-				title: "Show",
-				defaultValue: true,
-			},
-			fadeIn: {
-				type: ControlType.Boolean,
-				title: "Fade In",
-				defaultValue: false,
-				hidden: (props: any) => !props.show,
-			},
-			fadeInControls: {
-				type: ControlType.Object,
-				title: "Animation",
-				hidden: (props: any) => !props.fadeIn,
-				controls: {
-					duration: {
-						type: ControlType.Number,
-						title: "Duration",
-						min: 0,
-						max: 1,
-						step: 0.01,
-						defaultValue: 0.5,
-					},
-					easing: {
-						type: ControlType.Enum,
-						title: "Easing",
-						options: [
-							"none",
-							"power1.inOut",
-							"power1.in",
-							"power1.out",
-							"power2.inOut",
-							"power2.in",
-							"power2.out",
-							"power3.inOut",
-							"power3.in",
-							"power3.out",
-							"back.inOut",
-							"back.in",
-							"back.out",
-							"elastic.inOut",
-							"elastic.in",
-							"elastic.out",
-							"bounce.inOut",
-							"bounce.in",
-							"bounce.out",
-							"circ.inOut",
-							"circ.in",
-							"circ.out",
-							"expo.inOut",
-							"expo.in",
-							"expo.out",
-							"sine.inOut",
-							"sine.in",
-							"sine.out",
-						],
-						optionTitles: [
-							"None",
-							"Power1 InOut",
-							"Power1 In",
-							"Power1 Out",
-							"Power2 InOut",
-							"Power2 In",
-							"Power2 Out",
-							"Power3 InOut",
-							"Power3 In",
-							"Power3 Out",
-							"Back InOut",
-							"Back In",
-							"Back Out",
-							"Elastic InOut",
-							"Elastic In",
-							"Elastic Out",
-							"Bounce InOut",
-							"Bounce In",
-							"Bounce Out",
-							"Circ InOut",
-							"Circ In",
-							"Circ Out",
-							"Expo InOut",
-							"Expo In",
-							"Expo Out",
-							"Sine InOut",
-							"Sine In",
-							"Sine Out",
-						],
-						defaultValue: "power1.inOut",
-					},
-					delay: {
-						type: ControlType.Number,
-						title: "Delay",
-						min: 0,
-						max: 1,
-						step: 0.01,
-						defaultValue: 0.2,
-					},
-				},
-			},
-			distance: {
-				type: ControlType.Enum,
-				title: "Distance",
-				options: ["space", "group"],
-				optionTitles: ["Space", "Group"],
-				defaultValue: "space",
-				displaySegmentedControl: true,
-				segmentedControlDirection: "vertical",
-				hidden: (props: any) => !props.show,
-			},
-			verticalAlign: {
-				type: ControlType.Enum,
-				title: "Vertical",
-				options: ["top", "center", "bottom"],
-				optionTitles: ["Top", "Center", "Bottom"],
-				defaultValue: "center",
-				displaySegmentedControl: true,
-				segmentedControlDirection: "horizontal",
-				hidden: (props: any) => !props.show,
-			},
-			gap: {
-				type: ControlType.Number,
-				title: "Gap",
-				min: 0,
-				max: 100,
-				step: 5,
-				defaultValue: 20,
-				hidden: (props: any) =>
-					props.distance !== "group" || !props.show,
-			},
-			insetXReference: {
-				type: ControlType.Enum,
-				title: "Reference",
-				options: ["container", "central-slide"],
-				optionTitles: ["Container", "Central Slide"],
-				defaultValue: "container",
-				displaySegmentedControl: true,
-				segmentedControlDirection: "vertical",
-				hidden: (props: any) =>
-					props.distance !== "space" || !props.show,
-			},
-			insetXUnit: {
-				type: ControlType.Enum,
-				title: "X Inset Unit",
-				options: ["px", "%"],
-				optionTitles: ["px", "%"],
-				defaultValue: "px",
-				displaySegmentedControl: true,
-				segmentedControlDirection: "horizontal",
-				hidden: (props: any) =>
-					props.distance !== "space" || !props.show,
-			},
-			insetX: {
-				type: ControlType.Number,
-				title: "X Inset",
-				min: -500,
-				max: 500,
-				step: 5,
-				defaultValue: 20,
-				hidden: (props: any) =>
-					props.distance !== "space" || !props.show,
-			},
-			insetY: {
-				type: ControlType.Number,
-				title: "Y Inset",
-				min: -100,
-				max: 100,
-				step: 5,
-				defaultValue: 20,
-				hidden: (props: any) =>
-					!props.show || props.verticalAlign === "center",
-			},
-			opacity: {
-				type: ControlType.Number,
-				title: "Opacity",
-				min: 0,
-				max: 1,
-				step: 0.1,
-				defaultValue: 0.7,
-				description: "Disabled arrows opacity",
-				hidden: (props: any) => !props.show,
 			},
 		},
 	},
