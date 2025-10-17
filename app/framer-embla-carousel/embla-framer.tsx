@@ -40,6 +40,7 @@ const styles = {
 	// Viewport - enables overflow scrolling
 	viewport: {
 		overflow: 'hidden',
+		height: '100%',
 	} as React.CSSProperties,
 
 	// Container - holds all slides
@@ -47,6 +48,7 @@ const styles = {
 		display: 'flex',
 		touchAction: 'pan-y pinch-zoom',
 		marginLeft: '-32px', // Negative slide spacing
+		height: '100%',
 	} as React.CSSProperties,
 
 	// Individual slide (flex basis is set dynamically based on slidesPerView)
@@ -396,6 +398,8 @@ type PropType = {
 	skipSnaps: boolean
 	/** Content mode and inputs */
 	mode?: "images" | "components"
+	/** When mode = components, controls how children size inside slides */
+	sizing?: "fixed" | "fit-content"
 	content?: ControlType.ComponentInstance[]
 	image1?: any
 	image2?: any
@@ -455,6 +459,7 @@ export default function EmblaCarousel(props: PropType) {
 		slideCount = 5,
 		slidesPerView = 1,
 		mode = "images",
+		sizing = "fit-content",
 		content = [],
 		image1,
 		image2,
@@ -664,7 +669,8 @@ export default function EmblaCarousel(props: PropType) {
 						<div 
 							style={{
 								...styles.slide,
-								flex: `0 0 ${slideWidthPercentage}`
+								flex: `0 0 ${slideWidthPercentage}`,
+								height: sizing === 'fixed' ? '100%' : undefined,
 							}} 
 							key={index}
 						>
@@ -691,14 +697,28 @@ export default function EmblaCarousel(props: PropType) {
 										alignItems: 'center',
 										justifyContent: 'center',
 									}}>
-										<div style={{ position: 'relative', display: 'inline-block' }}>
-											{React.cloneElement(content[index] as any, {
-												style: {
-													// Preserve any user-provided styles on the child; do not force sizing
-													...(content[index] as any)?.props?.style,
-												},
-											})}
-										</div>
+										{(() => {
+											const child = content[index] as any
+											if (sizing === 'fixed') {
+												// Child adapts to slide; fill 100%
+												return React.cloneElement(child, {
+													style: {
+														width: '100%',
+														height: '100%',
+														position: 'absolute',
+														top: 0,
+														left: 0,
+														...child?.props?.style,
+													},
+												})
+											}
+											// fit-content: preserve intrinsic size
+											return (
+												<div style={{ position: 'relative', display: 'inline-block' }}>
+													{React.cloneElement(child, { style: { ...child?.props?.style } })}
+												</div>
+											)
+										})()}
 									</div>
 								) : (
 									<div style={{
@@ -791,6 +811,16 @@ addPropertyControls(EmblaCarousel, {
 		displaySegmentedControl: true,
 		segmentedControlDirection: "vertical",
 	},
+	sizing: {
+		type: ControlType.Enum,
+		title: "Sizing",
+		options: ["fixed", "fit-content"],
+		optionTitles: ["Fixed", "Fit content"],
+		defaultValue: "fit-content",
+		hidden: (props) => props.mode !== "components",
+		displaySegmentedControl: true,
+		segmentedControlDirection: "vertical",
+	},
 	content: {
 		type: ControlType.Array,
 		title: "Content",
@@ -801,21 +831,19 @@ addPropertyControls(EmblaCarousel, {
 	},
 	slideCount: {
 		type: ControlType.Number,
-		title: "Slide Count",
+		title: "Count",
 		min: 2,
 		max: 20,
 		step: 1,
 		defaultValue: 5,
-		description: "Number of slides in the carousel",
 	},
 	slidesPerView: {
 		type: ControlType.Number,
-		title: "Slides Count",
+		title: "Visible",
 		min: 0.5,
 		max: 4,
 		step: 0.1,
 		defaultValue: 1,
-		description: "Number of slides visible at once (supports decimals like 1.5 or 2.4)",
 	},
 	image1: { type: ControlType.ResponsiveImage, title: "Image 1", hidden: (p) => p.mode !== "images" },
 	image2: { type: ControlType.ResponsiveImage, title: "Image 2", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 2 },
@@ -831,9 +859,8 @@ addPropertyControls(EmblaCarousel, {
 		type: ControlType.Boolean,
 		title: "Loop",
 		defaultValue: true,
-		enabledTitle: "Infinite",
-		disabledTitle: "Finite",
-		description: "Enable infinite scrolling",
+		enabledTitle: "On",
+		disabledTitle: "Off",
 	},
 	autoplay: {
 		type: ControlType.Boolean,
@@ -841,59 +868,52 @@ addPropertyControls(EmblaCarousel, {
 		defaultValue: true,
 		enabledTitle: "On",
 		disabledTitle: "Off",
-		description: "Enable automatic slide progression",
 	},
 	autoplayDelay: {
 		type: ControlType.Number,
-		title: "Autoplay Delay",
+		title: "Delay",
 		min: 1000,
 		max: 10000,
 		step: 500,
 		defaultValue: 3000,
 		unit: "ms",
 		hidden: (props) => !props.autoplay,
-		description: "Delay between autoplay transitions",
 	},
 	autoplayStopOnInteraction: {
 		type: ControlType.Boolean,
-		title: "Stop on Interaction",
+		title: "Stop",
 		defaultValue: true,
-		enabledTitle: "Stop",
-		disabledTitle: "Continue",
+		enabledTitle: "On",
+		disabledTitle: "Off",
 		hidden: (props) => !props.autoplay,
-		description: "Stop autoplay when user interacts",
 	},
 	align: {
 		type: ControlType.Enum,
-		title: "Alignment",
+		title: "Align",
 		options: ["start", "center", "end"],
 		optionTitles: ["Start", "Center", "End"],
 		defaultValue: "start",
-		description: "Slide alignment within viewport",
 	},
 	dragFree: {
 		type: ControlType.Boolean,
-		title: "Free Drag",
+		title: "Drag",
 		defaultValue: false,
 		enabledTitle: "Free",
 		disabledTitle: "Snap",
-		description: "Allow free dragging without snapping",
 	},
 	containScroll: {
 		type: ControlType.Boolean,
-		title: "Contain Scroll",
+		title: "Contain",
 		defaultValue: false,
-		enabledTitle: "Contain",
-		disabledTitle: "Free",
-		description: "Contain scroll within bounds",
+		enabledTitle: "On",
+		disabledTitle: "Off",
 	},
 	skipSnaps: {
 		type: ControlType.Boolean,
-		title: "Skip Snaps",
+		title: "Skip",
 		defaultValue: false,
-		enabledTitle: "Skip",
-		disabledTitle: "Include",
-		description: "Skip intermediate snap points",
+		enabledTitle: "On",
+		disabledTitle: "Off",
 	},
 	/** Dots UI controls */
 	dotsUI: {
@@ -955,7 +975,7 @@ addPropertyControls(EmblaCarousel, {
 			},
 			backdropRadius: {
 				type: ControlType.Number,
-				title: "Out Radius",
+				title: "Out",
 				min: 0,
 				max: 50,
 				step: 1,
@@ -1018,13 +1038,13 @@ addPropertyControls(EmblaCarousel, {
 			},
 			borderColor: {
 				type: ControlType.Color,
-				title: "Border Color",
+				title: "Border",
 				defaultValue: "#000000",
 				hidden: (props) => !props.enabled,
 			},
 			currentBorderWidth: {
 				type: ControlType.Number,
-				title: "Active Border",
+				title: "Active",
 				min: 0,
 				max: 10,
 				step: 1,
@@ -1033,7 +1053,7 @@ addPropertyControls(EmblaCarousel, {
 			},
 			currentBorderColor: {
 				type: ControlType.Color,
-				title: "Active Border Color",
+				title: "Active",
 				defaultValue: "#000000",
 				hidden: (props) => !props.enabled,
 			},
@@ -1059,7 +1079,7 @@ addPropertyControls(EmblaCarousel, {
 			},
 			offsetX: {
 				type: ControlType.Number,
-				title: "Offset X",
+				title: "X",
 				min: -200,
 				max: 200,
 				step: 5,
@@ -1068,7 +1088,7 @@ addPropertyControls(EmblaCarousel, {
 			},
 			offsetY: {
 				type: ControlType.Number,
-				title: "Offset Y",
+				title: "Y",
 				min: -200,
 				max: 200,
 				step: 5,
@@ -1091,7 +1111,7 @@ addPropertyControls(EmblaCarousel, {
 				type: ControlType.Enum,
 				title: "Mode",
 				options: ["group", "space-between"],
-				optionTitles: ["Group", "Space Between"],
+				optionTitles: ["Group", "Space"],
 				defaultValue: "space-between",
 				displaySegmentedControl: true,
 				hidden: (props) => !props.enabled,
@@ -1127,7 +1147,7 @@ addPropertyControls(EmblaCarousel, {
 			},
 			offsetX: {
 				type: ControlType.Number,
-				title: "Offset X",
+				title: "X",
 				min: -200,
 				max: 200,
 				step: 5,
@@ -1136,7 +1156,7 @@ addPropertyControls(EmblaCarousel, {
 			},
 			offsetY: {
 				type: ControlType.Number,
-				title: "Offset Y",
+				title: "Y",
 				min: -200,
 				max: 200,
 				step: 5,
