@@ -35,11 +35,12 @@ const styles = {
 		width: '100%',
 		position: 'relative',
 		height: '100%',
+        overflowY:"visible",
 	} as React.CSSProperties,
 
 	// Viewport - enables overflow scrolling
 	viewport: {
-		overflow: 'hidden',
+		overflow: 'visible',
 		height: '100%',
 	} as React.CSSProperties,
 
@@ -56,6 +57,7 @@ const styles = {
 		transform: 'translate3d(0, 0, 0)',
 		minWidth: 0,
 		paddingLeft: '32px', // Slide spacing
+        overflow: 'visible',
 	} as React.CSSProperties,
 
 	// Slide content (number display)
@@ -474,6 +476,18 @@ type PropType = {
 		backdropBlur?: number
 		dropShadow?: string
 	}
+		/** Visual effects for active/inactive slides */
+		effects?: {
+			enabled?: boolean
+			activeOpacity?: number
+			inactiveOpacity?: number
+			activeScale?: number
+			inactiveScale?: number
+			activeBlur?: number
+			inactiveBlur?: number
+			/** Multiplier for how quickly effects fall off by distance */
+			tweenFactor?: number
+		}
 }
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
@@ -554,6 +568,16 @@ export default function EmblaCarousel(props: PropType) {
 			strokeColor: "rgb(54, 49, 61)",
 			backdropBlur: 0,
 			dropShadow: "none",
+		},
+		effects = {
+			enabled: false,
+			activeOpacity: 1,
+			inactiveOpacity: 0.5,
+			activeScale: 1,
+			inactiveScale: 0.95,
+			activeBlur: 0,
+			inactiveBlur: 0,
+			tweenFactor: 0.84,
 		}
 	} = props
 	
@@ -577,8 +601,8 @@ export default function EmblaCarousel(props: PropType) {
 	// Calculate slide width based on slidesPerView
 	const slideWidthPercentage = (100 / slidesPerView).toFixed(4) + '%'
 
-	// Parallax image overfill percent derived from intensity (0->100%, 100->140%)
-	const overfillPercent = 100 + (40 * (parallaxIntensity / 100))
+	// Parallax image overfill percent derived from intensity (0->100%, 100->150%)
+	const overfillPercent = 100 + (50 * (parallaxIntensity / 100))
 	
 	// Build options object from props
 	const options: EmblaOptionsType = {
@@ -622,35 +646,90 @@ export default function EmblaCarousel(props: PropType) {
 		if (draggable) setIsDragging(false)
 	}, [draggable])
 
-	// Parallax effect state
-	const [parallaxOffsets, setParallaxOffsets] = useState<Record<number, number>>({})
-
-	// Calculate parallax offset based on scroll progress (snap-relative)
-	const updateParallaxOffsets = useCallback((emblaApi: EmblaCarouselType) => {
+	// Imperatively apply parallax transform to originals and clones
+	const applyParallax = useCallback((emblaApi: EmblaCarouselType) => {
 		if (!parallaxEnabled || mode !== "images") return
 
+		const root = emblaApi.rootNode() as HTMLElement
 		const scrollProgress = emblaApi.scrollProgress()
 		const snaps = emblaApi.scrollSnapList()
-		const newOffsets: Record<number, number> = {}
 
 		// Derive max shift as half of the overfill beyond 100%
-		// If overfillPercent is 100..140, extra is 0..40, half is 0..20
-		const overfillPercent = 100 + (40 * (parallaxIntensity / 100))
-		const extraOverfill = Math.max(0, overfillPercent - 100)
+		// If overfillPercent is 100..150, extra is 0..50, half is 0..20
+		const overfillPercentLocal = 100 + (50 * (parallaxIntensity / 100))
+		const extraOverfill = Math.max(0, overfillPercentLocal - 100)
 		const maxShiftPercent = extraOverfill / 2
 
 		snaps.forEach((snap: number, index: number) => {
-			// Distance from this slide's snap, wrapped to nearest cycle [-0.5, 0.5]
 			let diff = scrollProgress - snap
-			// wrap to nearest by subtracting nearest integer
 			diff = diff - Math.round(diff)
-			// Map [-0.5, 0.5] -> [-1, 1] then scale by maxShiftPercent
-			const parallaxShift = (diff * 2) * maxShiftPercent
-			newOffsets[index] = parallaxShift
+			const shift = (diff * 2) * maxShiftPercent
+			const nodes = root.querySelectorAll(`[data-parallax-index="${index}"]`)
+			nodes.forEach((node) => {
+				;(node as HTMLElement).style.transform = `translateX(${shift}%)`
+			})
 		})
-
-		setParallaxOffsets(newOffsets)
 	}, [parallaxEnabled, parallaxIntensity, mode])
+
+	// Effects: opacity/scale/blur based on distance to snaps
+	const tweenFactorRef = React.useRef(0)
+	const setTweenFactor = useCallback((emblaApi: EmblaCarouselType) => {
+		// Similar to reference: base factor times number of snaps for nice falloff
+		const snaps = emblaApi.scrollSnapList()
+		const base = effects.tweenFactor ?? 0.84
+		tweenFactorRef.current = base * (snaps?.length || 1)
+	}, [effects.tweenFactor])
+
+	const applyEffects = useCallback((emblaApi: EmblaCarouselType, eventName?: any) => {
+		if (!effects?.enabled) return
+		const engine: any = emblaApi.internalEngine()
+		const scrollProgress = emblaApi.scrollProgress()
+		const slidesInView = emblaApi.slidesInView()
+		const isScrollEvent = eventName === 'scroll'
+
+		const activeOpacity = effects.activeOpacity ?? 1
+		const inactiveOpacity = effects.inactiveOpacity ?? 0.5
+		const activeScale = effects.activeScale ?? 1
+		const inactiveScale = effects.inactiveScale ?? 0.95
+		const activeBlur = effects.activeBlur ?? 0
+		const inactiveBlur = effects.inactiveBlur ?? 0
+
+		emblaApi.scrollSnapList().forEach((scrollSnap: number, snapIndex: number) => {
+			let diffToTarget = scrollSnap - scrollProgress
+			const slidesInSnap = engine.slideRegistry[snapIndex]
+
+			slidesInSnap.forEach((slideIndex: number) => {
+				if (isScrollEvent && !slidesInView.includes(slideIndex)) return
+
+				if (engine.options.loop) {
+					engine.slideLooper.loopPoints.forEach((loopItem: any) => {
+						const target = loopItem.target()
+						if (slideIndex === loopItem.index && target !== 0) {
+							const sign = Math.sign(target)
+							if (sign === -1) diffToTarget = scrollSnap - (1 + scrollProgress)
+							if (sign === 1) diffToTarget = scrollSnap + (1 - scrollProgress)
+						}
+					})
+				}
+
+				const t = 1 - Math.abs(diffToTarget * tweenFactorRef.current)
+				const mix = Math.max(0, Math.min(1, t))
+
+				// Interpolate values
+				const opacity = inactiveOpacity + (activeOpacity - inactiveOpacity) * mix
+				const scale = inactiveScale + (activeScale - inactiveScale) * mix
+				const blur = inactiveBlur + (activeBlur - inactiveBlur) * mix
+
+				const slideNode = emblaApi.slideNodes()[slideIndex] as HTMLElement
+				const targetEl = (slideNode?.firstElementChild as HTMLElement) || slideNode
+				if (targetEl) {
+					targetEl.style.opacity = String(opacity)
+					targetEl.style.transform = `scale(${scale})`
+					targetEl.style.filter = blur > 0 ? `blur(${blur}px)` : 'none'
+				}
+			})
+		})
+	}, [effects])
 
 	// Initialize dot button navigation
 	const { selectedIndex, scrollSnaps, onDotButtonClick } = useDotButton(
@@ -681,19 +760,31 @@ export default function EmblaCarousel(props: PropType) {
 
 	// Add parallax scroll listener
 	useEffect(() => {
-		if (!emblaApi || !parallaxEnabled || mode !== "images") return
+		if (!emblaApi) return
 
-		const update = () => {
-			updateParallaxOffsets(emblaApi)
+		const updateParallaxIfEnabled = () => {
+			if (parallaxEnabled && mode === 'images') applyParallax(emblaApi)
+		}
+		const updateEffectsIfEnabled = (evt?: any) => {
+			if (effects?.enabled) applyEffects(emblaApi, evt)
 		}
 
-		emblaApi.on('scroll', update).on('reInit', update)
-		update() // Set initial values
+		// Initialize tween factor for effects
+		if (effects?.enabled) setTweenFactor(emblaApi)
+
+		emblaApi
+			.on('scroll', () => { updateParallaxIfEnabled(); updateEffectsIfEnabled('scroll') })
+			.on('reInit', () => { setTweenFactor(emblaApi); updateParallaxIfEnabled(); updateEffectsIfEnabled('reInit') })
+			.on('slideFocus', () => updateEffectsIfEnabled('slideFocus'))
+
+		// Initial application
+		updateParallaxIfEnabled()
+		updateEffectsIfEnabled('init')
 
 		return () => {
-			emblaApi.off('scroll', update).off('reInit', update)
+			emblaApi.off('scroll').off('reInit').off('slideFocus')
 		}
-	}, [emblaApi, parallaxEnabled, mode, updateParallaxOffsets])
+	}, [emblaApi, parallaxEnabled, mode, applyParallax, effects?.enabled, applyEffects, setTweenFactor])
 
 	// Calculate arrow positioning styles based on arrowsUI settings
 	const getArrowsContainerStyle = (): React.CSSProperties => {
@@ -803,10 +894,15 @@ export default function EmblaCarousel(props: PropType) {
 							style={{
 								...styles.slide,
 								paddingLeft: `${gap}px`, // Positive padding for gap
+								// Lock slide width purely to slidesPerView
 								flex: mode === "images" || sizing === 'fixed' ? `0 0 ${slideWidthPercentage}` : '0 0 auto',
+								width: mode === "images" || sizing === 'fixed' ? slideWidthPercentage : undefined,
+								boxSizing: 'border-box',
+								// Only clip overflow if effects with blur are disabled
+								overflow: (effects?.enabled && ((effects.activeBlur ?? 0) > 0 || (effects.inactiveBlur ?? 0) > 0)) ? 'visible' : 'hidden',
 								minWidth: (mode === "components" && (content?.length ?? 0) === 0) ? '40%' : undefined,
 								height: mode === "images" || sizing === 'fixed' ? '100%' : undefined,
-							}} 
+							}}
 							key={index}
 						>
 							{mode === "images" ? (
@@ -831,12 +927,16 @@ export default function EmblaCarousel(props: PropType) {
 													alt={`Slide ${index + 1}`}
 													style={{
 														maxWidth: 'none',
-									// Overfill scales with intensity: 100%..140% + 2 * gap
+									// Overfill scales with intensity: 100%..150% + 2 * gap
 										flex: `0 0 calc(${overfillPercent}% + ${gap * 2}px)`,
 														objectFit: 'cover',
-														transform: `translateX(${parallaxOffsets[index] ?? 0}%)`,
+										height: '100%',
+										display: 'block',
+										transform: 'translateX(0%)',
+										willChange: 'transform',
 													}}
-												/>
+								data-parallax-index={index}
+								/>
 											</div>
 										</div>
 									) : (
@@ -1045,17 +1145,7 @@ addPropertyControls(EmblaCarousel, {
 		},
 		hidden: (props) => props.mode === "images",
 	},
-	sizing: {
-		type: ControlType.Enum,
-		title: "Sizing",
-		options: ["fixed", "fit-content"],
-		optionTitles: ["Fixed", "Fit content"],
-		defaultValue: "fit-content",
-		hidden: (props) => props.mode !== "components",
-		displaySegmentedControl: true,
-		segmentedControlDirection: "vertical",
-	},
-	slideCount: {
+    slideCount: {
 		type: ControlType.Number,
 		title: "Count",
 		min: 2,
@@ -1075,6 +1165,24 @@ addPropertyControls(EmblaCarousel, {
 	image9: { type: ControlType.ResponsiveImage, title: "Image 9", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 9 },
 	image10: { type: ControlType.ResponsiveImage, title: "Image 10", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 10 },
 	
+    loop: {
+		type: ControlType.Boolean,
+		title: "Loop",
+		defaultValue: true,
+		enabledTitle: "On",
+		disabledTitle: "Off",
+	},
+	sizing: {
+		type: ControlType.Enum,
+		title: "Sizing",
+		options: ["fixed", "fit-content"],
+		optionTitles: ["Fixed", "Fit content"],
+		defaultValue: "fit-content",
+		hidden: (props) => props.mode !== "components",
+		displaySegmentedControl: true,
+		segmentedControlDirection: "vertical",
+	},
+	
     slidesPerView: {
 		type: ControlType.Number,
 		title: "Visible slides",
@@ -1083,14 +1191,6 @@ addPropertyControls(EmblaCarousel, {
 		step: 0.1,
 		defaultValue: 1,
         hidden:(props)=>props.mode === "components" && props.sizing === "fit-content",
-	},
-
-    loop: {
-		type: ControlType.Boolean,
-		title: "Loop",
-		defaultValue: true,
-		enabledTitle: "On",
-		disabledTitle: "Off",
 	},
 	autoplay: {
 		type: ControlType.Boolean,
@@ -1108,6 +1208,28 @@ addPropertyControls(EmblaCarousel, {
 		defaultValue: 3,
 		unit: "s",
 		hidden: (props) => !props.autoplay,
+	},
+    draggable: {
+		type: ControlType.Boolean,
+		title: "Draggable",
+		defaultValue: true,
+		enabledTitle: "On",
+		disabledTitle: "Off",
+	},
+    dragFree: {
+		type: ControlType.Boolean,
+		title: "Drag",
+		defaultValue: false,
+		enabledTitle: "Free",
+		disabledTitle: "Snap",
+        hidden: (props) => !props.draggable,
+	},
+    skipSnaps: {
+		type: ControlType.Boolean,
+		title: "Throwing",
+		defaultValue: false,
+		enabledTitle: "On",
+		disabledTitle: "Off",
 	},
 	autoplayStopOnInteraction: {
 		type: ControlType.Enum,
@@ -1128,19 +1250,14 @@ addPropertyControls(EmblaCarousel, {
 		displaySegmentedControl: true,
 		segmentedControlDirection: "horizontal",
 	},
-	dragFree: {
-		type: ControlType.Boolean,
-		title: "Drag",
-		defaultValue: false,
-		enabledTitle: "Free",
-		disabledTitle: "Snap",
-	},
-	draggable: {
-		type: ControlType.Boolean,
-		title: "Draggable",
-		defaultValue: true,
-		enabledTitle: "On",
-		disabledTitle: "Off",
+    gap: {
+		type: ControlType.Number,
+		title: "Gap",
+		min: 0,
+		max: 100,
+		step: 1,
+		defaultValue: 32,
+		unit: "px",
 	},
 	containScroll: {
 		type: ControlType.Boolean,
@@ -1149,13 +1266,6 @@ addPropertyControls(EmblaCarousel, {
 		enabledTitle: "Trim",
 		disabledTitle: "Auto",
 	},
-	skipSnaps: {
-		type: ControlType.Boolean,
-		title: "Throw",
-		defaultValue: false,
-		enabledTitle: "On",
-		disabledTitle: "Off",
-	},
 	duration: {
 		type: ControlType.Number,
 		title: "Transition",
@@ -1163,15 +1273,6 @@ addPropertyControls(EmblaCarousel, {
 		max: 60,
 		step: 1,
 		defaultValue: 25,
-	},
-	gap: {
-		type: ControlType.Number,
-		title: "Gap",
-		min: 0,
-		max: 100,
-		step: 1,
-		defaultValue: 32,
-		unit: "px",
 	},
 	backgroundColor: {
 		type: ControlType.Color,
@@ -1197,6 +1298,82 @@ addPropertyControls(EmblaCarousel, {
 		defaultValue: 50,
 		unit: "%",
 		hidden: (props) => !props.parallaxEnabled,
+	},
+
+    /** Effects controls */
+	effects: {
+		type: ControlType.Object,
+		title: "Effects",
+		controls: {
+			enabled: {
+				type: ControlType.Boolean,
+				title: "Enable",
+				defaultValue: false,
+			},
+			activeOpacity: {
+				type: ControlType.Number,
+				title: "Opacity",
+				min: 0,
+				max: 1,
+				step: 0.05,
+				defaultValue: 1,
+				hidden: (p) => !p.enabled,
+			},
+			inactiveOpacity: {
+				type: ControlType.Number,
+				title: "Inactive",
+				min: 0,
+				max: 1,
+				step: 0.05,
+				defaultValue: 0.5,
+				hidden: (p) => !p.enabled,
+			},
+			activeScale: {
+				type: ControlType.Number,
+				title: "Scale",
+				min: 0.5,
+				max: 2,
+				step: 0.01,
+				defaultValue: 1,
+				hidden: (p) => !p.enabled,
+			},
+			inactiveScale: {
+				type: ControlType.Number,
+				title: "Inactive",
+				min: 0.5,
+				max: 2,
+				step: 0.01,
+				defaultValue: 0.95,
+				hidden: (p) => !p.enabled,
+			},
+			activeBlur: {
+				type: ControlType.Number,
+				title: "Blur",
+				min: 0,
+				max: 20,
+				step: 1,
+				defaultValue: 0,
+				hidden: (p) => !p.enabled,
+			},
+			inactiveBlur: {
+				type: ControlType.Number,
+				title: "Inactive",
+				min: 0,
+				max: 20,
+				step: 1,
+				defaultValue: 0,
+				hidden: (p) => !p.enabled,
+			},
+			tweenFactor: {
+				type: ControlType.Number,
+				title: "Falloff",
+				min: 0.1,
+				max: 1,
+				step: 0.05,
+				defaultValue: 1,
+				hidden: (p) => !p.enabled,
+			},
+		},
 	},
 	/** Dots UI controls */
 	dotsUI: {
@@ -1552,3 +1729,5 @@ addPropertyControls(EmblaCarousel, {
 		hidden: (props) => props.arrowsUI?.arrowMode !== "components",
 	},
 })
+
+EmblaCarousel.displayName = "Adriano's Carousel"
