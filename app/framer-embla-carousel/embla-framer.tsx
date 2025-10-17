@@ -408,6 +408,9 @@ type PropType = {
 	duration?: number
 	gap?: number
 	backgroundColor?: string
+	/** Parallax effect for images */
+	parallaxEnabled?: boolean
+	parallaxIntensity?: number
 	/** Custom arrow components */
 	prevArrow?: React.ReactNode
 	nextArrow?: React.ReactNode
@@ -509,6 +512,8 @@ export default function EmblaCarousel(props: PropType) {
 		duration = 25,
 		gap = 32,
 		backgroundColor = "transparent",
+		parallaxEnabled = false,
+		parallaxIntensity = 50,
 		prevArrow = null,
 		nextArrow = null,
 		dotsUI = {
@@ -571,6 +576,9 @@ export default function EmblaCarousel(props: PropType) {
 	
 	// Calculate slide width based on slidesPerView
 	const slideWidthPercentage = (100 / slidesPerView).toFixed(4) + '%'
+
+	// Parallax image overfill percent derived from intensity (0->100%, 100->140%)
+	const overfillPercent = 100 + (40 * (parallaxIntensity / 100))
 	
 	// Build options object from props
 	const options: EmblaOptionsType = {
@@ -614,6 +622,36 @@ export default function EmblaCarousel(props: PropType) {
 		if (draggable) setIsDragging(false)
 	}, [draggable])
 
+	// Parallax effect state
+	const [parallaxOffsets, setParallaxOffsets] = useState<Record<number, number>>({})
+
+	// Calculate parallax offset based on scroll progress (snap-relative)
+	const updateParallaxOffsets = useCallback((emblaApi: EmblaCarouselType) => {
+		if (!parallaxEnabled || mode !== "images") return
+
+		const scrollProgress = emblaApi.scrollProgress()
+		const snaps = emblaApi.scrollSnapList()
+		const newOffsets: Record<number, number> = {}
+
+		// Derive max shift as half of the overfill beyond 100%
+		// If overfillPercent is 100..140, extra is 0..40, half is 0..20
+		const overfillPercent = 100 + (40 * (parallaxIntensity / 100))
+		const extraOverfill = Math.max(0, overfillPercent - 100)
+		const maxShiftPercent = extraOverfill / 2
+
+		snaps.forEach((snap: number, index: number) => {
+			// Distance from this slide's snap, wrapped to nearest cycle [-0.5, 0.5]
+			let diff = scrollProgress - snap
+			// wrap to nearest by subtracting nearest integer
+			diff = diff - Math.round(diff)
+			// Map [-0.5, 0.5] -> [-1, 1] then scale by maxShiftPercent
+			const parallaxShift = (diff * 2) * maxShiftPercent
+			newOffsets[index] = parallaxShift
+		})
+
+		setParallaxOffsets(newOffsets)
+	}, [parallaxEnabled, parallaxIntensity, mode])
+
 	// Initialize dot button navigation
 	const { selectedIndex, scrollSnaps, onDotButtonClick } = useDotButton(
 		emblaApi,
@@ -640,6 +678,22 @@ export default function EmblaCarousel(props: PropType) {
 			emblaApi.off('pointerUp', onPointerUp)
 		}
 	}, [emblaApi, draggable, onPointerDown, onPointerUp])
+
+	// Add parallax scroll listener
+	useEffect(() => {
+		if (!emblaApi || !parallaxEnabled || mode !== "images") return
+
+		const update = () => {
+			updateParallaxOffsets(emblaApi)
+		}
+
+		emblaApi.on('scroll', update).on('reInit', update)
+		update() // Set initial values
+
+		return () => {
+			emblaApi.off('scroll', update).off('reInit', update)
+		}
+	}, [emblaApi, parallaxEnabled, mode, updateParallaxOffsets])
 
 	// Calculate arrow positioning styles based on arrowsUI settings
 	const getArrowsContainerStyle = (): React.CSSProperties => {
@@ -757,11 +811,42 @@ export default function EmblaCarousel(props: PropType) {
 						>
 							{mode === "images" ? (
 								images[index] ? (
-									<img
-										src={images[index].src}
-										alt={`Slide ${index + 1}`}
-										style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
-									/>
+									parallaxEnabled ? (
+										// Parallax wrapper
+										<div style={{
+											borderRadius: 12,
+											height: '100%',
+											overflow: 'hidden',
+											width: '100%',
+										}}>
+											<div style={{
+												position: 'relative',
+												height: '100%',
+												width: '100%',
+												display: 'flex',
+												justifyContent: 'center',
+											}}>
+												<img
+													src={images[index].src}
+													alt={`Slide ${index + 1}`}
+													style={{
+														maxWidth: 'none',
+									// Overfill scales with intensity: 100%..140% + 2 * gap
+										flex: `0 0 calc(${overfillPercent}% + ${gap * 2}px)`,
+														objectFit: 'cover',
+														transform: `translateX(${parallaxOffsets[index] ?? 0}%)`,
+													}}
+												/>
+											</div>
+										</div>
+									) : (
+										// Regular image without parallax
+										<img
+											src={images[index].src}
+											alt={`Slide ${index + 1}`}
+											style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
+										/>
+									)
 								) : (
 									<div style={{
 										...styles.slideNumber,
@@ -1093,6 +1178,25 @@ addPropertyControls(EmblaCarousel, {
 		title: "Background",
 		defaultValue: "transparent",
         optional:true,
+	},
+	/** Parallax effect for images */
+	parallaxEnabled: {
+		type: ControlType.Boolean,
+		title: "Parallax",
+		defaultValue: false,
+		enabledTitle: "On",
+		disabledTitle: "Off",
+		hidden: (props) => props.mode !== "images",
+	},
+	parallaxIntensity: {
+		type: ControlType.Number,
+		title: "Intensity",
+		min: 0,
+		max: 100,
+		step: 1,
+		defaultValue: 50,
+		unit: "%",
+		hidden: (props) => !props.parallaxEnabled,
 	},
 	/** Dots UI controls */
 	dotsUI: {
