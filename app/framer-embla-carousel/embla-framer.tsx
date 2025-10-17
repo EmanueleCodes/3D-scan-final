@@ -406,6 +406,7 @@ type PropType = {
 	containScroll: boolean
 	skipSnaps: boolean
 	duration?: number
+	gap?: number
 	backgroundColor?: string
 	/** Custom arrow components */
 	prevArrow?: React.ReactNode
@@ -506,6 +507,7 @@ export default function EmblaCarousel(props: PropType) {
 		containScroll = false,
 		skipSnaps = false,
 		duration = 25,
+		gap = 32,
 		backgroundColor = "transparent",
 		prevArrow = null,
 		nextArrow = null,
@@ -738,11 +740,15 @@ export default function EmblaCarousel(props: PropType) {
 				}} 
 				ref={emblaRef}
 			>
-				<div style={styles.container}>
+				<div style={{
+					...styles.container,
+					marginLeft: `-${gap}px`, // Negative margin for gap
+				}}>
 					{slidesArray?.map((index) => (
 						<div 
 							style={{
 								...styles.slide,
+								paddingLeft: `${gap}px`, // Positive padding for gap
 								flex: mode === "images" || sizing === 'fixed' ? `0 0 ${slideWidthPercentage}` : '0 0 auto',
 								minWidth: (mode === "components" && (content?.length ?? 0) === 0) ? '40%' : undefined,
 								height: mode === "images" || sizing === 'fixed' ? '100%' : undefined,
@@ -1072,6 +1078,15 @@ addPropertyControls(EmblaCarousel, {
 		max: 60,
 		step: 1,
 		defaultValue: 25,
+	},
+	gap: {
+		type: ControlType.Number,
+		title: "Gap",
+		min: 0,
+		max: 100,
+		step: 1,
+		defaultValue: 32,
+		unit: "px",
 	},
 	backgroundColor: {
 		type: ControlType.Color,
