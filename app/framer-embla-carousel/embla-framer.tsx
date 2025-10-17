@@ -320,8 +320,11 @@ export const usePrevNextButtons = (
 
 type PrevButtonPropType = ComponentPropsWithRef<'button'>
 
-export const PrevButton: React.FC<PrevButtonPropType> = (props) => {
-	const { children, disabled, ...restProps } = props
+export const PrevButton: React.FC<PrevButtonPropType & {
+	buttonStyle?: React.CSSProperties
+	strokeColor?: string
+}> = (props) => {
+	const { children, disabled, buttonStyle, strokeColor, ...restProps } = props
 
 	return (
 		<button
@@ -329,11 +332,12 @@ export const PrevButton: React.FC<PrevButtonPropType> = (props) => {
 			style={{
 				...styles.button,
 				...(disabled ? styles.buttonDisabled : {}),
+				...buttonStyle,
 			}}
 			disabled={disabled}
 			{...restProps}
 		>
-			<svg style={styles.buttonSvg} viewBox="0 0 532 532">
+			<svg style={{...styles.buttonSvg, color: strokeColor}} viewBox="0 0 532 532">
 				<path
 					fill="currentColor"
 					d="M355.66 11.354c13.793-13.805 36.208-13.805 50.001 0 13.785 13.804 13.785 36.238 0 50.034L201.22 266l204.442 204.61c13.785 13.805 13.785 36.239 0 50.044-13.793 13.796-36.208 13.796-50.002 0a5994246.277 5994246.277 0 0 0-229.332-229.454 35.065 35.065 0 0 1-10.326-25.126c0-9.2 3.393-18.26 10.326-25.2C172.192 194.973 332.731 34.31 355.66 11.354Z"
@@ -351,8 +355,11 @@ export const PrevButton: React.FC<PrevButtonPropType> = (props) => {
 
 type NextButtonPropType = ComponentPropsWithRef<'button'>
 
-export const NextButton: React.FC<NextButtonPropType> = (props) => {
-	const { children, disabled, ...restProps } = props
+export const NextButton: React.FC<NextButtonPropType & {
+	buttonStyle?: React.CSSProperties
+	strokeColor?: string
+}> = (props) => {
+	const { children, disabled, buttonStyle, strokeColor, ...restProps } = props
 
 	return (
 		<button
@@ -360,11 +367,12 @@ export const NextButton: React.FC<NextButtonPropType> = (props) => {
 			style={{
 				...styles.button,
 				...(disabled ? styles.buttonDisabled : {}),
+				...buttonStyle,
 			}}
 			disabled={disabled}
 			{...restProps}
 		>
-			<svg style={styles.buttonSvg} viewBox="0 0 532 532">
+			<svg style={{...styles.buttonSvg, color: strokeColor}} viewBox="0 0 532 532">
 				<path
 					fill="currentColor"
 					d="M176.34 520.646c-13.793 13.805-36.208 13.805-50.001 0-13.785-13.804-13.785-36.238 0-50.034L330.78 266 126.34 61.391c-13.785-13.805-13.785-36.239 0-50.044 13.793-13.796 36.208-13.796 50.002 0 22.928 22.947 206.395 206.507 229.332 229.454a35.065 35.065 0 0 1 10.326 25.126c0 9.2-3.393 18.26-10.326 25.2-45.865 45.901-206.404 206.564-229.332 229.52Z"
@@ -391,12 +399,16 @@ type PropType = {
 	loop: boolean
 	autoplay: boolean
 	autoplayDelay: number
-	autoplayStopOnInteraction: boolean
+	autoplayStopOnInteraction: "stop" | "continue"
 	align: "start" | "center" | "end"
 	dragFree: boolean
 	containScroll: boolean
 	skipSnaps: boolean
+	duration?: number
 	backgroundColor?: string
+	/** Custom arrow components */
+	prevArrow?: React.ReactNode
+	nextArrow?: React.ReactNode
 	/** Content mode and inputs */
 	mode?: "images" | "components"
 	/** When mode = components, controls how children size inside slides */
@@ -439,19 +451,30 @@ type PropType = {
 	/** Arrows UI customization and positioning */
 	arrowsUI?: {
 		enabled?: boolean
+		arrowMode?: "default" | "components"
 		mode?: "group" | "space-between"
 		verticalAlign?: "top" | "center" | "bottom"
 		horizontalAlign?: "left" | "center" | "right"
 		gap?: number
 		offsetX?: number
 		offsetY?: number
+		backgroundColor?: string
+		borderColor?: string
+		borderWidth?: number
+		size?: number
+		opacity?: number
+		activeOpacity?: number
+		radius?: number
+		strokeColor?: string
+		backdropBlur?: number
+		dropShadow?: string
 	}
 }
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
  * @framerSupportedLayoutHeight any-prefer-fixed
- * @framerIntrinsicWidth 600
- * @framerIntrinsicHeight 400
+ * @framerIntrinsicWidth 800
+ * @framerIntrinsicHeight 500
  * @framerDisableUnlink
  */
 export default function EmblaCarousel(props: PropType) {
@@ -475,12 +498,15 @@ export default function EmblaCarousel(props: PropType) {
 		loop = true,
 		autoplay = true,
 		autoplayDelay = 3000,
-		autoplayStopOnInteraction = true,
+		autoplayStopOnInteraction = "stop",
 		align = "start",
 		dragFree = false,
 		containScroll = false,
 		skipSnaps = false,
+		duration = 25,
 		backgroundColor = "transparent",
+		prevArrow = null,
+		nextArrow = null,
 		dotsUI = {
 			enabled: true,
 			width: 10,
@@ -502,12 +528,23 @@ export default function EmblaCarousel(props: PropType) {
 		},
 		arrowsUI = {
 			enabled: true,
+			arrowMode: "default",
 			mode: "space-between",
 			verticalAlign: "center",
 			horizontalAlign: "center",
 			gap: 10,
 			offsetX: 20,
 			offsetY: 0,
+			backgroundColor: "transparent",
+			borderColor: "rgba(234, 234, 234, 1)",
+			borderWidth: 2,
+			size: 58,
+			opacity: 1,
+			activeOpacity: 1,
+			radius: 50,
+			strokeColor: "rgb(54, 49, 61)",
+			backdropBlur: 0,
+			dropShadow: "none",
 		}
 	} = props
 	
@@ -537,13 +574,14 @@ export default function EmblaCarousel(props: PropType) {
 		align,
 		dragFree,
 		containScroll,
-		skipSnaps
+		skipSnaps,
+		duration
 	}
 	
 	// Initialize Embla carousel with conditional autoplay plugin
 	const plugins = autoplay && !isCanvas ? [Autoplay({ 
 		delay: autoplayDelay * 1000, // Convert seconds to milliseconds
-		stopOnInteraction: autoplayStopOnInteraction 
+		stopOnInteraction: autoplayStopOnInteraction === "stop"
 	})] : []
 	
 	const [emblaRef, emblaApi] = useEmblaCarousel(options, plugins)
@@ -674,8 +712,9 @@ export default function EmblaCarousel(props: PropType) {
 						<div 
 							style={{
 								...styles.slide,
-								flex: sizing === 'fixed' ? `0 0 ${slideWidthPercentage}` : '0 0 auto',
-								height: sizing === 'fixed' ? '100%' : undefined,
+								flex: mode === "images" || sizing === 'fixed' ? `0 0 ${slideWidthPercentage}` : '0 0 auto',
+								minWidth: (mode === "components" && (content?.length ?? 0) === 0) ? '40%' : undefined,
+								height: mode === "images" || sizing === 'fixed' ? '100%' : undefined,
 							}} 
 							key={index}
 						>
@@ -741,10 +780,70 @@ export default function EmblaCarousel(props: PropType) {
 			{arrowsUI?.enabled !== false && (
 				<div style={getArrowsContainerStyle()}>
 					<div style={{ pointerEvents: 'auto' }}>
-						<PrevButton onClick={onPrevButtonClick} disabled={prevBtnDisabled} />
+						{(arrowsUI.arrowMode === "components" && prevArrow) ? (
+							<div 
+								onClick={onPrevButtonClick}
+								style={{ 
+									cursor: prevBtnDisabled ? 'not-allowed' : 'pointer',
+									opacity: prevBtnDisabled ? 0.5 : 1,
+								}}
+							>
+								{prevArrow}
+							</div>
+						) : (
+							<PrevButton 
+								onClick={onPrevButtonClick} 
+								disabled={prevBtnDisabled}
+								strokeColor={arrowsUI.strokeColor ?? 'rgb(54, 49, 61)'}
+								buttonStyle={{
+									width: `${arrowsUI.size ?? 58}px`,
+									height: `${arrowsUI.size ?? 58}px`,
+									backgroundColor: arrowsUI.backgroundColor ?? 'transparent',
+									border: arrowsUI.borderWidth && arrowsUI.borderWidth > 0 
+										? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? 'rgba(234, 234, 234, 1)'}`
+										: 'none',
+									boxShadow: arrowsUI.dropShadow === 'none' ? 'none' : arrowsUI.dropShadow ?? 'none',
+									backdropFilter: arrowsUI.backdropBlur && arrowsUI.backdropBlur > 0 
+										? `blur(${arrowsUI.backdropBlur}px)` 
+										: 'none',
+									borderRadius: `${arrowsUI.radius ?? 50}px`,
+									opacity: prevBtnDisabled ? (arrowsUI.opacity ?? 1) * 0.5 : (arrowsUI.activeOpacity ?? 1),
+								}}
+							/>
+						)}
 					</div>
 					<div style={{ pointerEvents: 'auto' }}>
-						<NextButton onClick={onNextButtonClick} disabled={nextBtnDisabled} />
+						{(arrowsUI.arrowMode === "components" && nextArrow) ? (
+							<div 
+								onClick={onNextButtonClick}
+								style={{ 
+									cursor: nextBtnDisabled ? 'not-allowed' : 'pointer',
+									opacity: nextBtnDisabled ? 0.5 : 1,
+								}}
+							>
+								{nextArrow}
+							</div>
+						) : (
+							<NextButton 
+								onClick={onNextButtonClick} 
+								disabled={nextBtnDisabled}
+								strokeColor={arrowsUI.strokeColor ?? 'rgb(54, 49, 61)'}
+								buttonStyle={{
+									width: `${arrowsUI.size ?? 58}px`,
+									height: `${arrowsUI.size ?? 58}px`,
+									backgroundColor: arrowsUI.backgroundColor ?? 'transparent',
+									border: arrowsUI.borderWidth && arrowsUI.borderWidth > 0 
+										? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? 'rgba(234, 234, 234, 1)'}`
+										: 'none',
+									boxShadow: arrowsUI.dropShadow === 'none' ? 'none' : arrowsUI.dropShadow ?? 'none',
+									backdropFilter: arrowsUI.backdropBlur && arrowsUI.backdropBlur > 0 
+										? `blur(${arrowsUI.backdropBlur}px)` 
+										: 'none',
+									borderRadius: `${arrowsUI.radius ?? 50}px`,
+									opacity: nextBtnDisabled ? (arrowsUI.opacity ?? 1) * 0.5 : (arrowsUI.activeOpacity ?? 1),
+								}}
+							/>
+						)}
 					</div>
 				</div>
 			)}
@@ -788,7 +887,7 @@ export default function EmblaCarousel(props: PropType) {
 										height: `${baseSizeH}px`,
 										borderRadius: `${baseRadius}px`,
 										backgroundColor: dotsUI.fill || "#FFFFFF",
-										filter: `blur(${dotsUI.blur ?? 0}px)`,
+										backdropFilter: dotsUI.blur && dotsUI.blur > 0 ? `blur(${dotsUI.blur}px)` : 'none',
 										transform: `scale(${targetScale})`,
 										opacity: targetOpacity,
 										border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
@@ -838,19 +937,10 @@ addPropertyControls(EmblaCarousel, {
 		type: ControlType.Number,
 		title: "Count",
 		min: 2,
-		max: 20,
+		max: 10,
 		step: 1,
-		defaultValue: 5,
+		defaultValue: 4,
         hidden:(props)=>props.mode === "components",
-	},
-	slidesPerView: {
-		type: ControlType.Number,
-		title: "Visible",
-		min: 0.5,
-		max: 4,
-		step: 0.1,
-		defaultValue: 1,
-        hidden:(props)=>props.mode === "components" && props.sizing === "fit-content",
 	},
 	image1: { type: ControlType.ResponsiveImage, title: "Image 1", hidden: (p) => p.mode !== "images" },
 	image2: { type: ControlType.ResponsiveImage, title: "Image 2", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 2 },
@@ -862,7 +952,18 @@ addPropertyControls(EmblaCarousel, {
 	image8: { type: ControlType.ResponsiveImage, title: "Image 8", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 8 },
 	image9: { type: ControlType.ResponsiveImage, title: "Image 9", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 9 },
 	image10: { type: ControlType.ResponsiveImage, title: "Image 10", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 10 },
-	loop: {
+	
+    slidesPerView: {
+		type: ControlType.Number,
+		title: "Visible slides",
+		min: 0.5,
+		max: 4,
+		step: 0.1,
+		defaultValue: 1,
+        hidden:(props)=>props.mode === "components" && props.sizing === "fit-content",
+	},
+
+    loop: {
 		type: ControlType.Boolean,
 		title: "Loop",
 		defaultValue: true,
@@ -887,19 +988,23 @@ addPropertyControls(EmblaCarousel, {
 		hidden: (props) => !props.autoplay,
 	},
 	autoplayStopOnInteraction: {
-		type: ControlType.Boolean,
-		title: "Stop",
-		defaultValue: true,
-		enabledTitle: "On",
-		disabledTitle: "Off",
+		type: ControlType.Enum,
+		title: "On interaction",
+		options: ["stop", "continue"],
+		optionTitles: ["Stop Autoplay", "Continue Autoplay"],
+		defaultValue: "stop",
+		displaySegmentedControl: true,
+		segmentedControlDirection: "vertical",
 		hidden: (props) => !props.autoplay,
 	},
 	align: {
 		type: ControlType.Enum,
 		title: "Align",
-		options: ["start", "center", "end"],
-		optionTitles: ["Start", "Center", "End"],
-		defaultValue: "start",
+		options: ["left", "center", "right"],
+        optionTitles: ["Left", "Center", "Right"],
+        defaultValue: "center",
+        displaySegmentedControl: true,
+        segmentedControlDirection: "horizontal",
 	},
 	dragFree: {
 		type: ControlType.Boolean,
@@ -910,17 +1015,25 @@ addPropertyControls(EmblaCarousel, {
 	},
 	containScroll: {
 		type: ControlType.Boolean,
-		title: "Contain",
+		title: "Empty space",
+		defaultValue: false,
+		enabledTitle: "Trim",
+		disabledTitle: "Auto",
+	},
+	skipSnaps: {
+		type: ControlType.Boolean,
+		title: "Throw",
 		defaultValue: false,
 		enabledTitle: "On",
 		disabledTitle: "Off",
 	},
-	skipSnaps: {
-		type: ControlType.Boolean,
-		title: "Skip",
-		defaultValue: false,
-		enabledTitle: "On",
-		disabledTitle: "Off",
+	duration: {
+		type: ControlType.Number,
+		title: "Transition",
+		min: 20,
+		max: 60,
+		step: 1,
+		defaultValue: 25,
 	},
 	backgroundColor: {
 		type: ControlType.Color,
@@ -986,22 +1099,22 @@ addPropertyControls(EmblaCarousel, {
 				defaultValue: 16,
 				hidden: (props) => !props.enabled,
 			},
-			backdropRadius: {
-				type: ControlType.Number,
-				title: "Out",
-				min: 0,
-				max: 50,
-				step: 1,
-				defaultValue: 20,
-				hidden: (props) => !props.enabled,
-			},
-			radius: {
+            radius: {
 				type: ControlType.Number,
 				title: "Radius",
 				min: 0,
 				max: 50,
 				step: 1,
 				defaultValue: 50,
+				hidden: (props) => !props.enabled,
+			},
+			backdropRadius: {
+				type: ControlType.Number,
+				title: "Out Radius",
+				min: 0,
+				max: 50,
+				step: 1,
+				defaultValue: 24,
 				hidden: (props) => !props.enabled,
 			},
 			opacity: {
@@ -1120,6 +1233,15 @@ addPropertyControls(EmblaCarousel, {
 				title: "Show",
 				defaultValue: true,
 			},
+			arrowMode: {
+				type: ControlType.Enum,
+				title: "Type",
+				options: ["default", "components"],
+				optionTitles: ["Default", "Components"],
+				defaultValue: "default",
+				displaySegmentedControl: true,
+				hidden: (props) => !props.enabled,
+			},
 			mode: {
 				type: ControlType.Enum,
 				title: "Mode",
@@ -1127,7 +1249,7 @@ addPropertyControls(EmblaCarousel, {
 				optionTitles: ["Group", "Space"],
 				defaultValue: "space-between",
 				displaySegmentedControl: true,
-				hidden: (props) => !props.enabled,
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
 			},
 			verticalAlign: {
 				type: ControlType.Enum,
@@ -1137,7 +1259,7 @@ addPropertyControls(EmblaCarousel, {
 				defaultValue: "center",
 				displaySegmentedControl: true,
 				segmentedControlDirection: "vertical",
-				hidden: (props) => !props.enabled,
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
 			},
 			horizontalAlign: {
 				type: ControlType.Enum,
@@ -1147,7 +1269,7 @@ addPropertyControls(EmblaCarousel, {
 				defaultValue: "center",
 				displaySegmentedControl: true,
 				segmentedControlDirection: "horizontal",
-				hidden: (props) => props.mode === "space-between" || !props.enabled,
+				hidden: (props) => props.mode === "space-between" || !props.enabled || props.arrowMode === "components",
 			},
 			gap: {
 				type: ControlType.Number,
@@ -1156,7 +1278,7 @@ addPropertyControls(EmblaCarousel, {
 				max: 100,
 				step: 5,
 				defaultValue: 10,
-				hidden: (props) => props.mode === "space-between" || !props.enabled,
+				hidden: (props) => props.mode === "space-between" || !props.enabled || props.arrowMode === "components",
 			},
 			offsetX: {
 				type: ControlType.Number,
@@ -1165,7 +1287,7 @@ addPropertyControls(EmblaCarousel, {
 				max: 200,
 				step: 5,
 				defaultValue: 20,
-				hidden: (props) => !props.enabled,
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
 			},
 			offsetY: {
 				type: ControlType.Number,
@@ -1174,8 +1296,102 @@ addPropertyControls(EmblaCarousel, {
 				max: 200,
 				step: 5,
 				defaultValue: 0,
-				hidden: (props) => !props.enabled,
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			backgroundColor: {
+				type: ControlType.Color,
+				title: "Background",
+				defaultValue: "rgba(0,0,0,0.2)",
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			borderColor: {
+				type: ControlType.Color,
+				title: "Border",
+				defaultValue: "rgba(0, 0, 0, 0.2)",
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			borderWidth: {
+				type: ControlType.Number,
+				title: "Border",
+				min: 0,
+				max: 10,
+				step: 1,
+				defaultValue: 0,
+				unit: "px",
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			size: {
+				type: ControlType.Number,
+				title: "Size",
+				min: 30,
+				max: 100,
+				step: 1,
+				defaultValue: 58,
+				unit: "px",
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			opacity: {
+				type: ControlType.Number,
+				title: "Opacity",
+				min: 0,
+				max: 1,
+				step: 0.1,
+				defaultValue: 1,
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			activeOpacity: {
+				type: ControlType.Number,
+				title: "Active",
+				min: 0,
+				max: 1,
+				step: 0.1,
+				defaultValue: 1,
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			radius: {
+				type: ControlType.Number,
+				title: "Radius",
+				min: 0,
+				max: 50,
+				step: 1,
+				defaultValue: 50,
+				unit: "px",
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			strokeColor: {
+				type: ControlType.Color,
+				title: "Stroke",
+				defaultValue: "rgba(255,255,255,1)",
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			backdropBlur: {
+				type: ControlType.Number,
+				title: "Blur",
+				min: 0,
+				max: 20,
+				step: 1,
+				defaultValue: 0,
+				unit: "px",
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
+			},
+			dropShadow: {
+				// @ts-ignore - ControlType.BoxShadow exists but may not be in types
+				type: ControlType.BoxShadow,
+				title: "Shadow",
+				defaultValue: "none",
+                optional:true,
+				hidden: (props) => !props.enabled || props.arrowMode === "components",
 			},
 		},
+	},
+    prevArrow: {
+		type: ControlType.ComponentInstance,
+		title: "Prev Arrow",
+		hidden: (props) => props.arrowsUI?.arrowMode !== "components",
+	},
+	nextArrow: {
+		type: ControlType.ComponentInstance,
+		title: "Next Arrow",
+		hidden: (props) => props.arrowsUI?.arrowMode !== "components",
 	},
 })
