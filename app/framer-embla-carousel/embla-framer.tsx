@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, ComponentPropsWithRef } from 'react'
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 //Stuff to bundle (ORIGINAL IMPORTS)
 // import { EmblaOptionsType, EmblaCarouselType } from 'embla-carousel'
@@ -396,6 +396,7 @@ type PropType = {
 	dragFree: boolean
 	containScroll: boolean
 	skipSnaps: boolean
+	backgroundColor?: string
 	/** Content mode and inputs */
 	mode?: "images" | "components"
 	/** When mode = components, controls how children size inside slides */
@@ -479,6 +480,7 @@ export default function EmblaCarousel(props: PropType) {
 		dragFree = false,
 		containScroll = false,
 		skipSnaps = false,
+		backgroundColor = "transparent",
 		dotsUI = {
 			enabled: true,
 			width: 10,
@@ -509,6 +511,9 @@ export default function EmblaCarousel(props: PropType) {
 		}
 	} = props
 	
+	// Check if we're in canvas mode
+	const isCanvas = RenderTarget.current() === RenderTarget.canvas
+	
 	// Determine actual slide count based on mode
 	const actualSlideCount =
 		mode === "components"
@@ -536,8 +541,8 @@ export default function EmblaCarousel(props: PropType) {
 	}
 	
 	// Initialize Embla carousel with conditional autoplay plugin
-	const plugins = autoplay ? [Autoplay({ 
-		delay: autoplayDelay,
+	const plugins = autoplay && !isCanvas ? [Autoplay({ 
+		delay: autoplayDelay * 1000, // Convert seconds to milliseconds
 		stopOnInteraction: autoplayStopOnInteraction 
 	})] : []
 	
@@ -661,7 +666,7 @@ export default function EmblaCarousel(props: PropType) {
 	}
 
 	return (
-		<section style={styles.embla}>
+		<section style={{...styles.embla, backgroundColor}}>
 			{/* Carousel viewport and slides */}
 			<div style={styles.viewport} ref={emblaRef}>
 				<div style={styles.container}>
@@ -669,7 +674,7 @@ export default function EmblaCarousel(props: PropType) {
 						<div 
 							style={{
 								...styles.slide,
-								flex: `0 0 ${slideWidthPercentage}`,
+								flex: sizing === 'fixed' ? `0 0 ${slideWidthPercentage}` : '0 0 auto',
 								height: sizing === 'fixed' ? '100%' : undefined,
 							}} 
 							key={index}
@@ -811,6 +816,14 @@ addPropertyControls(EmblaCarousel, {
 		displaySegmentedControl: true,
 		segmentedControlDirection: "vertical",
 	},
+    content: {
+		type: ControlType.Array,
+		title: "Content",
+		control: {
+			type: ControlType.ComponentInstance,
+		},
+		hidden: (props) => props.mode === "images",
+	},
 	sizing: {
 		type: ControlType.Enum,
 		title: "Sizing",
@@ -821,14 +834,6 @@ addPropertyControls(EmblaCarousel, {
 		displaySegmentedControl: true,
 		segmentedControlDirection: "vertical",
 	},
-	content: {
-		type: ControlType.Array,
-		title: "Content",
-		control: {
-			type: ControlType.ComponentInstance,
-		},
-		hidden: (props) => props.mode === "images",
-	},
 	slideCount: {
 		type: ControlType.Number,
 		title: "Count",
@@ -836,6 +841,7 @@ addPropertyControls(EmblaCarousel, {
 		max: 20,
 		step: 1,
 		defaultValue: 5,
+        hidden:(props)=>props.mode === "components",
 	},
 	slidesPerView: {
 		type: ControlType.Number,
@@ -844,6 +850,7 @@ addPropertyControls(EmblaCarousel, {
 		max: 4,
 		step: 0.1,
 		defaultValue: 1,
+        hidden:(props)=>props.mode === "components" && props.sizing === "fit-content",
 	},
 	image1: { type: ControlType.ResponsiveImage, title: "Image 1", hidden: (p) => p.mode !== "images" },
 	image2: { type: ControlType.ResponsiveImage, title: "Image 2", hidden: (p) => p.mode !== "images" || (p?.slideCount ?? 5) < 2 },
@@ -872,11 +879,11 @@ addPropertyControls(EmblaCarousel, {
 	autoplayDelay: {
 		type: ControlType.Number,
 		title: "Delay",
-		min: 1000,
-		max: 10000,
-		step: 500,
-		defaultValue: 3000,
-		unit: "ms",
+		min: 1,
+		max: 20,
+		step: 0.5,
+		defaultValue: 3,
+		unit: "s",
 		hidden: (props) => !props.autoplay,
 	},
 	autoplayStopOnInteraction: {
@@ -914,6 +921,12 @@ addPropertyControls(EmblaCarousel, {
 		defaultValue: false,
 		enabledTitle: "On",
 		disabledTitle: "Off",
+	},
+	backgroundColor: {
+		type: ControlType.Color,
+		title: "Background",
+		defaultValue: "transparent",
+        optional:true,
 	},
 	/** Dots UI controls */
 	dotsUI: {
