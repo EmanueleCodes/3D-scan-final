@@ -402,6 +402,7 @@ type PropType = {
 	autoplayStopOnInteraction: "stop" | "continue"
 	align: "start" | "center" | "end"
 	dragFree: boolean
+	draggable: boolean
 	containScroll: boolean
 	skipSnaps: boolean
 	duration?: number
@@ -499,8 +500,9 @@ export default function EmblaCarousel(props: PropType) {
 		autoplay = true,
 		autoplayDelay = 3000,
 		autoplayStopOnInteraction = "stop",
-		align = "start",
+		align = "center",
 		dragFree = false,
+		draggable = true,
 		containScroll = false,
 		skipSnaps = false,
 		duration = 25,
@@ -573,6 +575,7 @@ export default function EmblaCarousel(props: PropType) {
 		loop,
 		align,
 		dragFree,
+		watchDrag: draggable,
 		containScroll,
 		skipSnaps,
 		duration
@@ -600,6 +603,15 @@ export default function EmblaCarousel(props: PropType) {
 		resetOrStop()
 	}, [])
 
+	// Handle cursor changes for draggable state
+	const [isDragging, setIsDragging] = useState(false)
+	const onPointerDown = useCallback(() => {
+		if (draggable) setIsDragging(true)
+	}, [draggable])
+	const onPointerUp = useCallback(() => {
+		if (draggable) setIsDragging(false)
+	}, [draggable])
+
 	// Initialize dot button navigation
 	const { selectedIndex, scrollSnaps, onDotButtonClick } = useDotButton(
 		emblaApi,
@@ -613,6 +625,19 @@ export default function EmblaCarousel(props: PropType) {
 		onPrevButtonClick,
 		onNextButtonClick
 	} = usePrevNextButtons(emblaApi, onNavButtonClick)
+
+	// Add pointer event listeners for cursor changes
+	useEffect(() => {
+		if (!emblaApi || !draggable) return
+
+		emblaApi.on('pointerDown', onPointerDown)
+		emblaApi.on('pointerUp', onPointerUp)
+
+		return () => {
+			emblaApi.off('pointerDown', onPointerDown)
+			emblaApi.off('pointerUp', onPointerUp)
+		}
+	}, [emblaApi, draggable, onPointerDown, onPointerUp])
 
 	// Calculate arrow positioning styles based on arrowsUI settings
 	const getArrowsContainerStyle = (): React.CSSProperties => {
@@ -706,7 +731,13 @@ export default function EmblaCarousel(props: PropType) {
 	return (
 		<section style={{...styles.embla, backgroundColor}}>
 			{/* Carousel viewport and slides */}
-			<div style={styles.viewport} ref={emblaRef}>
+			<div 
+				style={{
+					...styles.viewport,
+					cursor: draggable ? (isDragging ? 'grabbing' : 'grab') : 'default'
+				}} 
+				ref={emblaRef}
+			>
 				<div style={styles.container}>
 					{slidesArray?.map((index) => (
 						<div 
@@ -1000,11 +1031,11 @@ addPropertyControls(EmblaCarousel, {
 	align: {
 		type: ControlType.Enum,
 		title: "Align",
-		options: ["left", "center", "right"],
-        optionTitles: ["Left", "Center", "Right"],
-        defaultValue: "center",
-        displaySegmentedControl: true,
-        segmentedControlDirection: "horizontal",
+		options: ["start", "center", "end"],
+		optionTitles: ["Left", "Center", "Right"],
+		defaultValue: "center",
+		displaySegmentedControl: true,
+		segmentedControlDirection: "horizontal",
 	},
 	dragFree: {
 		type: ControlType.Boolean,
@@ -1012,6 +1043,13 @@ addPropertyControls(EmblaCarousel, {
 		defaultValue: false,
 		enabledTitle: "Free",
 		disabledTitle: "Snap",
+	},
+	draggable: {
+		type: ControlType.Boolean,
+		title: "Draggable",
+		defaultValue: true,
+		enabledTitle: "On",
+		disabledTitle: "Off",
 	},
 	containScroll: {
 		type: ControlType.Boolean,
