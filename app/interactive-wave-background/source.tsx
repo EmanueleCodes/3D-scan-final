@@ -130,6 +130,7 @@ interface WavesProps {
     lineSpacing?: number
     seed?: number
     resolution?: number
+    preview?: boolean
 }
 
 /**
@@ -147,7 +148,8 @@ export default function InteractiveWaveBackground({
     mouseInfluence = 0.5,
     lineSpacing = 0.5,
     seed = 0.5,
-    resolution = 0.5
+    resolution = 0.5,
+    preview = true
 }: WavesProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const svgRef = useRef<SVGSVGElement>(null)
@@ -170,6 +172,7 @@ export default function InteractiveWaveBackground({
     const boundingRef = useRef<DOMRect | null>(null)
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lastSizeRef = useRef({ width: 0, height: 0, zoom: 1 })
+    const isVisibleRef = useRef(true)
 
     // Initialization
     useEffect(() => {
@@ -187,10 +190,22 @@ export default function InteractiveWaveBackground({
         window.addEventListener('mousemove', onMouseMove)
         containerRef.current.addEventListener('touchmove', onTouchMove, { passive: false })
 
+        // Set up intersection observer for viewport detection
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    isVisibleRef.current = entry.isIntersecting
+                })
+            },
+            { threshold: 0.1 }
+        )
+        observer.observe(containerRef.current)
+
         return () => {
             window.removeEventListener('resize', onResize)
             window.removeEventListener('mousemove', onMouseMove)
             containerRef.current?.removeEventListener('touchmove', onTouchMove)
+            observer.disconnect()
         }
     }, [seed])
 
@@ -269,6 +284,15 @@ export default function InteractiveWaveBackground({
 
         // Start new animation loop with updated props
         const tick = (time: number) => {
+            // Check if animation should run
+            const shouldAnimate = preview && isVisibleRef.current
+            
+            // If preview is off or component is not visible, skip animation
+            if (!shouldAnimate) {
+                rafRef.current = requestAnimationFrame(tick)
+                return
+            }
+
             const { current: mouse } = mouseRef
 
             // Smooth mouse movement
@@ -312,7 +336,7 @@ export default function InteractiveWaveBackground({
                 rafRef.current = null
             }
         }
-    }, [waveSpeed, waveAmplitude, mouseInfluence, seed, strokeColor])
+    }, [waveSpeed, waveAmplitude, mouseInfluence, seed, strokeColor, preview])
 
     // Set SVG size using clientWidth/clientHeight for proper Framer canvas sizing
     const setSize = () => {
@@ -357,7 +381,7 @@ export default function InteractiveWaveBackground({
         const xGap = baseSpacing + (1 - lineSpacing) * 12  // Range: 8-20
         
         // Use resolution to control point density (higher resolution = more points = smoother lines)
-        const baseYGap = 8
+        const baseYGap = 4
         const yGap = baseYGap + (1 - resolution) * 20  // Range: 8-28 (lower resolution = bigger gaps = fewer points)
 
         const oWidth = width + 200
@@ -609,11 +633,13 @@ export default function InteractiveWaveBackground({
     )
 }
 
-// Display name for Framer UI
-InteractiveWaveBackground.displayName = "Interactive Wave Background"
-
 // Property controls for Framer
 addPropertyControls(InteractiveWaveBackground, {
+    preview: {
+        type: ControlType.Boolean,
+        title: "Preview",
+        defaultValue: true,
+    },
     lineSpacing: {
         type: ControlType.Number,
         title: "Amount",
@@ -675,3 +701,6 @@ addPropertyControls(InteractiveWaveBackground, {
         description: "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
+
+// Display name for Framer UI
+InteractiveWaveBackground.displayName = "Interactive Wave Background"
