@@ -629,6 +629,17 @@ export default function InteractiveWaveBackground({
                     pointerEvents: 'none',
                 }}
             />
+            {/* Invisible sizing element to prevent collapse */}
+            <div
+                style={{
+                    position: 'relative',
+                    width: boundingRef.current?.width || 800,
+                    height: boundingRef.current?.height || 600,
+                    opacity: 0,
+                    pointerEvents: 'none',
+                    zIndex: -1,
+                }}
+            />
         </div>
     )
 }

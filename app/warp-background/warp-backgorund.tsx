@@ -12,10 +12,6 @@ interface WarpBackgroundProps {
     beamDelayMin?: number
     beamDuration?: number
     gridColor?: string
-    borderColor?: string
-    borderWidth?: number
-    borderRadius?: number
-    padding?: number
 }
 
 /**
@@ -79,10 +75,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
   beamDelayMin = 0,
   beamDuration = 3,
         gridColor = "rgba(128, 128, 128, 0.3)",
-        borderColor = "rgba(128, 128, 128, 0.5)",
-        borderWidth = 1,
-        borderRadius = 8,
-        padding = 80,
     } = props
 
     /**
@@ -122,8 +114,8 @@ export default function WarpBackground(props: WarpBackgroundProps) {
 
     // Grid background pattern using CSS gradients
     const gridBackground = `
-        linear-gradient(${gridColor} 0 1px, transparent 1px ${beamSize}%) 50% -0.5px / ${beamSize}% ${beamSize}%,
-        linear-gradient(90deg, ${gridColor} 0 1px, transparent 1px ${beamSize}%) 50% 50% / ${beamSize}% ${beamSize}%
+        linear-gradient(${gridColor} 0 1px, transparent 1px ${beamSize}%) 0 0 / ${beamSize}% ${beamSize}%,
+        linear-gradient(90deg, ${gridColor} 0 1px, transparent 1px ${beamSize}%) 0 0 / ${beamSize}% ${beamSize}%
     `
 
     return (
@@ -132,9 +124,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                 position: "relative",
                 width: "100%",
                 height: "100%",
-                borderRadius: `${borderRadius}px`,
-                border: `${borderWidth}px solid ${borderColor}`,
-                padding: `${padding}px`,
             }}
         >
             {/* Perspective container for 3D effect */}
@@ -171,7 +160,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
             <Beam
               key={`top-${index}`}
               width={`${beamSize}%`}
-                            x={`${beam.x * beamSize + beamSize / 2}%`}
+                            x={`${beam.x * beamSize}%`}
               delay={beam.delay}
               duration={beamDuration}
             />
@@ -197,7 +186,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
             <Beam
               key={`bottom-${index}`}
               width={`${beamSize}%`}
-                            x={`${beam.x * beamSize + beamSize / 2}%`}
+                            x={`${beam.x * beamSize}%`}
               delay={beam.delay}
               duration={beamDuration}
             />
@@ -224,7 +213,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
             <Beam
               key={`left-${index}`}
               width={`${beamSize}%`}
-                            x={`${beam.x * beamSize + beamSize / 2}%`}
+                            x={`${beam.x * beamSize}%`}
               delay={beam.delay}
               duration={beamDuration}
             />
@@ -251,16 +240,13 @@ export default function WarpBackground(props: WarpBackgroundProps) {
             <Beam
               key={`right-${index}`}
               width={`${beamSize}%`}
-                            x={`${beam.x * beamSize + beamSize / 2}%`}
+                            x={`${beam.x * beamSize}%`}
               delay={beam.delay}
               duration={beamDuration}
             />
           ))}
         </div>
       </div>
-
-            {/* Content layer */}
-            <div style={{ position: "relative" }}>{children}</div>
     </div>
     )
 }
@@ -270,10 +256,6 @@ WarpBackground.displayName = "Warp Background"
 
 // Property controls for Framer
 addPropertyControls(WarpBackground, {
-    children: {
-        type: ControlType.ComponentInstance,
-        title: "Content",
-    },
     perspective: {
         type: ControlType.Number,
         title: "Perspective",
@@ -281,98 +263,58 @@ addPropertyControls(WarpBackground, {
         max: 500,
         step: 10,
         defaultValue: 100,
-        description: "Depth of 3D perspective effect",
     },
     beamsPerSide: {
         type: ControlType.Number,
-        title: "Beams Per Side",
+        title: "Beams",
         min: 1,
         max: 10,
         step: 1,
         defaultValue: 3,
-        description: "Number of light beams on each side",
     },
     beamSize: {
         type: ControlType.Number,
-        title: "Grid Size",
+        title: "Grid",
         min: 2,
         max: 20,
         step: 1,
         defaultValue: 5,
         unit: "%",
-        description: "Size of each grid cell",
     },
     beamDuration: {
         type: ControlType.Number,
-        title: "Beam Speed",
+        title: "Speed",
         min: 1,
         max: 10,
         step: 0.5,
         defaultValue: 3,
         unit: "s",
-        description: "Duration of beam animation",
     },
     beamDelayMin: {
         type: ControlType.Number,
-        title: "Min Delay",
+        title: "Min",
         min: 0,
         max: 5,
         step: 0.5,
         defaultValue: 0,
         unit: "s",
-        description: "Minimum delay before beam starts",
     },
     beamDelayMax: {
         type: ControlType.Number,
-        title: "Max Delay",
+        title: "Max",
         min: 0,
         max: 10,
         step: 0.5,
         defaultValue: 3,
         unit: "s",
-        description: "Maximum delay before beam starts",
     },
     gridColor: {
         type: ControlType.Color,
-        title: "Grid Color",
+        title: "Grid",
         defaultValue: "rgba(128, 128, 128, 0.3)",
-        description: "Color of the grid lines",
+        description: "More components at [Framer University](https://frameruni.link/cc).",
+
     },
-    borderColor: {
-        type: ControlType.Color,
-        title: "Border Color",
-        defaultValue: "rgba(128, 128, 128, 0.5)",
-        description: "Color of the component border",
-    },
-    borderWidth: {
-        type: ControlType.Number,
-        title: "Border Width",
-        min: 0,
-        max: 10,
-        step: 1,
-        defaultValue: 1,
-        unit: "px",
-        description: "Width of the border",
-    },
-    borderRadius: {
-        type: ControlType.Number,
-        title: "Border Radius",
-        min: 0,
-        max: 50,
-        step: 1,
-        defaultValue: 8,
-        unit: "px",
-        description: "Roundness of corners",
-    },
-    padding: {
-        type: ControlType.Number,
-        title: "Padding",
-        min: 0,
-        max: 200,
-        step: 10,
-        defaultValue: 80,
-        unit: "px",
-        description:
-            "More components at [Framer University](https://frameruni.link/cc).",
-    },
+    
+    
 })
