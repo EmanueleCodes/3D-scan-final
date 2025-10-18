@@ -129,6 +129,7 @@ interface WavesProps {
     mouseInfluence?: number
     lineSpacing?: number
     seed?: number
+    resolution?: number
 }
 
 /**
@@ -140,12 +141,13 @@ interface WavesProps {
  */
 export default function InteractiveWaveBackground({
     strokeColor = "#ffffff",
-    backgroundColor = "#000000",
+    backgroundColor = "transparent",
     waveSpeed = 0.5,
     waveAmplitude = 0.5,
     mouseInfluence = 0.5,
     lineSpacing = 0.5,
-    seed = 0.5
+    seed = 0.5,
+    resolution = 0.5
 }: WavesProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const svgRef = useRef<SVGSVGElement>(null)
@@ -229,12 +231,12 @@ export default function InteractiveWaveBackground({
         return () => {
             if (rafId) cancelAnimationFrame(rafId)
         }
-    }, [])
+    }, [strokeColor, resolution])
 
     // Re-render when property controls change
     useEffect(() => {
         setLines()
-    }, [strokeColor, lineSpacing, seed])
+    }, [strokeColor, lineSpacing, seed, resolution])
 
     // Force immediate visual update when any prop changes in canvas mode
     useEffect(() => {
@@ -310,7 +312,7 @@ export default function InteractiveWaveBackground({
                 rafRef.current = null
             }
         }
-    }, [waveSpeed, waveAmplitude, mouseInfluence, seed])
+    }, [waveSpeed, waveAmplitude, mouseInfluence, seed, strokeColor])
 
     // Set SVG size using clientWidth/clientHeight for proper Framer canvas sizing
     const setSize = () => {
@@ -353,7 +355,10 @@ export default function InteractiveWaveBackground({
         // Use configurable spacing based on lineSpacing prop
         const baseSpacing = 8
         const xGap = baseSpacing + (1 - lineSpacing) * 12  // Range: 8-20
-        const yGap = baseSpacing + (1 - lineSpacing) * 12  // Range: 8-20
+        
+        // Use resolution to control point density (higher resolution = more points = smoother lines)
+        const baseYGap = 8
+        const yGap = baseYGap + (1 - resolution) * 20  // Range: 8-28 (lower resolution = bigger gaps = fewer points)
 
         const oWidth = width + 200
         const oHeight = height + 30
@@ -452,11 +457,14 @@ export default function InteractiveWaveBackground({
         lines.forEach((points) => {
             points.forEach((p: Point) => {
                 // Wave movement - speed only affects animation timing, not shape
-                const speedMultiplier = 0.008 + (waveSpeed - 0.5) * 0.012  // Range: 0.002-0.014
-                const move = noise(
+                const speedMultiplier = waveSpeed * 0.002  // Much slower: 0-0.002 range
+                const baseMove = noise(
                     p.x * 0.003,  // Remove time from noise sampling - shape is controlled by seed
                     p.y * 0.002   // Remove time from noise sampling - shape is controlled by seed
-                ) * 8 + time * speedMultiplier  // Add time-based movement separately
+                ) * 8
+                
+                // Only add time-based movement if speed > 0
+                const move = waveSpeed > 0 ? baseMove + time * speedMultiplier : baseMove
 
                 const amplitudeMultiplier = waveAmplitude * 2  // Range: 0-2
                 p.wave.x = Math.cos(move) * 12 * amplitudeMultiplier
@@ -564,7 +572,7 @@ export default function InteractiveWaveBackground({
         <div
             ref={containerRef}
             style={{
-                backgroundColor,
+                backgroundColor: backgroundColor ? backgroundColor :'transparent',
                 position: 'relative',
                 margin: 0,
                 padding: 0,
@@ -606,15 +614,13 @@ InteractiveWaveBackground.displayName = "Interactive Wave Background"
 
 // Property controls for Framer
 addPropertyControls(InteractiveWaveBackground, {
-    strokeColor: {
-        type: ControlType.Color,
-        title: "Stroke",
-        defaultValue: "#ffffff",
-    },
-    backgroundColor: {
-        type: ControlType.Color,
-        title: "Background",
-        defaultValue: "#000000",
+    lineSpacing: {
+        type: ControlType.Number,
+        title: "Amount",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
     },
     waveSpeed: {
         type: ControlType.Number,
@@ -648,13 +654,24 @@ addPropertyControls(InteractiveWaveBackground, {
         step: 0.1,
         defaultValue: 0.5,
     },
-    lineSpacing: {
+    resolution: {
         type: ControlType.Number,
-        title: "Amount",
+        title: "Resolution",
         min: 0,
         max: 1,
         step: 0.1,
         defaultValue: 0.5,
+    },
+    strokeColor: {
+        type: ControlType.Color,
+        title: "Stroke",
+        defaultValue: "#ffffff",
+    },
+    backgroundColor: {
+        type: ControlType.Color,
+        optional:true,
+        title: "Background",
+        defaultValue: "#000000",
         description: "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
