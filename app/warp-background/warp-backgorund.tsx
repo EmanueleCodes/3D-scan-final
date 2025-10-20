@@ -1,6 +1,6 @@
 import { motion } from "framer-motion"
-import React, { useMemo, useEffect, useState, ComponentType } from "react"
-import { addPropertyControls, ControlType, RenderTarget } from "framer"
+import React, { useMemo, ComponentType } from "react"
+import { addPropertyControls, ControlType } from "framer"
 
 // Props interface for the Warp Background component
 interface WarpBackgroundProps {
@@ -24,7 +24,6 @@ interface WarpBackgroundProps {
         color7?: string
         color8?: string
     }
-    preview?: boolean
 }
 
 
@@ -73,27 +72,21 @@ const Beam = ({
   delay,
   duration,
     color,
-    play,
-    staticY,
 }: {
     width: string | number
     x: string | number
     delay: number
     duration: number
     color?: string
-    play: boolean
-    staticY?: number // percent offset for non-animated snapshots (-100..0)
 }) => {
     // Random hue for colorful beams (0-360 degrees on color wheel)
     const hue = Math.floor(Math.random() * 360)
     // Random aspect ratio for varied beam shapes (1-10)
-    const aspectRatio = Math.floor(Math.random() * 25) + 5 // broader variety for visible length
+    const aspectRatio = Math.floor(Math.random() * 10) + 1
     const beamColor = color || `hsl(${hue} 80% 60%)`
 
-    const frozenY = typeof staticY === "number" ? `${staticY}%` : "0%"
-
-    return (
-        <motion.div
+  return (
+    <motion.div
             style={{
                 position: "absolute",
                 left: `${x}`,
@@ -101,18 +94,18 @@ const Beam = ({
                 width: `${width}`,
                 aspectRatio: `1/${aspectRatio}`,
                 background: `linear-gradient(${beamColor}, transparent)`,
-                willChange: "transform, opacity",
+                // Ensure beam aligns perfectly with grid
                 transform: "translateX(-50%)",
             }}
-            initial={play ? { y: "100%", opacity: 0 } : { y: frozenY, opacity: 1 }}
-            animate={play ? { y: "-100%", opacity: 1 } : { y: frozenY, opacity: 1 }}
-            transition={{
-                duration,
-                delay,
-                ease: "linear",
+            initial={{ y: "100cqmax", opacity: 0 }}
+            animate={{ y: "-100%", opacity: 1 }}
+      transition={{
+        duration,
+        delay,
+        ease: "linear",
                 opacity: {
                     duration: 0.5,
-                    delay,
+                    delay: delay,
                     ease: "easeOut",
                 },
             }}
@@ -134,7 +127,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         speed = 0.5,
         grid,
         colors,
-        preview = false,
     } = props
 
     // Clamp perspective to avoid extreme distortion at very low values
@@ -182,37 +174,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         return list
     }, [colors])
 
-    // Play logic via effect: always animate outside Canvas; inside Canvas animate only if preview is true
-    const [playInCanvas, setPlayInCanvas] = useState(true)
-    useEffect(() => {
-        try {
-            const target = RenderTarget.current()
-            const isCanvas = target === RenderTarget.canvas
-            setPlayInCanvas(isCanvas ? !!preview : true)
-        } catch {
-            setPlayInCanvas(true)
-        }
-    }, [preview])
-
-    // When not playing in Canvas, render a small snapshot batch (avoid huge static streams)
-    const generateBeamsSnapshot = () => {
-        const beams: { x: number; delay: number; color?: string; y?: number }[] = []
-        const used = new Set<number>()
-        for (let i = 0; i < Math.min(beamsPerSide, cellsPerSide); i++) {
-            let x = Math.floor(Math.random() * cellsPerSide)
-            let guard = 0
-            while (used.has(x) && guard++ < 20) x = Math.floor(Math.random() * cellsPerSide)
-            used.add(x)
-            const color = palette.length
-                ? palette[Math.floor(Math.random() * palette.length)]
-                : undefined
-            // Random vertical placement for static snapshot (-100%..0%) so beams appear at different stages
-            const y = -Math.random() * 100
-            beams.push({ x, delay: 0, color, y })
-        }
-        return beams
-    }
-
     /**
      * Generates a continuous stream of random beams
      * Each beam appears with proper spacing, only beamsPerSide visible at once
@@ -256,20 +217,20 @@ export default function WarpBackground(props: WarpBackgroundProps) {
 
     // Generate continuous beam streams for each side
     const topBeams = useMemo(
-        () => (playInCanvas ? generateBeamsStream() : generateBeamsSnapshot()),
-        [beamsPerSide, cellsPerSide, beamDuration, palette, playInCanvas]
+        () => generateBeamsStream(),
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
     const rightBeams = useMemo(
-        () => (playInCanvas ? generateBeamsStream() : generateBeamsSnapshot()),
-        [beamsPerSide, cellsPerSide, beamDuration, palette, playInCanvas]
+        () => generateBeamsStream(),
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
     const bottomBeams = useMemo(
-        () => (playInCanvas ? generateBeamsStream() : generateBeamsSnapshot()),
-        [beamsPerSide, cellsPerSide, beamDuration, palette, playInCanvas]
+        () => generateBeamsStream(),
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
     const leftBeams = useMemo(
-        () => (playInCanvas ? generateBeamsStream() : generateBeamsSnapshot()),
-        [beamsPerSide, cellsPerSide, beamDuration, palette, playInCanvas]
+        () => generateBeamsStream(),
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
 
     // Grid background pattern using CSS gradients
@@ -325,8 +286,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               delay={beam.delay}
               duration={beamDuration}
                             color={beam.color}
-                            play={playInCanvas}
-                            staticY={(beam as any).y}
             />
           ))}
         </div>
@@ -354,8 +313,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               delay={beam.delay}
               duration={beamDuration}
                             color={beam.color}
-                            play={playInCanvas}
-                            staticY={(beam as any).y}
             />
           ))}
         </div>
@@ -384,8 +341,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               delay={beam.delay}
               duration={beamDuration}
                             color={beam.color}
-                            play={playInCanvas}
-                            staticY={(beam as any).y}
             />
           ))}
         </div>
@@ -408,4 +363,147 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                 >
           {rightBeams.map((beam, index) => (
             <Beam
-              key={`right-${index}`
+              key={`right-${index}`}
+                            width={`${gridPercent}%`}
+                            x={`${beam.x * gridPercent}%`}
+              delay={beam.delay}
+              duration={beamDuration}
+                            color={beam.color}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+    )
+}
+
+// Display name for Framer UI
+WarpBackground.displayName = "Warp Background"
+
+// Property controls for Framer
+addPropertyControls(WarpBackground, {
+    perspective: {
+        type: ControlType.Number,
+        title: "Perspective",
+        min: 50,
+        max: 500,
+        step: 10,
+        defaultValue: 100,
+    },
+    beamsPerSide: {
+        type: ControlType.Number,
+        title: "Count",
+        min: 1,
+        max: 10,
+        step: 1,
+        defaultValue: 6,
+    },
+	speed: {
+        type: ControlType.Number,
+        title: "Speed",
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.9,
+    },
+    grid: {
+        type: ControlType.Object,
+        title: "Grid",
+        controls: {
+            size: {
+                type: ControlType.Number,
+                title: "Count",
+                min: 0.1,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.8,
+            },
+            color: {
+                type: ControlType.Color,
+                title: "Color",
+                defaultValue: "rgba(128, 128, 128, 0.2)",
+				optional:true
+            },
+            thickness: {
+                type: ControlType.Number,
+                title: "Thickness",
+                min: 0.5,
+                max: 10,
+                step: 0.5,
+                defaultValue: 1,
+            },
+        },
+    },
+    colors: {
+        type: ControlType.Object,
+        title: "Beams",
+        controls: {
+            mode: {
+                type: ControlType.Enum,
+                title: "Colors",
+                options: ["random", "pick"],
+                optionTitles: ["Random", "Pick Colors"],
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+                defaultValue: "random",
+            },
+            paletteCount: {
+                type: ControlType.Number,
+                title: "Palette",
+                min: 1,
+                max: 8,
+                step: 1,
+                defaultValue: 2,
+                hidden: (p: any) => p?.mode !== "pick",
+            },
+            color1: {
+                type: ControlType.Color,
+                title: "Color 1",
+                defaultValue: "#FF0000", // Red
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 1,
+            },
+            color2: {
+                type: ControlType.Color,
+                title: "Color 2",
+                defaultValue: "#FFA500", // Orange
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 2,
+            },
+            color3: {
+                type: ControlType.Color,
+                title: "Color 3",
+                defaultValue: "#FFFF00", // Yellow
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 3,
+            },
+            color4: {
+                type: ControlType.Color,
+                title: "Color 4",
+                defaultValue: "#00FF00", // Green
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 4,
+            },
+            color5: {
+                type: ControlType.Color,
+                title: "Color 5",
+                defaultValue: "#0000FF", // Blue
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 5,
+            },
+            color6: {
+                type: ControlType.Color,
+                title: "Color 6",
+                defaultValue: "#4B0082", // Indigo
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 6,
+            },
+            color7: {
+                type: ControlType.Color,
+                title: "Color 7",
+                defaultValue: "#8B00FF", // Violet
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 7,
+            },
+            color8: {
+                type: ControlType.Color,
+                title: "Color 8",
+                defaultValue: "#FFFFFF", // Extra slot default (white)
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 8,
+            },
+        },
+    },
+})
