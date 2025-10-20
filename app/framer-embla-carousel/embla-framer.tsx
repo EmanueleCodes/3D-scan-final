@@ -605,13 +605,23 @@ export default function EmblaCarousel(props: PropType) {
     // Check if we're in canvas mode
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
-    // Determine actual slide count based on mode
-    const actualSlideCount =
-        mode === "components"
-            ? (content?.length ?? 0) > 0
-                ? content!.length
-                : Math.max(1, Math.min(5, slideCount))
-            : slideCount
+    // Helper: determine if a node should render (skip nullish/hidden)
+    const isRenderableNode = useCallback((node: any): boolean => {
+        if (node === null || node === undefined || node === false) return false
+        if (Array.isArray(node)) return node.some(isRenderableNode)
+        if (typeof node === "string") return node.trim().length > 0
+        if (typeof node === "number") return true
+        if (React.isValidElement(node)) {
+            const style = ((node as any).props?.style || {}) as React.CSSProperties
+            if (style.display === "none" || style.visibility === "hidden") return false
+            // If it's a fragment, evaluate its children
+            // @ts-ignore
+            if (node.type === React.Fragment) {
+                return isRenderableNode((node as any).props?.children)
+            }
+        }
+        return true
+    }, [])
 
     // Build images list for images mode
     const images = [
@@ -626,6 +636,20 @@ export default function EmblaCarousel(props: PropType) {
         image9,
         image10,
     ]
+
+    // Filter inputs based on visibility/nullish state
+    const contentToRender = (content || []).filter(isRenderableNode)
+    const imagesToRender = images.filter((img) => img && (img as any).src)
+
+    // Determine actual slide count based on filtered inputs (fallback to props when empty)
+    const actualSlideCount =
+        mode === "components"
+            ? (contentToRender.length > 0
+                  ? contentToRender.length
+                  : Math.max(1, Math.min(5, slideCount)))
+            : (imagesToRender.length > 0
+                  ? imagesToRender.length
+                  : Math.max(1, Math.min(5, slideCount)))
 
     // Generate slides array indices
     const slidesArray = Array.from({ length: actualSlideCount }, (_, i) => i)
@@ -1010,7 +1034,7 @@ export default function EmblaCarousel(props: PropType) {
                                         : "hidden",
                                 minWidth:
                                     mode === "components" &&
-                                    (content?.length ?? 0) === 0
+                                    (contentToRender?.length ?? 0) === 0
                                         ? "40%"
                                         : undefined,
                                 height:
@@ -1021,7 +1045,7 @@ export default function EmblaCarousel(props: PropType) {
                             key={index}
                         >
                             {mode === "images" ? (
-                                images[index] ? (
+                                imagesToRender[index] ? (
                                     parallaxEnabled ? (
                                         // Parallax wrapper
                                         <div
@@ -1042,7 +1066,7 @@ export default function EmblaCarousel(props: PropType) {
                                                 }}
                                             >
                                                 <img
-                                                    src={images[index].src}
+                                                    src={imagesToRender[index].src}
                                                     alt={`Slide ${index + 1}`}
                                                     style={{
                                                         maxWidth: "none",
@@ -1062,7 +1086,7 @@ export default function EmblaCarousel(props: PropType) {
                                     ) : (
                                         // Regular image without parallax
                                         <img
-                                            src={images[index].src}
+                                            src={imagesToRender[index].src}
                                             alt={`Slide ${index + 1}`}
                                             style={{
                                                 width: "100%",
@@ -1083,7 +1107,7 @@ export default function EmblaCarousel(props: PropType) {
                                         {index + 1}
                                     </div>
                                 )
-                            ) : content[index] ? (
+                            ) : contentToRender[index] ? (
                                 <div
                                     style={{
                                         position: "relative",
@@ -1097,7 +1121,7 @@ export default function EmblaCarousel(props: PropType) {
                                     }}
                                 >
                                     {(() => {
-                                        const child = content[index] as any
+                                        const child = contentToRender[index] as any
                                         if (sizing === "fixed") {
                                             // Child adapts to slide; fill 100%
                                             return React.cloneElement(child, {
