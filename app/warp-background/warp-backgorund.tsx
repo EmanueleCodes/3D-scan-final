@@ -66,10 +66,10 @@ function mapBeamSizeUiToPercent(ui: number): number {
  * Generates a random hue and aspect ratio for visual variety
  */
 const Beam = ({
-    width,
-    x,
-    delay,
-    duration,
+  width,
+  x,
+  delay,
+  duration,
     color,
 }: {
     width: string | number
@@ -84,8 +84,8 @@ const Beam = ({
     const aspectRatio = Math.floor(Math.random() * 10) + 1
     const beamColor = color || `hsl(${hue} 80% 60%)`
 
-    return (
-        <motion.div
+  return (
+    <motion.div
             style={{
                 position: "absolute",
                 left: `${x}`,
@@ -98,10 +98,10 @@ const Beam = ({
             }}
             initial={{ y: "100cqmax", opacity: 0 }}
             animate={{ y: "-100%", opacity: 1 }}
-            transition={{
-                duration,
-                delay,
-                ease: "linear",
+      transition={{
+        duration,
+        delay,
+        ease: "linear",
                 opacity: {
                     duration: 0.5,
                     delay: delay,
@@ -121,8 +121,8 @@ const Beam = ({
  */
 export default function WarpBackground(props: WarpBackgroundProps) {
     const {
-        perspective = 100,
-        beamsPerSide = 3,
+  perspective = 100,
+  beamsPerSide = 3,
         speed = 0.5,
         grid,
         colors,
@@ -135,7 +135,10 @@ export default function WarpBackground(props: WarpBackgroundProps) {
 
     // Grid derived values
     const sizeUi = grid?.size ?? 0.5
-    const gridPercent = mapBeamSizeUiToPercent(sizeUi)
+    // Map UI to desired percent, then snap to an integer number of cells so the grid divides evenly
+    const desiredPercent = mapBeamSizeUiToPercent(sizeUi) // ~20..2
+    const cellsPerSide = Math.max(5, Math.min(50, Math.round(100 / desiredPercent)))
+    const gridPercent = 100 / cellsPerSide
     const gridColor = grid?.color ?? "rgba(128, 128, 128, 0.3)"
     const gridThickness = grid?.thickness ?? 1
 
@@ -168,7 +171,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
      */
     const generateBeamsStream = () => {
         const beams: { x: number; delay: number; color?: string }[] = []
-        const cellsPerSide = Math.floor(100 / gridPercent)
 
         // Create multiple cycles to ensure continuous stream
         const numCycles = 10
@@ -207,19 +209,19 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     // Generate continuous beam streams for each side
     const topBeams = useMemo(
         () => generateBeamsStream(),
-        [beamsPerSide, gridPercent, beamDuration, palette]
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
     const rightBeams = useMemo(
         () => generateBeamsStream(),
-        [beamsPerSide, gridPercent, beamDuration, palette]
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
     const bottomBeams = useMemo(
         () => generateBeamsStream(),
-        [beamsPerSide, gridPercent, beamDuration, palette]
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
     const leftBeams = useMemo(
         () => generateBeamsStream(),
-        [beamsPerSide, gridPercent, beamDuration, palette]
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
 
     // Grid background pattern using CSS gradients
@@ -267,17 +269,17 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-                    {topBeams.map((beam, index) => (
-                        <Beam
-                            key={`top-${index}`}
+          {topBeams.map((beam, index) => (
+            <Beam
+              key={`top-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-                            delay={beam.delay}
-                            duration={beamDuration}
+              delay={beam.delay}
+              duration={beamDuration}
                             color={beam.color}
-                        />
-                    ))}
-                </div>
+            />
+          ))}
+        </div>
 
                 {/* Bottom side */}
                 <div
@@ -294,17 +296,17 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-                    {bottomBeams.map((beam, index) => (
-                        <Beam
-                            key={`bottom-${index}`}
+          {bottomBeams.map((beam, index) => (
+            <Beam
+              key={`bottom-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-                            delay={beam.delay}
-                            duration={beamDuration}
+              delay={beam.delay}
+              duration={beamDuration}
                             color={beam.color}
-                        />
-                    ))}
-                </div>
+            />
+          ))}
+        </div>
 
                 {/* Left side */}
                 <div
@@ -322,17 +324,17 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqh",
                     }}
                 >
-                    {leftBeams.map((beam, index) => (
-                        <Beam
-                            key={`left-${index}`}
+          {leftBeams.map((beam, index) => (
+            <Beam
+              key={`left-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-                            delay={beam.delay}
-                            duration={beamDuration}
+              delay={beam.delay}
+              duration={beamDuration}
                             color={beam.color}
-                        />
-                    ))}
-                </div>
+            />
+          ))}
+        </div>
 
                 {/* Right side */}
                 <div
@@ -350,19 +352,19 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "rotate(-90deg) rotateX(-90deg)",
                     }}
                 >
-                    {rightBeams.map((beam, index) => (
-                        <Beam
-                            key={`right-${index}`}
+          {rightBeams.map((beam, index) => (
+            <Beam
+              key={`right-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-                            delay={beam.delay}
-                            duration={beamDuration}
+              delay={beam.delay}
+              duration={beamDuration}
                             color={beam.color}
-                        />
-                    ))}
-                </div>
-            </div>
+            />
+          ))}
         </div>
+      </div>
+    </div>
     )
 }
 
