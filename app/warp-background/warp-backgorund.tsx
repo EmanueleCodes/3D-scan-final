@@ -6,10 +6,12 @@ import { addPropertyControls, ControlType } from "framer"
 interface WarpBackgroundProps {
     perspective?: number
     beamsPerSide?: number
-    beamSize?: number // UI 0.1..1 → internal 2..20%
     speed?: number // 0.1..1 (maps to duration 15s..1s)
-    gridColor?: string
-    gridThickness?: number // px (0.5..10)
+    grid?: {
+        size?: number // UI 0.1..1 → internal 20..2%
+        color?: string
+        thickness?: number // px (0.5..10)
+    }
     colors?: {
         mode?: "random" | "pick"
         paletteCount?: number
@@ -121,10 +123,8 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     const {
         perspective = 100,
         beamsPerSide = 3,
-        beamSize = 0.5, // UI value
         speed = 0.5,
-        gridColor = "rgba(128, 128, 128, 0.3)",
-        gridThickness = 1,
+        grid,
         colors,
     } = props
 
@@ -133,8 +133,11 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     const normalized = (clampedSpeed - 0.1) / 0.9 // 0..1
     const beamDuration = 15 - 14 * normalized // 15 -> 1
 
-    // Map beamSize UI to internal percentage used for grid spacing
-    const gridPercent = mapBeamSizeUiToPercent(beamSize)
+    // Grid derived values
+    const sizeUi = grid?.size ?? 0.5
+    const gridPercent = mapBeamSizeUiToPercent(sizeUi)
+    const gridColor = grid?.color ?? "rgba(128, 128, 128, 0.3)"
+    const gridThickness = grid?.thickness ?? 1
 
     // Prepare palette (if provided)
     const palette: string[] = useMemo(() => {
@@ -384,13 +387,32 @@ addPropertyControls(WarpBackground, {
         step: 1,
         defaultValue: 3,
     },
-    beamSize: {
-        type: ControlType.Number,
+    grid: {
+        type: ControlType.Object,
         title: "Grid",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.5,
+        controls: {
+            size: {
+                type: ControlType.Number,
+                title: "Size",
+                min: 0.1,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.5,
+            },
+            color: {
+                type: ControlType.Color,
+                title: "Color",
+                defaultValue: "rgba(128, 128, 128, 0.3)",
+            },
+            thickness: {
+                type: ControlType.Number,
+                title: "Thickness",
+                min: 0.5,
+                max: 10,
+                step: 0.5,
+                defaultValue: 1,
+            },
+        },
     },
     speed: {
         type: ControlType.Number,
@@ -425,66 +447,43 @@ addPropertyControls(WarpBackground, {
             color1: {
                 type: ControlType.Color,
                 title: "Color 1",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 1,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 1,
             },
             color2: {
                 type: ControlType.Color,
                 title: "Color 2",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 2,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 2,
             },
             color3: {
                 type: ControlType.Color,
                 title: "Color 3",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 3,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 3,
             },
             color4: {
                 type: ControlType.Color,
                 title: "Color 4",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 4,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 4,
             },
             color5: {
                 type: ControlType.Color,
                 title: "Color 5",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 5,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 5,
             },
             color6: {
                 type: ControlType.Color,
                 title: "Color 6",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 6,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 6,
             },
             color7: {
                 type: ControlType.Color,
                 title: "Color 7",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 7,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 7,
             },
             color8: {
                 type: ControlType.Color,
                 title: "Color 8",
-                hidden: (p: any) =>
-                    p?.mode !== "pick" || (p?.paletteCount ?? 0) < 8,
+                hidden: (p: any) => p?.mode !== "pick" || (p?.paletteCount ?? 0) < 8,
             },
         },
-    },
-    gridColor: {
-        type: ControlType.Color,
-        title: "Grid Color",
-        defaultValue: "rgba(128, 128, 128, 0.3)",
-        description:
-            "More components at [Framer University](https://frameruni.link/cc).",
-    },
-    gridThickness: {
-        type: ControlType.Number,
-        title: "Thickness",
-        min: 0.5,
-        max: 10,
-        step: 0.5,
-        defaultValue: 1,
     },
 })
