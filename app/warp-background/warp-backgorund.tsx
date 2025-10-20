@@ -102,7 +102,7 @@ const Beam = ({
                 // Ensure beam aligns perfectly with grid
                 transform: "translateX(-50%)",
             }}
-            initial={staticMode ? { y: staticY ?? "-40%", opacity: 1 } : { y: "100%", opacity: 0 }}
+            initial={staticMode ? { y: staticY ?? "-40%", opacity: 1 } : { y: "100cqmax", opacity: 0 }}
             animate={staticMode ? { y: staticY ?? "-40%", opacity: 1 } : { y: "-100%", opacity: 1 }}
       transition={
                 staticMode
@@ -333,7 +333,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               duration={staticPreviewMode ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={staticPreviewMode}
-                            {...(staticPreviewMode && { staticY: beam.y })}
+                            staticY={staticPreviewMode ? beam.y : undefined}
             />
           ))}
         </div>
@@ -362,7 +362,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               duration={staticPreviewMode ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={staticPreviewMode}
-                            {...(staticPreviewMode && { staticY: beam.y })}
+                            staticY={staticPreviewMode ? beam.y : undefined}
             />
           ))}
         </div>
@@ -392,7 +392,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               duration={staticPreviewMode ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={staticPreviewMode}
-                            {...(staticPreviewMode && { staticY: beam.y })}
+                            staticY={staticPreviewMode ? beam.y : undefined}
             />
           ))}
         </div>
@@ -422,7 +422,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               duration={staticPreviewMode ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={staticPreviewMode}
-                            {...(staticPreviewMode && { staticY: beam.y })}
+                            staticY={staticPreviewMode ? beam.y : undefined}
             />
           ))}
         </div>
