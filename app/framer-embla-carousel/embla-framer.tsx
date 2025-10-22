@@ -424,7 +424,6 @@ type PropType = {
     align: "start" | "center" | "end"
     dragFree: boolean
     draggable: boolean
-    containScroll: boolean
     skipSnaps: boolean
     duration?: number
     gap?: number
@@ -539,9 +538,8 @@ export default function EmblaCarousel(props: PropType) {
         autoplayDelay = 3000,
         autoplayStopOnInteraction = "stop",
         align = "center",
-        dragFree = false,
+        dragFree = true,
         draggable = true,
-        containScroll = false,
         skipSnaps = false,
         duration = 25,
         gap = 32,
@@ -664,9 +662,9 @@ export default function EmblaCarousel(props: PropType) {
     const options: EmblaOptionsType = {
         loop,
         align,
-        dragFree,
+        dragFree: !dragFree, // Inverted: dragFree prop true = snapping on (Embla dragFree false)
         watchDrag: draggable,
-        containScroll,
+        containScroll: false, // Always Auto - allows empty space at edges
         skipSnaps,
         duration,
     }
@@ -1467,10 +1465,10 @@ addPropertyControls(EmblaCarousel, {
     },
     dragFree: {
         type: ControlType.Boolean,
-        title: "Drag",
-        defaultValue: false,
-        enabledTitle: "Free",
-        disabledTitle: "Snap",
+        title: "Snapping",
+        defaultValue: true,
+        enabledTitle: "On",
+        disabledTitle: "Off",
         hidden: (props) => !props.draggable,
     },
     skipSnaps: {
@@ -1479,16 +1477,6 @@ addPropertyControls(EmblaCarousel, {
         defaultValue: false,
         enabledTitle: "On",
         disabledTitle: "Off",
-    },
-    autoplayStopOnInteraction: {
-        type: ControlType.Enum,
-        title: "On interaction",
-        options: ["stop", "continue"],
-        optionTitles: ["Stop Autoplay", "Continue Autoplay"],
-        defaultValue: "stop",
-        displaySegmentedControl: true,
-        segmentedControlDirection: "vertical",
-        hidden: (props) => !props.autoplay,
     },
     align: {
         type: ControlType.Enum,
@@ -1516,13 +1504,6 @@ addPropertyControls(EmblaCarousel, {
         step: 1,
         defaultValue: 12,
         unit: "px",
-    },
-    containScroll: {
-        type: ControlType.Boolean,
-        title: "Empty space",
-        defaultValue: false,
-        enabledTitle: "Trim",
-        disabledTitle: "Auto",
     },
     duration: {
         type: ControlType.Number,
@@ -2005,6 +1986,16 @@ addPropertyControls(EmblaCarousel, {
         type: ControlType.ComponentInstance,
         title: "Next Arrow",
         hidden: (props) => props.arrowsUI?.arrowMode !== "components",
+    },
+    autoplayStopOnInteraction: {
+        type: ControlType.Enum,
+        title: "On interaction",
+        options: ["stop", "continue"],
+        optionTitles: ["Stop autoplay", "Continue autoplay"],
+        defaultValue: "stop",
+        displaySegmentedControl: true,
+        segmentedControlDirection: "vertical",
+        hidden: (props) => !props.autoplay,
     },
 })
 
