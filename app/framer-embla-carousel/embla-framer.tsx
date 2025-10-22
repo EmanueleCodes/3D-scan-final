@@ -29,7 +29,8 @@ type EmblaOptionsType = Parameters<typeof useEmblaCarousel>[0]
  * Organized by component for easy reference and customization
  */
 
-const styles = {
+// Helper function to create styles with dynamic transition duration
+const createStyles = (transitionDuration: string) => ({
     // Main carousel container
     embla: {
         maxWidth: "100%",
@@ -112,7 +113,7 @@ const styles = {
         color: "rgb(54, 49, 61)",
         alignItems: "center",
         justifyContent: "center",
-        transition: "all 0.3s ease",
+        transition: `all ${transitionDuration} ease-out`,
     } as React.CSSProperties,
 
     // Disabled arrow button
@@ -153,7 +154,7 @@ const styles = {
         justifyContent: "center",
         borderRadius: "50%",
         position: "relative" as const,
-        transition: "all 0.3s ease",
+        transition: `all ${transitionDuration} ease-out`,
     } as React.CSSProperties,
 
     // Dot inner circle (using ::after pseudo-element replacement)
@@ -164,14 +165,14 @@ const styles = {
         borderRadius: "50%",
         display: "flex",
         alignItems: "center",
-        transition: "all 0.3s ease",
+        transition: `all ${transitionDuration} ease-out`,
     } as React.CSSProperties,
 
     // Selected dot inner circle
     dotInnerSelected: {
         boxShadow: "inset 0 0 0 2px rgb(54, 49, 61)",
     } as React.CSSProperties,
-}
+})
 
 // ============================================================================
 // DOT BUTTON NAVIGATION
@@ -245,8 +246,8 @@ type DotButtonPropType = ComponentPropsWithRef<"button"> & {
     innerStyle?: React.CSSProperties
 }
 
-export const DotButton: React.FC<DotButtonPropType> = (props) => {
-    const { children, isSelected, buttonStyle, innerStyle, ...restProps } =
+export const DotButton: React.FC<DotButtonPropType & { styles: any }> = (props) => {
+    const { children, isSelected, buttonStyle, innerStyle, styles, ...restProps } =
         props
 
     return (
@@ -338,9 +339,10 @@ export const PrevButton: React.FC<
     PrevButtonPropType & {
         buttonStyle?: React.CSSProperties
         strokeColor?: string
+        styles: any
     }
 > = (props) => {
-    const { children, disabled, buttonStyle, strokeColor, ...restProps } = props
+    const { children, disabled, buttonStyle, strokeColor, styles, ...restProps } = props
 
     return (
         <button
@@ -378,9 +380,10 @@ export const NextButton: React.FC<
     NextButtonPropType & {
         buttonStyle?: React.CSSProperties
         strokeColor?: string
+        styles: any
     }
 > = (props) => {
-    const { children, disabled, buttonStyle, strokeColor, ...restProps } = props
+    const { children, disabled, buttonStyle, strokeColor, styles, ...restProps } = props
 
     return (
         <button
@@ -660,6 +663,25 @@ export default function EmblaCarousel(props: PropType) {
 
     // Parallax image overfill percent derived from intensity (0->100%, 100->150%)
     const overfillPercent = 100 + 50 * (parallaxIntensity / 100)
+
+    // Convert Embla duration (20-60) to CSS transition duration in milliseconds
+    // Maps Embla duration to a reasonable range for UI transitions (200ms-600ms)
+    const mapEmblaDurationToMs = (emblaDuration: number): number => {
+        const minEmblaDuration = 20
+        const maxEmblaDuration = 60
+        const minMs = 300
+        const maxMs = 600
+        
+        const clampedDuration = Math.min(Math.max(emblaDuration, minEmblaDuration), maxEmblaDuration)
+        const mappedMs = ((clampedDuration - minEmblaDuration) / (maxEmblaDuration - minEmblaDuration)) * (maxMs - minMs) + minMs
+        
+        return Math.round(mappedMs)
+    }
+
+    const transitionDuration = `${mapEmblaDurationToMs(duration)}ms`
+    
+    // Create styles with dynamic transition duration
+    const styles = createStyles(transitionDuration)
 
     // Build options object from props
     const options: EmblaOptionsType = {
@@ -1183,7 +1205,7 @@ export default function EmblaCarousel(props: PropType) {
                                     opacity: prevBtnDisabled 
                                         ? (arrowsUI.opacity ?? 1) * 0.5
                                         : (arrowsUI.activeOpacity ?? 1),
-                                    transition: "all 0.3s ease",
+                                    transition: `all ${transitionDuration} ease-out`,
                                 }}
                             >
                                 {prevArrow}
@@ -1195,6 +1217,7 @@ export default function EmblaCarousel(props: PropType) {
                                 strokeColor={
                                     arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
                                 }
+                                styles={styles}
                                 buttonStyle={{
                                     width: `${arrowsUI.size ?? 58}px`,
                                     height: `${arrowsUI.size ?? 58}px`,
@@ -1234,7 +1257,7 @@ export default function EmblaCarousel(props: PropType) {
                                     opacity: nextBtnDisabled 
                                         ? (arrowsUI.opacity ?? 1) * 0.5
                                         : (arrowsUI.activeOpacity ?? 1),
-                                    transition: "all 0.3s ease",
+                                    transition: `all ${transitionDuration} ease-out`,
                                 }}
                             >
                                 {nextArrow}
@@ -1246,6 +1269,7 @@ export default function EmblaCarousel(props: PropType) {
                                 strokeColor={
                                     arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
                                 }
+                                styles={styles}
                                 buttonStyle={{
                                     width: `${arrowsUI.size ?? 58}px`,
                                     height: `${arrowsUI.size ?? 58}px`,
@@ -1310,6 +1334,7 @@ export default function EmblaCarousel(props: PropType) {
                                     key={index}
                                     onClick={() => onDotButtonClick(index)}
                                     isSelected={isSel}
+                                    styles={styles}
                                     buttonStyle={{
                                         width: `${baseSizeW}px`,
                                         height: `${baseSizeH}px`,
