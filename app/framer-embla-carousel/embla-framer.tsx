@@ -33,9 +33,9 @@ type EmblaOptionsType = Parameters<typeof useEmblaCarousel>[0]
 const createStyles = (transitionDuration: string) => ({
     // Main carousel container
     embla: {
-        maxWidth: "100%",
+        maxWidth: "100vw",
         margin: "auto",
-        width: "100%",
+        width: "100vw",
         position: "relative",
         height: "100%",
         overflowY: "visible",
@@ -45,13 +45,14 @@ const createStyles = (transitionDuration: string) => ({
     viewport: {
         overflow: "visible",
         height: "100%",
+        width:"100vw"
     } as React.CSSProperties,
 
     // Container - holds all slides
     container: {
         display: "flex",
         touchAction: "pan-y pinch-zoom",
-        marginLeft: "-32px", // Negative slide spacing
+        marginLeft: "0px",
         height: "100%",
     } as React.CSSProperties,
 
@@ -59,7 +60,7 @@ const createStyles = (transitionDuration: string) => ({
     slide: {
         transform: "translate3d(0, 0, 0)",
         minWidth: 0,
-        paddingLeft: "32px", // Slide spacing
+        marginRight: "0px",
         overflow: "visible",
     } as React.CSSProperties,
 
@@ -694,6 +695,7 @@ export default function EmblaCarousel(props: PropType) {
     // External sizing wrapper: measure its width to size slides while inner carousel spans 100vw
     const outerRef = React.useRef<HTMLDivElement>(null)
     const [outerWidth, setOuterWidth] = useState(0)
+    const [isReady, setIsReady] = useState(false)
     useEffect(() => {
         const el = outerRef.current
         if (!el) return
@@ -744,6 +746,15 @@ export default function EmblaCarousel(props: PropType) {
         ? `${(outerWidth / Math.max(slidesPerView || 1, 0.0001)).toFixed(4)}px`
         : slideWidthPercentage
 
+    // Re-initialize Embla when layout-affecting values change (e.g., gap) so snaps update and no overlap occurs.
+    const queueReInit = useCallback((api?: EmblaCarouselType) => {
+        if (!api) return
+        const raf = requestAnimationFrame(() => {
+            try { api.reInit() } catch (_) {}
+        })
+        return () => cancelAnimationFrame(raf)
+    }, [])
+
     // Build options object from props
     const options: EmblaOptionsType = {
         loop,
@@ -767,6 +778,16 @@ export default function EmblaCarousel(props: PropType) {
             : []
 
     const [emblaRef, emblaApi] = useEmblaCarousel(options, plugins)
+
+    // Trigger reInit when layout-affecting props change
+    useEffect(() => {
+        const cancel = queueReInit(emblaApi)
+        if (emblaApi && outerWidth > 0) {
+            // Mark ready after layout has a valid width and Embla reinitialized
+            requestAnimationFrame(() => setIsReady(true))
+        }
+        return cancel
+    }, [queueReInit, emblaApi, gap, slideBasis, outerWidth, slidesPerView])
 
     // Handle navigation button clicks and autoplay interaction
     const onNavButtonClick = useCallback((emblaApi: EmblaCarouselType) => {
@@ -1108,7 +1129,7 @@ export default function EmblaCarousel(props: PropType) {
 
     return (
         <div ref={outerRef} style={{ width: "100%", height: "100%", overflow: "visible", position: "relative", display:"flex",justifyContent:"center" }}>
-        <section style={{ ...styles.embla, backgroundColor, width: "100vw", maxWidth: "100vw" }}>
+        <section style={{ ...styles.embla, backgroundColor, width: "100vw", maxWidth: "100vw", opacity: isReady ? 1 : 0, transition: isReady ? "opacity 0.001s linear" : "none" }}>
             {/* Carousel viewport and slides */}
             <div
                 style={{
@@ -1125,7 +1146,6 @@ export default function EmblaCarousel(props: PropType) {
                 <div
                     style={{
                         ...styles.container,
-                        marginLeft: `-${gap}px`, // Negative margin for gap
                     }}
                 >
                     {slidesArray?.map((index) => (
@@ -1133,7 +1153,7 @@ export default function EmblaCarousel(props: PropType) {
                             style={{
                                 ...styles.slide,
 
-                                paddingLeft: `${gap}px`, // Positive padding for gap
+                                marginRight: `${gap}px`,
                                 // Lock slide width purely to slidesPerView
                                 flex:
                                     mode === "images" || sizing === "fixed"
@@ -1285,7 +1305,7 @@ export default function EmblaCarousel(props: PropType) {
 
             {/* Arrows & Dots are rendered relative to the OUTER container */}
         </section>
-        {arrowsUI?.enabled !== false && (
+        {isReady && arrowsUI?.enabled !== false && (
             <div style={getArrowsContainerStyle()}>
                 <div style={{ pointerEvents: "auto" }}>
                     {arrowsUI.arrowMode === "components" && prevArrow ? (
@@ -1394,7 +1414,7 @@ export default function EmblaCarousel(props: PropType) {
             </div>
         )}
 
-        {dotsUI?.enabled !== false && (
+        {isReady && dotsUI?.enabled !== false && (
             <div style={getDotsContainerStyle()}>
                 <div
                     style={{
