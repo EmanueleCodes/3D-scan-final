@@ -746,6 +746,8 @@ export default function EmblaCarousel(props: PropType) {
             const root = emblaApi.rootNode() as HTMLElement
             const scrollProgress = emblaApi.scrollProgress()
             const snaps = emblaApi.scrollSnapList()
+            const engine: any = emblaApi.internalEngine?.()
+            const isLoop = Boolean(engine?.options?.loop)
 
             // Derive max shift as half of the overfill beyond 100%
             // If overfillPercent is 100..150, extra is 0..50, half is 0..20
@@ -755,7 +757,14 @@ export default function EmblaCarousel(props: PropType) {
 
             snaps.forEach((snap: number, index: number) => {
                 let diff = scrollProgress - snap
-                diff = diff - Math.round(diff)
+                // In loop mode, normalize across wrap; in finite mode don't wrap to avoid mid-transition jumps
+                if (isLoop) {
+                    diff = diff - Math.round(diff)
+                } else {
+                    // Clamp diff to a sane range in finite mode
+                    if (diff > 1) diff = 1
+                    else if (diff < -1) diff = -1
+                }
                 const shift = diff * 2 * maxShiftPercent
                 const nodes = root.querySelectorAll(
                     `[data-parallax-index="${index}"]`
