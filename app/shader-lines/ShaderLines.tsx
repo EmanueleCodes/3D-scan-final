@@ -10,6 +10,9 @@ declare global {
 
 type ShaderLinesProps = {
   speed?: number
+  bandWidth?: number
+  flow?: "in-out" | "out-in"
+  preview?: boolean
 }
 
 // UI → Internal mapping helpers
@@ -28,7 +31,20 @@ function mapLinear(
 // Speed: UI [0.1..1] → internal [0.1..5] (higher UI = much faster animation)
 function mapSpeedUiToInternal(ui: number): number {
   const clamped = Math.max(0.1, Math.min(1, ui))
-  return mapLinear(clamped, 0.1, 1.0, 0.1, 5.0)
+  return mapLinear(clamped, 0.1, 1.0, 1.0, 10.0)
+}
+
+// Band Width: UI [0.1..1] → CSS pixels [20..100]
+//  - 0.1 → 20px (narrow)
+//  - 1.0 → 100px (wide)
+function mapBandWidthUiToInternal(ui: number): number {
+  const clamped = Math.max(0.1, Math.min(1, ui))
+  return mapLinear(clamped, 0.1, 1.0, 2.0, 60.0)
+}
+
+// Flow: +1 for forward (in-out), -1 for reverse (out-in)
+function mapFlowToSign(flow?: "in-out" | "out-in"): number {
+  return flow === "out-in" ? -1 : 1
 }
 
 /**
@@ -41,6 +57,9 @@ function mapSpeedUiToInternal(ui: number): number {
 export default function ShaderLines(props: ShaderLinesProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const speedRef = useRef<number>(mapSpeedUiToInternal(props.speed ?? 0.5))
+  const bandWidthRef = useRef<number>(mapBandWidthUiToInternal(props.bandWidth ?? 0.5))
+  const flowSignRef = useRef<number>(mapFlowToSign(props.flow))
+  const previewRef = useRef<boolean>(props.preview ?? false)
   const lastRef = useRef<{
     w: number
     h: number
@@ -67,6 +86,18 @@ export default function ShaderLines(props: ShaderLinesProps) {
   useEffect(() => {
     speedRef.current = mapSpeedUiToInternal(props.speed ?? 0.5)
   }, [props.speed])
+
+  useEffect(() => {
+    bandWidthRef.current = mapBandWidthUiToInternal(props.bandWidth ?? 0.5)
+  }, [props.bandWidth])
+
+  useEffect(() => {
+    flowSignRef.current = mapFlowToSign(props.flow)
+  }, [props.flow])
+
+  useEffect(() => {
+    previewRef.current = props.preview ?? false
+  }, [props.preview])
 
   useEffect(() => {
     // Load Three.js dynamically
@@ -117,6 +148,8 @@ export default function ShaderLines(props: ShaderLinesProps) {
     const uniforms = {
       time: { type: "f", value: 1.0 },
       resolution: { type: "v2", value: new THREE.Vector2() },
+      // Pass band width in DEVICE pixels for resolution-consistent sizing
+      bandWidthPx: { type: "f", value: bandWidthRef.current * (window.devicePixelRatio || 1) },
     }
 
     // Vertex shader
@@ -134,6 +167,7 @@ export default function ShaderLines(props: ShaderLinesProps) {
       precision highp float;
       uniform vec2 resolution;
       uniform float time;
+      uniform float bandWidthPx; // band width in DEVICE pixels
         
       float random (in float x) {
           return fract(sin(x)*1e4);
@@ -149,10 +183,10 @@ export default function ShaderLines(props: ShaderLinesProps) {
       void main(void) {
         vec2 uv = (gl_FragCoord.xy * 2.0 - resolution.xy) / min(resolution.x, resolution.y);
         
-        vec2 fMosaicScal = vec2(4.0, 2.0);
-        vec2 vScreenSize = vec2(256,256);
-        uv.x = floor(uv.x * vScreenSize.x / fMosaicScal.x) / (vScreenSize.x / fMosaicScal.x);
-        uv.y = floor(uv.y * vScreenSize.y / fMosaicScal.y) / (vScreenSize.y / fMosaicScal.y);       
+        // Quantize X in DEVICE pixels for consistent visual width across resolutions.
+        // Compute the center of each band in pixel space, then convert back to uv.x.
+        float bandCenterPx = floor(gl_FragCoord.x / bandWidthPx) * bandWidthPx + bandWidthPx * 0.5;
+        uv.x = (bandCenterPx * 2.0 - resolution.x) / min(resolution.x, resolution.y);
           
         float t = time*0.06+random(uv.x)*0.4;
         float lineWidth = 0.0008;
@@ -266,8 +300,16 @@ export default function ShaderLines(props: ShaderLinesProps) {
       const deltaTime = lastTime ? (currentTime - lastTime) / 1000 : 0.016 // Default to 60fps on first frame
       lastTime = currentTime
       
-      // Use delta time for consistent speed across different frame rates
-      uniforms.time.value += deltaTime * speedRef.current
+      // Update uniforms with current prop values
+      const isCanvas = RenderTarget.current() === RenderTarget.canvas
+      const isPreviewOn = previewRef.current
+      if (!(isCanvas && !isPreviewOn)) {
+        uniforms.time.value += deltaTime * speedRef.current * flowSignRef.current
+      }
+      // Convert CSS px → DEVICE px using renderer pixel ratio
+      const pixelRatio = (renderer.getPixelRatio ? renderer.getPixelRatio() : window.devicePixelRatio) || 1
+      uniforms.bandWidthPx.value = bandWidthRef.current * pixelRatio
+      
       renderer.render(scene, camera)
     }
 
@@ -284,13 +326,38 @@ export default function ShaderLines(props: ShaderLinesProps) {
 
 // Property Controls (keep last control with Framer University link)
 addPropertyControls(ShaderLines, {
-  speed: {
+    preview: {
+        type: ControlType.Boolean,
+        title: "Preview",
+        defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+      },
+    speed: {
+        type: ControlType.Number,
+        title: "Speed",
+        min: 0.1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.5,
+    },
+    
+  flow: {
+    type: ControlType.Enum,
+    title: "Flow",
+    options: ["in-out", "out-in"],
+    optionTitles: ["In → Out", "Out → In"],
+    defaultValue: "in-out",
+    displaySegmentedControl:true,
+    segmentedControlDirection:"vertical",
+  },
+  bandWidth: {
     type: ControlType.Number,
-    title: "Speed",
+    title: "Band Width",
     min: 0.1,
     max: 1,
     step: 0.05,
-    defaultValue: 0.5,
+    defaultValue: 0.2,
     description: "More components at [Framer University](https://frameruni.link/cc).",
   },
 })
