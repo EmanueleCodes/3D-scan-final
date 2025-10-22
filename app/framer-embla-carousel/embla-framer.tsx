@@ -112,6 +112,7 @@ const styles = {
         color: "rgb(54, 49, 61)",
         alignItems: "center",
         justifyContent: "center",
+        transition: "all 0.3s ease",
     } as React.CSSProperties,
 
     // Disabled arrow button
@@ -152,6 +153,7 @@ const styles = {
         justifyContent: "center",
         borderRadius: "50%",
         position: "relative" as const,
+        transition: "all 0.3s ease",
     } as React.CSSProperties,
 
     // Dot inner circle (using ::after pseudo-element replacement)
@@ -162,6 +164,7 @@ const styles = {
         borderRadius: "50%",
         display: "flex",
         alignItems: "center",
+        transition: "all 0.3s ease",
     } as React.CSSProperties,
 
     // Selected dot inner circle
@@ -1177,7 +1180,10 @@ export default function EmblaCarousel(props: PropType) {
                                     cursor: prevBtnDisabled
                                         ? "not-allowed"
                                         : "pointer",
-                                    opacity: prevBtnDisabled ? 0.5 : 1,
+                                    opacity: prevBtnDisabled 
+                                        ? (arrowsUI.opacity ?? 1) * 0.5
+                                        : (arrowsUI.activeOpacity ?? 1),
+                                    transition: "all 0.3s ease",
                                 }}
                             >
                                 {prevArrow}
@@ -1225,7 +1231,10 @@ export default function EmblaCarousel(props: PropType) {
                                     cursor: nextBtnDisabled
                                         ? "not-allowed"
                                         : "pointer",
-                                    opacity: nextBtnDisabled ? 0.5 : 1,
+                                    opacity: nextBtnDisabled 
+                                        ? (arrowsUI.opacity ?? 1) * 0.5
+                                        : (arrowsUI.activeOpacity ?? 1),
+                                    transition: "all 0.3s ease",
                                 }}
                             >
                                 {nextArrow}
@@ -1924,8 +1933,7 @@ addPropertyControls(EmblaCarousel, {
                 max: 1,
                 step: 0.1,
                 defaultValue: 1,
-                hidden: (props) =>
-                    !props.enabled || props.arrowMode === "components",
+                hidden: (props) => !props.enabled,
             },
             activeOpacity: {
                 type: ControlType.Number,
@@ -1934,8 +1942,7 @@ addPropertyControls(EmblaCarousel, {
                 max: 1,
                 step: 0.1,
                 defaultValue: 1,
-                hidden: (props) =>
-                    !props.enabled || props.arrowMode === "components",
+                hidden: (props) => !props.enabled,
             },
             radius: {
                 type: ControlType.Number,
