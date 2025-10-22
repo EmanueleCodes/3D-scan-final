@@ -666,7 +666,7 @@ export default function EmblaCarousel(props: PropType) {
     // Generate slides array indices
     const slidesArray = Array.from({ length: actualSlideCount }, (_, i) => i)
 
-    // Calculate slide width based on slidesPerView
+    // Calculate slide width based on slidesPerView (percentage fallback)
     const slideWidthPercentage = (100 / slidesPerView).toFixed(4) + "%"
 
     // Parallax image overfill percent derived from intensity (0->100%, 100->150%)
@@ -690,6 +690,59 @@ export default function EmblaCarousel(props: PropType) {
     
     // Create styles with dynamic transition duration
     const styles = createStyles(transitionDuration)
+
+    // External sizing wrapper: measure its width to size slides while inner carousel spans 100vw
+    const outerRef = React.useRef<HTMLDivElement>(null)
+    const [outerWidth, setOuterWidth] = useState(0)
+    useEffect(() => {
+        const el = outerRef.current
+        if (!el) return
+        const update = () => {
+            try {
+                // Prefer fast measurements; fall back to rect
+                const w = el.clientWidth || el.offsetWidth || el.getBoundingClientRect().width || 0
+                setOuterWidth(w)
+            } catch (_) {}
+        }
+        update()
+        let ro: ResizeObserver | null = null
+        try {
+            ro = new ResizeObserver(update)
+            ro.observe(el)
+        } catch (_) {
+            window.addEventListener("resize", update)
+        }
+        return () => {
+            try {
+                ro?.disconnect()
+            } catch (_) {}
+            window.removeEventListener("resize", update)
+        }
+    }, [])
+
+    // Canvas sizing can lag; poll for a few frames until width stabilizes
+    React.useLayoutEffect(() => {
+        let raf = 0
+        let attempts = 0
+        const tick = () => {
+            const el = outerRef.current
+            if (el) {
+                const w = el.clientWidth || el.offsetWidth || el.getBoundingClientRect().width || 0
+                if (w && w !== outerWidth) setOuterWidth(w)
+            }
+            if (attempts++ < 15 && RenderTarget.current() === RenderTarget.canvas) {
+                raf = requestAnimationFrame(tick)
+            }
+        }
+        raf = requestAnimationFrame(tick)
+        return () => cancelAnimationFrame(raf)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [RenderTarget.current() === RenderTarget.canvas])
+
+    // Slide basis computed from the outer wrapper when available; fallback to %
+    const slideBasis = outerWidth > 0
+        ? `${(outerWidth / Math.max(slidesPerView || 1, 0.0001)).toFixed(4)}px`
+        : slideWidthPercentage
 
     // Build options object from props
     const options: EmblaOptionsType = {
@@ -948,6 +1001,7 @@ export default function EmblaCarousel(props: PropType) {
         const arrowsGroupGap = arrowsUI.gap ?? 10
         const insetRef = arrowsUI.insetXReference ?? "container"
         const insetUnit = arrowsUI.insetXUnit ?? "px"
+        const currentSlidePx = outerWidth > 0 ? outerWidth / Math.max(slidesPerView || 1, 1) : undefined
 
         const baseStyle: React.CSSProperties = {
             position: "absolute",
@@ -968,14 +1022,14 @@ export default function EmblaCarousel(props: PropType) {
 
         // Horizontal positioning based on mode
         if (mode === "space-between") {
-            // Always add half of slide gap to horizontal offset so arrows touch slide edges at 0 offset
+            // Always add quarter of slide gap to horizontal offset so arrows hug the slide edges at 0 offset
             const halfSlideGapPx = (gap ?? 0) / 4
             const offsetToken = insetUnit === "%" ? `${offsetX}%` : `${offsetX}px`
 
-            if (insetRef === "central-slide") {
-                // Relative to the central slide edges
-                baseStyle.left = `calc(50% - ${slideWidthPercentage} / 2 + ${offsetToken} + ${halfSlideGapPx}px)`
-                baseStyle.right = `calc(50% - ${slideWidthPercentage} / 2 + ${offsetToken} + ${halfSlideGapPx}px)`
+            if (insetRef === "central-slide" && currentSlidePx) {
+                // Relative to the central slide edges based on the OUTER WRAPPER width
+                baseStyle.left = `calc(50% - ${currentSlidePx / 2}px + ${offsetToken} + ${halfSlideGapPx}px)`
+                baseStyle.right = `calc(50% - ${currentSlidePx / 2}px + ${offsetToken} + ${halfSlideGapPx}px)`
             } else {
                 // Relative to container: do NOT include slide gap adjustment
                 baseStyle.left = `${offsetToken}`
@@ -1026,12 +1080,22 @@ export default function EmblaCarousel(props: PropType) {
             baseStyle.transform = `translateY(calc(-50% + ${offsetY}px))`
         }
 
-        // Horizontal positioning
+        // Horizontal positioning relative to outer wrapper when known
+        const outerHalf = outerWidth > 0 ? `${(outerWidth / 2).toFixed(2)}px` : null
         if (hAlign === "left") {
-            baseStyle.left = `${offsetX}px`
+            if (outerHalf) {
+                baseStyle.left = `calc(50% - ${outerHalf} + ${offsetX}px)`
+            } else {
+                baseStyle.left = `${offsetX}px`
+            }
         } else if (hAlign === "right") {
-            baseStyle.right = `${offsetX}px`
+            if (outerHalf) {
+                baseStyle.right = `calc(50% - ${outerHalf} + ${offsetX}px)`
+            } else {
+                baseStyle.right = `${offsetX}px`
+            }
         } else {
+            // center
             baseStyle.left = "50%"
             baseStyle.transform =
                 vAlign === "center"
@@ -1043,7 +1107,8 @@ export default function EmblaCarousel(props: PropType) {
     }
 
     return (
-        <section style={{ ...styles.embla, backgroundColor }}>
+        <div ref={outerRef} style={{ width: "100%", height: "100%", overflow: "visible", position: "relative", display:"flex",justifyContent:"center" }}>
+        <section style={{ ...styles.embla, backgroundColor, width: "100vw", maxWidth: "100vw" }}>
             {/* Carousel viewport and slides */}
             <div
                 style={{
@@ -1072,11 +1137,11 @@ export default function EmblaCarousel(props: PropType) {
                                 // Lock slide width purely to slidesPerView
                                 flex:
                                     mode === "images" || sizing === "fixed"
-                                        ? `0 0 ${slideWidthPercentage}`
+                                        ? `0 0 ${slideBasis}`
                                         : "0 0 auto",
                                 width:
                                     mode === "images" || sizing === "fixed"
-                                        ? slideWidthPercentage
+                                        ? slideBasis
                                         : undefined,
                                 boxSizing: "border-box",
                                 // Only clip overflow if effects with blur are disabled
@@ -1218,177 +1283,177 @@ export default function EmblaCarousel(props: PropType) {
                 </div>
             </div>
 
-            {/* Arrow buttons - absolutely positioned */}
-            {arrowsUI?.enabled !== false && (
-                <div style={getArrowsContainerStyle()}>
-                    <div style={{ pointerEvents: "auto" }}>
-                        {arrowsUI.arrowMode === "components" && prevArrow ? (
-                            <div
-                                onClick={onPrevButtonClick}
-                                style={{
-                                    cursor: prevBtnDisabled
-                                        ? "not-allowed"
-                                        : "pointer",
-                                    opacity: prevBtnDisabled 
-                                        ? (arrowsUI.opacity ?? 1) * 0.5
-                                        : (arrowsUI.activeOpacity ?? 1),
-                                    transition: `all ${transitionDuration} ease-out`,
-                                }}
-                            >
-                                {prevArrow}
-                            </div>
-                        ) : (
-                            <PrevButton
-                                onClick={onPrevButtonClick}
-                                disabled={prevBtnDisabled}
-                                strokeColor={
-                                    arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
-                                }
-                                styles={styles}
-                                buttonStyle={{
-                                    width: `${arrowsUI.size ?? 58}px`,
-                                    height: `${arrowsUI.size ?? 58}px`,
-                                    backgroundColor:
-                                        arrowsUI.backgroundColor ??
-                                        "transparent",
-                                    border:
-                                        arrowsUI.borderWidth &&
-                                        arrowsUI.borderWidth > 0
-                                            ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
-                                            : "none",
-                                    boxShadow:
-                                        arrowsUI.dropShadow === "none"
-                                            ? "none"
-                                            : (arrowsUI.dropShadow ?? "none"),
-                                    backdropFilter:
-                                        arrowsUI.backdropBlur &&
-                                        arrowsUI.backdropBlur > 0
-                                            ? `blur(${arrowsUI.backdropBlur}px)`
-                                            : "none",
-                                    borderRadius: `${arrowsUI.radius ?? 50}px`,
-                                    opacity: prevBtnDisabled
-                                        ? (arrowsUI.opacity ?? 1) * 0.5
-                                        : (arrowsUI.activeOpacity ?? 1),
-                                }}
-                            />
-                        )}
-                    </div>
-                    <div style={{ pointerEvents: "auto" }}>
-                        {arrowsUI.arrowMode === "components" && nextArrow ? (
-                            <div
-                                onClick={onNextButtonClick}
-                                style={{
-                                    cursor: nextBtnDisabled
-                                        ? "not-allowed"
-                                        : "pointer",
-                                    opacity: nextBtnDisabled 
-                                        ? (arrowsUI.opacity ?? 1) * 0.5
-                                        : (arrowsUI.activeOpacity ?? 1),
-                                    transition: `all ${transitionDuration} ease-out`,
-                                }}
-                            >
-                                {nextArrow}
-                            </div>
-                        ) : (
-                            <NextButton
-                                onClick={onNextButtonClick}
-                                disabled={nextBtnDisabled}
-                                strokeColor={
-                                    arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
-                                }
-                                styles={styles}
-                                buttonStyle={{
-                                    width: `${arrowsUI.size ?? 58}px`,
-                                    height: `${arrowsUI.size ?? 58}px`,
-                                    backgroundColor:
-                                        arrowsUI.backgroundColor ??
-                                        "transparent",
-                                    border:
-                                        arrowsUI.borderWidth &&
-                                        arrowsUI.borderWidth > 0
-                                            ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
-                                            : "none",
-                                    boxShadow:
-                                        arrowsUI.dropShadow === "none"
-                                            ? "none"
-                                            : (arrowsUI.dropShadow ?? "none"),
-                                    backdropFilter:
-                                        arrowsUI.backdropBlur &&
-                                        arrowsUI.backdropBlur > 0
-                                            ? `blur(${arrowsUI.backdropBlur}px)`
-                                            : "none",
-                                    borderRadius: `${arrowsUI.radius ?? 50}px`,
-                                    opacity: nextBtnDisabled
-                                        ? (arrowsUI.opacity ?? 1) * 0.5
-                                        : (arrowsUI.activeOpacity ?? 1),
-                                }}
-                            />
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Dot navigation - absolutely positioned */}
-            {dotsUI?.enabled !== false && (
-                <div style={getDotsContainerStyle()}>
-                    <div
-                        style={{
-                            display: "inline-flex",
-                            gap: `${dotsUI.gap ?? 10}px`,
-                            backgroundColor: dotsUI.backdrop || "transparent",
-                            borderRadius: dotsUI.backdropRadius ?? 20,
-                            padding: dotsUI.padding ?? 0,
-                            pointerEvents: "auto",
-                        }}
-                    >
-                        {scrollSnaps?.map((_, index) => {
-                            const isSel = index === selectedIndex
-                            const baseSizeW = Math.max(dotsUI.width ?? 10, 2)
-                            const baseSizeH = Math.max(dotsUI.height ?? 10, 2)
-                            const baseRadius = dotsUI.radius ?? 50
-                            const targetScale = isSel
-                                ? (dotsUI.scale ?? 1.1)
-                                : 1
-                            const targetOpacity = isSel
-                                ? (dotsUI.current ?? 1)
-                                : (dotsUI.opacity ?? 0.5)
-                            const bw = dotsUI.borderWidth ?? 0
-                            const bws = dotsUI.currentBorderWidth ?? bw
-                            const bc = dotsUI.borderColor ?? "transparent"
-                            const bcs = dotsUI.currentBorderColor ?? bc
-                            return (
-                                <DotButton
-                                    key={index}
-                                    onClick={() => onDotButtonClick(index)}
-                                    isSelected={isSel}
-                                    styles={styles}
-                                    buttonStyle={{
-                                        width: `${baseSizeW}px`,
-                                        height: `${baseSizeH}px`,
-                                        borderRadius: `${baseRadius}px`,
-                                    }}
-                                    innerStyle={{
-                                        width: `${baseSizeW}px`,
-                                        height: `${baseSizeH}px`,
-                                        borderRadius: `${baseRadius}px`,
-                                        backgroundColor:
-                                            dotsUI.fill || "#FFFFFF",
-                                        backdropFilter:
-                                            dotsUI.blur && dotsUI.blur > 0
-                                                ? `blur(${dotsUI.blur}px)`
-                                                : "none",
-                                        transform: `scale(${targetScale})`,
-                                        opacity: targetOpacity,
-                                        border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
-                                        boxShadow: "none",
-                                    }}
-                                />
-                            )
-                        }) || []}
-                    </div>
-                </div>
-            )}
+            {/* Arrows & Dots are rendered relative to the OUTER container */}
         </section>
+        {arrowsUI?.enabled !== false && (
+            <div style={getArrowsContainerStyle()}>
+                <div style={{ pointerEvents: "auto" }}>
+                    {arrowsUI.arrowMode === "components" && prevArrow ? (
+                        <div
+                            onClick={onPrevButtonClick}
+                            style={{
+                                cursor: prevBtnDisabled
+                                    ? "not-allowed"
+                                    : "pointer",
+                                opacity: prevBtnDisabled 
+                                    ? (arrowsUI.opacity ?? 1) * 0.5
+                                    : (arrowsUI.activeOpacity ?? 1),
+                                transition: `all ${transitionDuration} ease-out`,
+                            }}
+                        >
+                            {prevArrow}
+                        </div>
+                    ) : (
+                        <PrevButton
+                            onClick={onPrevButtonClick}
+                            disabled={prevBtnDisabled}
+                            strokeColor={
+                                arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
+                            }
+                            styles={styles}
+                            buttonStyle={{
+                                width: `${arrowsUI.size ?? 58}px`,
+                                height: `${arrowsUI.size ?? 58}px`,
+                                backgroundColor:
+                                    arrowsUI.backgroundColor ??
+                                    "transparent",
+                                border:
+                                    arrowsUI.borderWidth &&
+                                    arrowsUI.borderWidth > 0
+                                        ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
+                                        : "none",
+                                boxShadow:
+                                    arrowsUI.dropShadow === "none"
+                                        ? "none"
+                                        : (arrowsUI.dropShadow ?? "none"),
+                                backdropFilter:
+                                    arrowsUI.backdropBlur &&
+                                    arrowsUI.backdropBlur > 0
+                                        ? `blur(${arrowsUI.backdropBlur}px)`
+                                        : "none",
+                                borderRadius: `${arrowsUI.radius ?? 50}px`,
+                                opacity: prevBtnDisabled
+                                    ? (arrowsUI.opacity ?? 1) * 0.5
+                                    : (arrowsUI.activeOpacity ?? 1),
+                            }}
+                        />
+                    )}
+                </div>
+                <div style={{ pointerEvents: "auto" }}>
+                    {arrowsUI.arrowMode === "components" && nextArrow ? (
+                        <div
+                            onClick={onNextButtonClick}
+                            style={{
+                                cursor: nextBtnDisabled
+                                    ? "not-allowed"
+                                    : "pointer",
+                                opacity: nextBtnDisabled 
+                                    ? (arrowsUI.opacity ?? 1) * 0.5
+                                    : (arrowsUI.activeOpacity ?? 1),
+                                transition: `all ${transitionDuration} ease-out`,
+                            }}
+                        >
+                            {nextArrow}
+                        </div>
+                    ) : (
+                        <NextButton
+                            onClick={onNextButtonClick}
+                            disabled={nextBtnDisabled}
+                            strokeColor={
+                                arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
+                            }
+                            styles={styles}
+                            buttonStyle={{
+                                width: `${arrowsUI.size ?? 58}px`,
+                                height: `${arrowsUI.size ?? 58}px`,
+                                backgroundColor:
+                                    arrowsUI.backgroundColor ??
+                                    "transparent",
+                                border:
+                                    arrowsUI.borderWidth &&
+                                    arrowsUI.borderWidth > 0
+                                        ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
+                                        : "none",
+                                boxShadow:
+                                    arrowsUI.dropShadow === "none"
+                                        ? "none"
+                                        : (arrowsUI.dropShadow ?? "none"),
+                                backdropFilter:
+                                    arrowsUI.backdropBlur &&
+                                    arrowsUI.backdropBlur > 0
+                                        ? `blur(${arrowsUI.backdropBlur}px)`
+                                        : "none",
+                                borderRadius: `${arrowsUI.radius ?? 50}px`,
+                                opacity: nextBtnDisabled
+                                    ? (arrowsUI.opacity ?? 1) * 0.5
+                                    : (arrowsUI.activeOpacity ?? 1),
+                            }}
+                        />
+                    )}
+                </div>
+            </div>
+        )}
+
+        {dotsUI?.enabled !== false && (
+            <div style={getDotsContainerStyle()}>
+                <div
+                    style={{
+                        display: "inline-flex",
+                        gap: `${dotsUI.gap ?? 10}px`,
+                        backgroundColor: dotsUI.backdrop || "transparent",
+                        borderRadius: dotsUI.backdropRadius ?? 20,
+                        padding: dotsUI.padding ?? 0,
+                        pointerEvents: "auto",
+                    }}
+                >
+                    {scrollSnaps?.map((_, index) => {
+                        const isSel = index === selectedIndex
+                        const baseSizeW = Math.max(dotsUI.width ?? 10, 2)
+                        const baseSizeH = Math.max(dotsUI.height ?? 10, 2)
+                        const baseRadius = dotsUI.radius ?? 50
+                        const targetScale = isSel
+                            ? (dotsUI.scale ?? 1.1)
+                            : 1
+                        const targetOpacity = isSel
+                            ? (dotsUI.current ?? 1)
+                            : (dotsUI.opacity ?? 0.5)
+                        const bw = dotsUI.borderWidth ?? 0
+                        const bws = dotsUI.currentBorderWidth ?? bw
+                        const bc = dotsUI.borderColor ?? "transparent"
+                        const bcs = dotsUI.currentBorderColor ?? bc
+                        return (
+                            <DotButton
+                                key={index}
+                                onClick={() => onDotButtonClick(index)}
+                                isSelected={isSel}
+                                styles={styles}
+                                buttonStyle={{
+                                    width: `${baseSizeW}px`,
+                                    height: `${baseSizeH}px`,
+                                    borderRadius: `${baseRadius}px`,
+                                }}
+                                innerStyle={{
+                                    width: `${baseSizeW}px`,
+                                    height: `${baseSizeH}px`,
+                                    borderRadius: `${baseRadius}px`,
+                                    backgroundColor:
+                                        dotsUI.fill || "#FFFFFF",
+                                    backdropFilter:
+                                        dotsUI.blur && dotsUI.blur > 0
+                                            ? `blur(${dotsUI.blur}px)`
+                                            : "none",
+                                    transform: `scale(${targetScale})`,
+                                    opacity: targetOpacity,
+                                    border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
+                                    boxShadow: "none",
+                                }}
+                            />
+                        )
+                    }) || []}
+                </div>
+            </div>
+        )}
+        </div>
     )
 }
 
