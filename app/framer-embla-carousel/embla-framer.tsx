@@ -490,6 +490,8 @@ type PropType = {
         gap?: number
         offsetX?: number
         offsetY?: number
+        insetXReference?: "container" | "central-slide"
+        insetXUnit?: "px" | "%"
         backgroundColor?: string
         borderColor?: string
         borderWidth?: number
@@ -583,6 +585,8 @@ export default function EmblaCarousel(props: PropType) {
             gap: 10,
             offsetX: 20,
             offsetY: 0,
+            insetXReference: "container",
+            insetXUnit: "px",
             backgroundColor: "transparent",
             borderColor: "rgba(234, 234, 234, 1)",
             borderWidth: 2,
@@ -643,7 +647,11 @@ export default function EmblaCarousel(props: PropType) {
 
     // Filter inputs based on visibility/nullish state
     const contentToRender = (content || []).filter(isRenderableNode)
-    const imagesToRender = images.filter((img) => img && (img as any).src)
+    // Respect the requested slideCount in images mode: ignore images beyond count
+    const requestedImageCount = Math.max(1, Math.min(10, slideCount))
+    const imagesToRender = images
+        .slice(0, requestedImageCount)
+        .filter((img) => img && (img as any).src)
 
     // Determine actual slide count based on filtered inputs (fallback to props when empty)
     const actualSlideCount =
@@ -653,7 +661,7 @@ export default function EmblaCarousel(props: PropType) {
                   : Math.max(1, Math.min(5, slideCount)))
             : (imagesToRender.length > 0
                   ? imagesToRender.length
-                  : Math.max(1, Math.min(5, slideCount)))
+                  : requestedImageCount)
 
     // Generate slides array indices
     const slidesArray = Array.from({ length: actualSlideCount }, (_, i) => i)
@@ -928,7 +936,9 @@ export default function EmblaCarousel(props: PropType) {
         const hAlign = arrowsUI.horizontalAlign ?? "center"
         const offsetX = arrowsUI.offsetX ?? 20
         const offsetY = arrowsUI.offsetY ?? 0
-        const gap = arrowsUI.gap ?? 10
+        const arrowsGroupGap = arrowsUI.gap ?? 10
+        const insetRef = arrowsUI.insetXReference ?? "container"
+        const insetUnit = arrowsUI.insetXUnit ?? "px"
 
         const baseStyle: React.CSSProperties = {
             position: "absolute",
@@ -949,12 +959,23 @@ export default function EmblaCarousel(props: PropType) {
 
         // Horizontal positioning based on mode
         if (mode === "space-between") {
-            baseStyle.left = `${offsetX}px`
-            baseStyle.right = `${offsetX}px`
+            // Always add half of slide gap to horizontal offset so arrows touch slide edges at 0 offset
+            const halfSlideGapPx = (gap ?? 0) / 4
+            const offsetToken = insetUnit === "%" ? `${offsetX}%` : `${offsetX}px`
+
+            if (insetRef === "central-slide") {
+                // Relative to the central slide edges
+                baseStyle.left = `calc(50% - ${slideWidthPercentage} / 2 + ${offsetToken} + ${halfSlideGapPx}px)`
+                baseStyle.right = `calc(50% - ${slideWidthPercentage} / 2 + ${offsetToken} + ${halfSlideGapPx}px)`
+            } else {
+                // Relative to container: do NOT include slide gap adjustment
+                baseStyle.left = `${offsetToken}`
+                baseStyle.right = `${offsetToken}`
+            }
             baseStyle.justifyContent = "space-between"
         } else {
             // Group mode
-            baseStyle.gap = `${gap}px`
+            baseStyle.gap = `${arrowsGroupGap}px`
             if (hAlign === "left") {
                 baseStyle.left = `${offsetX}px`
             } else if (hAlign === "right") {
@@ -1023,6 +1044,7 @@ export default function EmblaCarousel(props: PropType) {
                             ? "grabbing"
                             : "grab"
                         : "default",
+                        overflow:"visible",
                 }}
                 ref={emblaRef}
             >
@@ -1049,12 +1071,7 @@ export default function EmblaCarousel(props: PropType) {
                                         : undefined,
                                 boxSizing: "border-box",
                                 // Only clip overflow if effects with blur are disabled
-                                overflow:
-                                    effects?.enabled &&
-                                    ((effects.activeBlur ?? 0) > 0 ||
-                                        (effects.inactiveBlur ?? 0) > 0)
-                                        ? "visible"
-                                        : "hidden",
+                                overflow:"visible",
                                 minWidth:
                                     mode === "components" &&
                                     (contentToRender?.length ?? 0) === 0
@@ -1075,6 +1092,7 @@ export default function EmblaCarousel(props: PropType) {
                                             style={{
                                                 height: "100%",
                                                 overflow: "hidden",
+                                                overflowY:"visible",
                                                 width: "100%",
                                                 borderRadius: borderRadius,
                                             }}
@@ -1140,7 +1158,7 @@ export default function EmblaCarousel(props: PropType) {
                                         alignItems: "center",
                                         justifyContent: "center",
                                         borderRadius: borderRadius,
-                                        overflow: "hidden",
+                                        overflow: "visible",
                                     }}
                                 >
                                     {(() => {
@@ -1538,6 +1556,7 @@ addPropertyControls(EmblaCarousel, {
         step: 1,
         defaultValue: 12,
         unit: "px",
+        hidden: (props) => props.mode !== "images",
     },
     duration: {
         type: ControlType.Number,
@@ -1895,9 +1914,29 @@ addPropertyControls(EmblaCarousel, {
                     !props.enabled ||
                     props.arrowMode === "components",
             },
+            insetXReference: {
+                type: ControlType.Enum,
+                title: "Reference",
+                options: ["container", "central-slide"],
+                optionTitles: ["Container", "Central"],
+                defaultValue: "container",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+                hidden: (props) => !props.enabled || props.arrowMode === "components" || props.mode !== "space-between",
+            },
+            insetXUnit: {
+                type: ControlType.Enum,
+                title: "Unit",
+                options: ["px", "%"],
+                optionTitles: ["px", "%"],
+                defaultValue: "px",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "horizontal",
+                hidden: (props) => !props.enabled || props.arrowMode === "components" || props.mode !== "space-between",
+            },
             offsetX: {
                 type: ControlType.Number,
-                title: "X",
+                title: "Offset X",
                 min: -200,
                 max: 200,
                 step: 5,
@@ -1907,7 +1946,7 @@ addPropertyControls(EmblaCarousel, {
             },
             offsetY: {
                 type: ControlType.Number,
-                title: "Y",
+                title: "Offset Y",
                 min: -200,
                 max: 200,
                 step: 5,
@@ -1915,13 +1954,7 @@ addPropertyControls(EmblaCarousel, {
                 hidden: (props) =>
                     !props.enabled || props.arrowMode === "components",
             },
-            backgroundColor: {
-                type: ControlType.Color,
-                title: "Background",
-                defaultValue: "rgba(0,0,0,0.2)",
-                hidden: (props) =>
-                    !props.enabled || props.arrowMode === "components",
-            },
+        
             borderColor: {
                 type: ControlType.Color,
                 title: "Border",
@@ -1980,6 +2013,13 @@ addPropertyControls(EmblaCarousel, {
                 hidden: (props) =>
                     !props.enabled || props.arrowMode === "components",
             },
+            backgroundColor: {
+                type: ControlType.Color,
+                title: "Background",
+                defaultValue: "rgba(0,0,0,0.2)",
+                hidden: (props) =>
+                    !props.enabled || props.arrowMode === "components",
+            },
             strokeColor: {
                 type: ControlType.Color,
                 title: "Stroke",
@@ -1987,6 +2027,7 @@ addPropertyControls(EmblaCarousel, {
                 hidden: (props) =>
                     !props.enabled || props.arrowMode === "components",
             },
+            
             backdropBlur: {
                 type: ControlType.Number,
                 title: "Blur",
