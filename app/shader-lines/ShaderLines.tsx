@@ -2,6 +2,82 @@
 import { useEffect, useRef } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
+// Color parsing utilities
+const cssVariableRegex =
+    /var\s*\(\s*(--[\w-]+)(?:\s*,\s*((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*))?\s*\)/
+
+function extractDefaultValue(cssVar: string): string {
+    if (!cssVar || !cssVar.startsWith("var(")) return cssVar
+    const match = cssVariableRegex.exec(cssVar)
+    if (!match) return cssVar
+    const fallback = (match[2] || "").trim()
+    if (fallback.startsWith("var(")) return extractDefaultValue(fallback)
+    return fallback || cssVar
+}
+
+function resolveTokenColor(input: any): any {
+    if (typeof input !== "string") return input
+    if (!input.startsWith("var(")) return input
+    return extractDefaultValue(input)
+}
+
+function parseColorToRgba(input: string): {
+  r: number
+  g: number
+  b: number
+  a: number
+} {
+  if (!input) return { r: 0, g: 0, b: 0, a: 0 }
+  const str = input.trim()
+  const rgbaMatch = str.match(
+      /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
+  )
+  if (rgbaMatch) {
+      const r = Math.max(0, Math.min(255, parseFloat(rgbaMatch[1]))) / 255
+      const g = Math.max(0, Math.min(255, parseFloat(rgbaMatch[2]))) / 255
+      const b = Math.max(0, Math.min(255, parseFloat(rgbaMatch[3]))) / 255
+      const a =
+          rgbaMatch[4] !== undefined
+              ? Math.max(0, Math.min(1, parseFloat(rgbaMatch[4])))
+              : 1
+      return { r, g, b, a }
+  }
+  const hex = str.replace(/^#/, "")
+  if (hex.length === 8) {
+      return {
+          r: parseInt(hex.slice(0, 2), 16) / 255,
+          g: parseInt(hex.slice(2, 4), 16) / 255,
+          b: parseInt(hex.slice(4, 6), 16) / 255,
+          a: parseInt(hex.slice(6, 8), 16) / 255,
+      }
+  }
+  if (hex.length === 6) {
+      return {
+          r: parseInt(hex.slice(0, 2), 16) / 255,
+          g: parseInt(hex.slice(2, 4), 16) / 255,
+          b: parseInt(hex.slice(4, 6), 16) / 255,
+          a: 1,
+      }
+  }
+  if (hex.length === 4) {
+      return {
+          r: parseInt(hex[0] + hex[0], 16) / 255,
+          g: parseInt(hex[1] + hex[1], 16) / 255,
+          b: parseInt(hex[2] + hex[2], 16) / 255,
+          a: parseInt(hex[3] + hex[3], 16) / 255,
+      }
+  }
+  if (hex.length === 3) {
+      return {
+          r: parseInt(hex[0] + hex[0], 16) / 255,
+          g: parseInt(hex[1] + hex[1], 16) / 255,
+          b: parseInt(hex[2] + hex[2], 16) / 255,
+          a: 1,
+      }
+  }
+  return { r: 0, g: 0, b: 0, a: 1 }
+}
+
 declare global {
   interface Window {
     THREE: any
@@ -13,6 +89,12 @@ type ShaderLinesProps = {
   bandWidth?: number
   flow?: "in-out" | "out-in"
   preview?: boolean
+  colorMode?: "single" | "spectrum"
+  color?: string
+  color1?: string
+  color2?: string
+  color3?: string
+  backgroundColor?: string
 }
 
 // UI → Internal mapping helpers
@@ -50,8 +132,8 @@ function mapFlowToSign(flow?: "in-out" | "out-in"): number {
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
  * @framerSupportedLayoutHeight any-prefer-fixed
- * @framerIntrinsicWidth 500
- * @framerIntrinsicHeight 400
+ * @framerIntrinsicWidth 700
+ * @framerIntrinsicHeight 500
  * @framerDisableUnlink
  */
 export default function ShaderLines(props: ShaderLinesProps) {
@@ -60,6 +142,22 @@ export default function ShaderLines(props: ShaderLinesProps) {
   const bandWidthRef = useRef<number>(mapBandWidthUiToInternal(props.bandWidth ?? 0.5))
   const flowSignRef = useRef<number>(mapFlowToSign(props.flow))
   const previewRef = useRef<boolean>(props.preview ?? false)
+  const colorModeRef = useRef<"single" | "spectrum">(props.colorMode ?? "single")
+  
+  // Parse colors to RGBA values with opacity support
+  const resolvedBackgroundColor = resolveTokenColor(props.backgroundColor)
+  const backgroundColorRgba = parseColorToRgba(resolvedBackgroundColor || "#000000")
+  
+  const colorRgba = parseColorToRgba(props.color ?? "#ffffff")
+  const color1Rgba = parseColorToRgba(props.color1 ?? "#0008FF")
+  const color2Rgba = parseColorToRgba(props.color2 ?? "#000000")
+  const color3Rgba = parseColorToRgba(props.color3 ?? "#70EAFF")
+  
+  const backgroundColorRef = useRef<[number, number, number, number]>([backgroundColorRgba.r, backgroundColorRgba.g, backgroundColorRgba.b, backgroundColorRgba.a])
+  const colorRef = useRef<[number, number, number, number]>([colorRgba.r, colorRgba.g, colorRgba.b, colorRgba.a])
+  const color1Ref = useRef<[number, number, number, number]>([color1Rgba.r, color1Rgba.g, color1Rgba.b, color1Rgba.a])
+  const color2Ref = useRef<[number, number, number, number]>([color2Rgba.r, color2Rgba.g, color2Rgba.b, color2Rgba.a])
+  const color3Ref = useRef<[number, number, number, number]>([color3Rgba.r, color3Rgba.g, color3Rgba.b, color3Rgba.a])
   const lastRef = useRef<{
     w: number
     h: number
@@ -98,6 +196,36 @@ export default function ShaderLines(props: ShaderLinesProps) {
   useEffect(() => {
     previewRef.current = props.preview ?? false
   }, [props.preview])
+
+  useEffect(() => {
+    colorModeRef.current = props.colorMode ?? "single"
+  }, [props.colorMode])
+
+  useEffect(() => {
+    const resolvedBgColor = resolveTokenColor(props.backgroundColor)
+    const bgRgba = parseColorToRgba(resolvedBgColor || "#000000")
+    backgroundColorRef.current = [bgRgba.r, bgRgba.g, bgRgba.b, bgRgba.a]
+  }, [props.backgroundColor])
+
+  useEffect(() => {
+    const colorRgba = parseColorToRgba(props.color ?? "#ffffff")
+    colorRef.current = [colorRgba.r, colorRgba.g, colorRgba.b, colorRgba.a]
+  }, [props.color])
+
+  useEffect(() => {
+    const color1Rgba = parseColorToRgba(props.color1 ?? "#0008FF")
+    color1Ref.current = [color1Rgba.r, color1Rgba.g, color1Rgba.b, color1Rgba.a]
+  }, [props.color1])
+
+  useEffect(() => {
+    const color2Rgba = parseColorToRgba(props.color2 ?? "#000000")
+    color2Ref.current = [color2Rgba.r, color2Rgba.g, color2Rgba.b, color2Rgba.a]
+  }, [props.color2])
+
+  useEffect(() => {
+    const color3Rgba = parseColorToRgba(props.color3 ?? "#70EAFF")
+    color3Ref.current = [color3Rgba.r, color3Rgba.g, color3Rgba.b, color3Rgba.a]
+  }, [props.color3])
 
   useEffect(() => {
     // Load Three.js dynamically
@@ -150,6 +278,12 @@ export default function ShaderLines(props: ShaderLinesProps) {
       resolution: { type: "v2", value: new THREE.Vector2() },
       // Pass band width in DEVICE pixels for resolution-consistent sizing
       bandWidthPx: { type: "f", value: bandWidthRef.current * (window.devicePixelRatio || 1) },
+      backgroundColor: { type: "v4", value: new THREE.Vector4(...backgroundColorRef.current) },
+      color: { type: "v4", value: new THREE.Vector4(...colorRef.current) },
+      color1: { type: "v4", value: new THREE.Vector4(...color1Ref.current) },
+      color2: { type: "v4", value: new THREE.Vector4(...color2Ref.current) },
+      color3: { type: "v4", value: new THREE.Vector4(...color3Ref.current) },
+      colorMode: { type: "f", value: colorModeRef.current === "single" ? 0.0 : 1.0 },
     }
 
     // Vertex shader
@@ -168,6 +302,12 @@ export default function ShaderLines(props: ShaderLinesProps) {
       uniform vec2 resolution;
       uniform float time;
       uniform float bandWidthPx; // band width in DEVICE pixels
+      uniform vec4 backgroundColor; // Background color with opacity
+      uniform vec4 color; // Single color with opacity
+      uniform vec4 color1; // Spectrum color 1 with opacity
+      uniform vec4 color2; // Spectrum color 2 with opacity
+      uniform vec4 color3; // Spectrum color 3 with opacity
+      uniform float colorMode; // 0.0 = single, 1.0 = spectrum
         
       float random (in float x) {
           return fract(sin(x)*1e4);
@@ -191,14 +331,35 @@ export default function ShaderLines(props: ShaderLinesProps) {
         float t = time*0.06+random(uv.x)*0.4;
         float lineWidth = 0.0008;
 
-        vec3 color = vec3(0.0);
+        vec3 colorIntensity = vec3(0.0);
         for(int j = 0; j < 3; j++){
           for(int i=0; i < 5; i++){
-            color[j] += lineWidth*float(i*i) / abs(fract(t - 0.01*float(j)+float(i)*0.01)*1.0 - length(uv));        
+            colorIntensity[j] += lineWidth*float(i*i) / abs(fract(t - 0.01*float(j)+float(i)*0.01)*1.0 - length(uv));        
           }
         }
 
-        gl_FragColor = vec4(color[2],color[1],color[0],1.0);
+        vec3 finalColor;
+        float finalAlpha;
+        
+        if (colorMode < 0.5) {
+          // Single color mode: multiply intensity by single color
+          finalColor = colorIntensity * color.rgb;
+          finalAlpha = color.a;
+        } else {
+          // Spectrum mode: apply different colors to each channel
+          finalColor = vec3(0.0);
+          finalColor += colorIntensity.r * color1.rgb; // Red channel uses color1
+          finalColor += colorIntensity.g * color2.rgb; // Green channel uses color2  
+          finalColor += colorIntensity.b * color3.rgb; // Blue channel uses color3
+          // Use average alpha of all colors for spectrum mode
+          finalAlpha = (color1.a + color2.a + color3.a) / 3.0;
+        }
+
+        // Simple additive blend with background color
+        vec3 bgColor = backgroundColor.rgb;
+        vec3 blendedColor = finalColor + bgColor * backgroundColor.a;
+
+        gl_FragColor = vec4(blendedColor, 1.0);
       }
     `
 
@@ -310,6 +471,14 @@ export default function ShaderLines(props: ShaderLinesProps) {
       const pixelRatio = (renderer.getPixelRatio ? renderer.getPixelRatio() : window.devicePixelRatio) || 1
       uniforms.bandWidthPx.value = bandWidthRef.current * pixelRatio
       
+      // Update color uniforms
+      uniforms.backgroundColor.value.set(...backgroundColorRef.current)
+      uniforms.color.value.set(...colorRef.current)
+      uniforms.color1.value.set(...color1Ref.current)
+      uniforms.color2.value.set(...color2Ref.current)
+      uniforms.color3.value.set(...color3Ref.current)
+      uniforms.colorMode.value = colorModeRef.current === "single" ? 0.0 : 1.0
+      
       renderer.render(scene, camera)
     }
 
@@ -329,7 +498,7 @@ addPropertyControls(ShaderLines, {
     preview: {
         type: ControlType.Boolean,
         title: "Preview",
-        defaultValue: false,
+        defaultValue: true,
         enabledTitle: "On",
         disabledTitle: "Off",
       },
@@ -358,6 +527,45 @@ addPropertyControls(ShaderLines, {
     max: 1,
     step: 0.05,
     defaultValue: 0.2,
+  },
+  colorMode: {
+    type: ControlType.Enum,
+    title: "Color Mode",
+    options: ["single", "spectrum"],
+    optionTitles: ["Single Color", "Spectrum"],
+    defaultValue: "single",
+    displaySegmentedControl: true,
+    segmentedControlDirection: "vertical",
+  },
+  color: {
+    type: ControlType.Color,
+    title: "Color",
+    defaultValue: "#ffffff",
+    hidden: (props) => props.colorMode === "spectrum",
+  },
+  color1: {
+    type: ControlType.Color,
+    title: "Color 1",
+    defaultValue: "#0008FF",
+    hidden: (props) => props.colorMode === "single",
+  },
+  color2: {
+    type: ControlType.Color,
+    title: "Color 2",
+    defaultValue: "#000000",
+    hidden: (props) => props.colorMode === "single",
+  },
+  color3: {
+    type: ControlType.Color,
+    title: "Color 3",
+    defaultValue: "#70EAFF",
+    hidden: (props) => props.colorMode === "single",
+  },
+  backgroundColor: {
+    type: ControlType.Color,
+    title: "Background",
+    defaultValue: "#000000",
+    optional: true,
     description: "More components at [Framer University](https://frameruni.link/cc).",
   },
 })
