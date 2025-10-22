@@ -4,7 +4,6 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // Props interface for the Warp Background component
 interface WarpBackgroundProps {
-    preview?: boolean
     perspective?: number
     beamsPerSide?: number
     speed?: number // 0.1..1 (maps to duration 15s..1s)
@@ -131,7 +130,6 @@ const Beam = ({
  */
 export default function WarpBackground(props: WarpBackgroundProps) {
     const {
-  preview = false,
   perspective = 100,
   beamsPerSide = 3,
         speed = 0.5,
@@ -147,9 +145,8 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     const normalized = (clampedSpeed - 0.1) / 0.9 // 0..1
     const beamDuration = 15 - 14 * normalized // 15 -> 1
 
-    // Determine canvas/preview mode
+    // Determine canvas mode - show static beams in canvas, animated in live
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
-    const staticPreviewMode = isCanvas && !preview
 
     // Grid derived values
     const sizeUi = grid?.size ?? 0.5
@@ -235,7 +232,8 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         const count = Math.max(1, Math.min(10, beamsPerSide))
         for (let i = 0; i < count; i++) {
             const x = Math.floor(Math.random() * cellsPerSide)
-            const y = `${-(10 + Math.random() * 80)}%` // place somewhere along the path
+            // More random y positions - from -80% to -20% for good variation while staying visible
+            const y = `${(50 + Math.random() * 100)}%` // place anywhere along the visible path
             const color = palette.length
                 ? palette[Math.floor(Math.random() * palette.length)]
                 : undefined
@@ -277,6 +275,16 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     const staticLeftBeams = useMemo(
         () => generateStaticBeams(),
         [beamsPerSide, cellsPerSide, palette]
+    )
+    const staticCenterBeams = useMemo(
+        () => generateStaticBeams(),
+        [beamsPerSide, cellsPerSide, palette]
+    )
+
+    // Generate center beams for the floor area
+    const centerBeams = useMemo(
+        () => generateBeamsStream(),
+        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
 
     // Grid background pattern using CSS gradients
@@ -324,16 +332,16 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-          {(staticPreviewMode ? staticTopBeams : topBeams).map((beam: any, index) => (
+          {(isCanvas ? staticTopBeams : topBeams).map((beam: any, index) => (
             <Beam
               key={`top-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={staticPreviewMode ? 0 : beam.delay}
-              duration={staticPreviewMode ? 0 : beamDuration}
+              delay={isCanvas ? 0 : beam.delay}
+              duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
-                            staticMode={staticPreviewMode}
-                            staticY={staticPreviewMode ? beam.y : undefined}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
             />
           ))}
         </div>
@@ -342,7 +350,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                 <div
                     style={{
                         position: "absolute",
-                        top: "100%",
+                        top: "100%",	
                         transformStyle: "preserve-3d",
                         backgroundSize: `${gridPercent}% ${gridPercent}%`,
                         background: gridBackground,
@@ -353,16 +361,16 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-          {(staticPreviewMode ? staticBottomBeams : bottomBeams).map((beam: any, index) => (
+          {(isCanvas ? staticBottomBeams : bottomBeams).map((beam: any, index) => (
             <Beam
               key={`bottom-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={staticPreviewMode ? 0 : beam.delay}
-              duration={staticPreviewMode ? 0 : beamDuration}
+              delay={isCanvas ? 0 : beam.delay}
+              duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
-                            staticMode={staticPreviewMode}
-                            staticY={staticPreviewMode ? beam.y : undefined}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
             />
           ))}
         </div>
@@ -383,16 +391,16 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqh",
                     }}
                 >
-          {(staticPreviewMode ? staticLeftBeams : leftBeams).map((beam: any, index) => (
+          {(isCanvas ? staticLeftBeams : leftBeams).map((beam: any, index) => (
             <Beam
               key={`left-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={staticPreviewMode ? 0 : beam.delay}
-              duration={staticPreviewMode ? 0 : beamDuration}
+              delay={isCanvas ? 0 : beam.delay}
+              duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
-                            staticMode={staticPreviewMode}
-                            staticY={staticPreviewMode ? beam.y : undefined}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
             />
           ))}
         </div>
@@ -413,16 +421,46 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "rotate(-90deg) rotateX(-90deg)",
                     }}
                 >
-          {(staticPreviewMode ? staticRightBeams : rightBeams).map((beam: any, index) => (
+          {(isCanvas ? staticRightBeams : rightBeams).map((beam: any, index) => (
             <Beam
               key={`right-${index}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={staticPreviewMode ? 0 : beam.delay}
-              duration={staticPreviewMode ? 0 : beamDuration}
+              delay={isCanvas ? 0 : beam.delay}
+              duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
-                            staticMode={staticPreviewMode}
-                            staticY={staticPreviewMode ? beam.y : undefined}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
+            />
+          ))}
+        </div>
+
+                {/* Center floor - beams appearing in the center area */}
+                <div
+                    style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transformStyle: "preserve-3d",
+                        backgroundSize: `${gridPercent}% ${gridPercent}%`,
+                        background: gridBackground,
+                        containerType: "inline-size",
+                        height: "100cqmax",
+                        width: "100cqi",
+                        transformOrigin: "50% 50%",
+                        transform: "translate(-50%, -50%) rotateX(-90deg)",
+                    }}
+                >
+          {(isCanvas ? staticCenterBeams : centerBeams).map((beam: any, index) => (
+            <Beam
+              key={`center-${index}`}
+                            width={`${gridPercent}%`}
+                            x={`${beam.x * gridPercent}%`}
+              delay={isCanvas ? 0 : beam.delay}
+              duration={isCanvas ? 0 : beamDuration}
+                            color={beam.color}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
             />
           ))}
         </div>
@@ -436,13 +474,6 @@ WarpBackground.displayName = "Warp Background"
 
 // Property controls for Framer
 addPropertyControls(WarpBackground, {
-    preview: {
-        type: ControlType.Boolean,
-        title: "Preview",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-    },
     perspective: {
         type: ControlType.Number,
         title: "Perspective",
@@ -568,3 +599,5 @@ addPropertyControls(WarpBackground, {
         },
     },
 })
+
+WarpBackground.displayName="Warp Background"

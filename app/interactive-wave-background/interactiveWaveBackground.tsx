@@ -1,112 +1,104 @@
-import * as React from 'react'
-import { useEffect, useRef } from 'react'
-import { addPropertyControls, ControlType, RenderTarget } from 'framer'
+import * as React from "react"
+import { useEffect, useRef } from "react"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // Simple 2D noise function for wave generation with seed support
 function createNoise2D(seed: number = 0.5) {
-    const F2 = 0.5 * (Math.sqrt(3.0) - 1.0);
-    const G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
-    const G22 = (3.0 - Math.sqrt(3.0)) / 3.0;
+    const F2 = 0.5 * (Math.sqrt(3.0) - 1.0)
+    const G2 = (3.0 - Math.sqrt(3.0)) / 6.0
+    const G22 = (3.0 - Math.sqrt(3.0)) / 3.0
 
-    const p = new Uint8Array(256);
+    const p = new Uint8Array(256)
     for (let i = 0; i < 256; i++) {
-        p[i] = i;
+        p[i] = i
     }
-    
+
     // Use seed to create deterministic random values
     const seededRandom = (index: number) => {
-        const x = Math.sin(index * 12.9898 + seed * 78.233) * 43758.5453;
-        return (x - Math.floor(x));
+        const x = Math.sin(index * 12.9898 + seed * 78.233) * 43758.5453
+        return x - Math.floor(x)
     }
-    
+
     // Shuffle the permutation table using seeded random
     for (let i = 255; i > 0; i--) {
-        const n = Math.floor((i + 1) * seededRandom(i));
-        const q = p[i];
-        p[i] = p[n];
-        p[n] = q;
+        const n = Math.floor((i + 1) * seededRandom(i))
+        const q = p[i]
+        p[i] = p[n]
+        p[n] = q
     }
 
-    const perm = new Uint8Array(512);
-    const permMod12 = new Uint8Array(512);
+    const perm = new Uint8Array(512)
+    const permMod12 = new Uint8Array(512)
     for (let i = 0; i < 512; i++) {
-        perm[i] = p[i & 255];
-        permMod12[i] = perm[i] % 12;
+        perm[i] = p[i & 255]
+        permMod12[i] = perm[i] % 12
     }
 
-    const grad2 = new Float64Array([1, 1,
-        -1, 1,
-        1, -1,
-        -1, -1,
-        1, 0,
-        -1, 0,
-        1, 0,
-        -1, 0,
-        0, 1,
+    const grad2 = new Float64Array([
+        1, 1, -1, 1, 1, -1, -1, -1, 1, 0, -1, 0, 1, 0, -1, 0, 0, 1, 0, -1, 0, 1,
         0, -1,
-        0, 1,
-        0, -1]);
+    ])
 
-    const fastFloor = (x: number) => Math.floor(x) | 0;
+    const fastFloor = (x: number) => Math.floor(x) | 0
 
     return function noise2D(x: number, y: number): number {
-        const s = (x + y) * F2;
-        const i = fastFloor(x + s);
-        const j = fastFloor(y + s);
+        const s = (x + y) * F2
+        const i = fastFloor(x + s)
+        const j = fastFloor(y + s)
 
-        const t = (i + j) * G2;
-        const x0 = x - (i - t);
-        const y0 = y - (j - t);
+        const t = (i + j) * G2
+        const x0 = x - (i - t)
+        const y0 = y - (j - t)
 
-        let i1: number, j1: number;
+        let i1: number, j1: number
         if (x0 > y0) {
-            i1 = 1;
-            j1 = 0;
+            i1 = 1
+            j1 = 0
         } else {
-            i1 = 0;
-            j1 = 1;
+            i1 = 0
+            j1 = 1
         }
 
-        const x1 = x0 - i1 + G2;
-        const y1 = y0 - j1 + G2;
-        const x2 = x0 - 1 + G22;
-        const y2 = y0 - 1 + G22;
+        const x1 = x0 - i1 + G2
+        const y1 = y0 - j1 + G2
+        const x2 = x0 - 1 + G22
+        const y2 = y0 - 1 + G22
 
-        const ii = i & 255;
-        const jj = j & 255;
-        const gi0 = permMod12[ii + perm[jj]];
-        const gi1 = permMod12[ii + i1 + perm[jj + j1]];
-        const gi2 = permMod12[ii + 1 + perm[jj + 1]];
+        const ii = i & 255
+        const jj = j & 255
+        const gi0 = permMod12[ii + perm[jj]]
+        const gi1 = permMod12[ii + i1 + perm[jj + j1]]
+        const gi2 = permMod12[ii + 1 + perm[jj + 1]]
 
-        let t0 = 0.5 - x0 * x0 - y0 * y0;
-        let n0: number;
+        let t0 = 0.5 - x0 * x0 - y0 * y0
+        let n0: number
         if (t0 < 0) {
-            n0 = 0;
+            n0 = 0
         } else {
-            t0 *= t0;
-            n0 = t0 * t0 * (grad2[gi0 * 2] * x0 + grad2[gi0 * 2 + 1] * y0);
+            t0 *= t0
+            n0 = t0 * t0 * (grad2[gi0 * 2] * x0 + grad2[gi0 * 2 + 1] * y0)
         }
 
-        let t1 = 0.5 - x1 * x1 - y1 * y1;
-        let n1: number;
+        let t1 = 0.5 - x1 * x1 - y1 * y1
+        let n1: number
         if (t1 < 0) {
-            n1 = 0;
+            n1 = 0
         } else {
-            t1 *= t1;
-            n1 = t1 * t1 * (grad2[gi1 * 2] * x1 + grad2[gi1 * 2 + 1] * y1);
+            t1 *= t1
+            n1 = t1 * t1 * (grad2[gi1 * 2] * x1 + grad2[gi1 * 2 + 1] * y1)
         }
 
-        let t2 = 0.5 - x2 * x2 - y2 * y2;
-        let n2: number;
+        let t2 = 0.5 - x2 * x2 - y2 * y2
+        let n2: number
         if (t2 < 0) {
-            n2 = 0;
+            n2 = 0
         } else {
-            t2 *= t2;
-            n2 = t2 * t2 * (grad2[gi2 * 2] * x2 + grad2[gi2 * 2 + 1] * y2);
+            t2 *= t2
+            n2 = t2 * t2 * (grad2[gi2 * 2] * x2 + grad2[gi2 * 2 + 1] * y2)
         }
 
-        return 70 * (n0 + n1 + n2);
-    };
+        return 70 * (n0 + n1 + n2)
+    }
 }
 
 interface Point {
@@ -149,7 +141,7 @@ export default function InteractiveWaveBackground({
     lineSpacing = 0.5,
     seed = 0.5,
     resolution = 0.5,
-    preview = true
+    preview = true,
 }: WavesProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const svgRef = useRef<SVGSVGElement>(null)
@@ -186,9 +178,11 @@ export default function InteractiveWaveBackground({
         setLines()
 
         // Bind events
-        window.addEventListener('resize', onResize)
-        window.addEventListener('mousemove', onMouseMove)
-        containerRef.current.addEventListener('touchmove', onTouchMove, { passive: false })
+        window.addEventListener("resize", onResize)
+        window.addEventListener("mousemove", onMouseMove)
+        containerRef.current.addEventListener("touchmove", onTouchMove, {
+            passive: false,
+        })
 
         // Set up intersection observer for viewport detection
         const observer = new IntersectionObserver(
@@ -202,9 +196,9 @@ export default function InteractiveWaveBackground({
         observer.observe(containerRef.current)
 
         return () => {
-            window.removeEventListener('resize', onResize)
-            window.removeEventListener('mousemove', onMouseMove)
-            containerRef.current?.removeEventListener('touchmove', onTouchMove)
+            window.removeEventListener("resize", onResize)
+            window.removeEventListener("mousemove", onMouseMove)
+            containerRef.current?.removeEventListener("touchmove", onTouchMove)
             observer.disconnect()
         }
     }, [seed])
@@ -227,7 +221,7 @@ export default function InteractiveWaveBackground({
             const zoom = probe.getBoundingClientRect().width / 20
 
             const lastSize = lastSizeRef.current
-            const sizeChanged = 
+            const sizeChanged =
                 Math.abs(width - lastSize.width) > EPSILON ||
                 Math.abs(height - lastSize.height) > EPSILON ||
                 Math.abs(zoom - lastSize.zoom) > 0.01
@@ -259,17 +253,17 @@ export default function InteractiveWaveBackground({
             // Start a temporary animation loop for a few frames to show changes
             let frameCount = 0
             const maxFrames = 10
-            
+
             const animate = (time: number) => {
                 movePoints(time)
                 drawLines()
                 frameCount++
-                
+
                 if (frameCount < maxFrames) {
                     requestAnimationFrame(animate)
                 }
             }
-            
+
             requestAnimationFrame(animate)
         }
     }, [waveSpeed, waveAmplitude, mouseInfluence])
@@ -286,7 +280,7 @@ export default function InteractiveWaveBackground({
         const tick = (time: number) => {
             // Check if animation should run
             const shouldAnimate = preview && isVisibleRef.current
-            
+
             // If preview is off or component is not visible, skip animation
             if (!shouldAnimate) {
                 rafRef.current = requestAnimationFrame(tick)
@@ -317,8 +311,8 @@ export default function InteractiveWaveBackground({
 
             // Animation
             if (containerRef.current) {
-                containerRef.current.style.setProperty('--x', `${mouse.sx}px`)
-                containerRef.current.style.setProperty('--y', `${mouse.sy}px`)
+                containerRef.current.style.setProperty("--x", `${mouse.sx}px`)
+                containerRef.current.style.setProperty("--y", `${mouse.sy}px`)
             }
 
             movePoints(time)
@@ -356,7 +350,7 @@ export default function InteractiveWaveBackground({
             bottom: height,
             x: 0,
             y: 0,
-            toJSON: () => ({})
+            toJSON: () => ({}),
         } as DOMRect
 
         svgRef.current.style.width = `${width}px`
@@ -371,18 +365,20 @@ export default function InteractiveWaveBackground({
         linesRef.current = []
 
         // Clear existing paths
-        pathsRef.current.forEach(path => {
+        pathsRef.current.forEach((path) => {
             path.remove()
         })
         pathsRef.current = []
 
         // Use configurable spacing based on lineSpacing prop
+        // When lineSpacing = 1: xGap = 8 (dense, many lines)
+        // When lineSpacing = 0: xGap = 167 (sparse, ~6 lines for typical width)
         const baseSpacing = 8
-        const xGap = baseSpacing + (1 - lineSpacing) * 12  // Range: 8-20
-        
+        const xGap = baseSpacing + (1 - lineSpacing) * 159 // Range: 8-167
+
         // Use resolution to control point density (higher resolution = more points = smoother lines)
         const baseYGap = 4
-        const yGap = baseYGap + (1 - resolution) * 20  // Range: 8-28 (lower resolution = bigger gaps = fewer points)
+        const yGap = baseYGap + (1 - resolution) * 20 // Range: 8-28 (lower resolution = bigger gaps = fewer points)
 
         const oWidth = width + 200
         const oHeight = height + 30
@@ -410,14 +406,14 @@ export default function InteractiveWaveBackground({
 
             // Create SVG path
             const path = document.createElementNS(
-                'http://www.w3.org/2000/svg',
-                'path'
+                "http://www.w3.org/2000/svg",
+                "path"
             )
-            path.classList.add('a__line')
-            path.classList.add('js-line')
-            path.setAttribute('fill', 'none')
-            path.setAttribute('stroke', strokeColor)
-            path.setAttribute('stroke-width', '1')
+            path.classList.add("a__line")
+            path.classList.add("js-line")
+            path.setAttribute("fill", "none")
+            path.setAttribute("stroke", strokeColor)
+            path.setAttribute("stroke-width", "1")
 
             svgRef.current.appendChild(path)
             pathsRef.current.push(path)
@@ -465,8 +461,8 @@ export default function InteractiveWaveBackground({
 
         // Update CSS variables
         if (containerRef.current) {
-            containerRef.current.style.setProperty('--x', `${mouse.sx}px`)
-            containerRef.current.style.setProperty('--y', `${mouse.sy}px`)
+            containerRef.current.style.setProperty("--x", `${mouse.sx}px`)
+            containerRef.current.style.setProperty("--y", `${mouse.sy}px`)
         }
     }
 
@@ -481,20 +477,22 @@ export default function InteractiveWaveBackground({
         lines.forEach((points) => {
             points.forEach((p: Point) => {
                 // Wave movement - speed only affects animation timing, not shape
-                const speedMultiplier = waveSpeed * 0.002  // Much slower: 0-0.002 range
-                const baseMove = noise(
-                    p.x * 0.003,  // Remove time from noise sampling - shape is controlled by seed
-                    p.y * 0.002   // Remove time from noise sampling - shape is controlled by seed
-                ) * 8
-                
-                // Only add time-based movement if speed > 0
-                const move = waveSpeed > 0 ? baseMove + time * speedMultiplier : baseMove
+                const speedMultiplier = waveSpeed * 0.002 // Much slower: 0-0.002 range
+                const baseMove =
+                    noise(
+                        p.x * 0.003, // Remove time from noise sampling - shape is controlled by seed
+                        p.y * 0.002 // Remove time from noise sampling - shape is controlled by seed
+                    ) * 8
 
-                const amplitudeMultiplier = waveAmplitude * 2  // Range: 0-2
+                // Only add time-based movement if speed > 0
+                const move =
+                    waveSpeed > 0 ? baseMove + time * speedMultiplier : baseMove
+
+                const amplitudeMultiplier = waveAmplitude * 2 // Range: 0-2
                 p.wave.x = Math.cos(move) * 12 * amplitudeMultiplier
                 p.wave.y = Math.sin(move) * 6 * amplitudeMultiplier
 
-                // Mouse effect - smoother response
+                // Mouse effect - use direction from point to mouse for consistent behavior
                 const dx = p.x - mouse.sx
                 const dy = p.y - mouse.sy
                 const d = Math.hypot(dx, dy)
@@ -503,23 +501,36 @@ export default function InteractiveWaveBackground({
                 if (d < l) {
                     const s = 1 - d / l
                     const f = Math.cos(d * 0.001) * s
-                    const influenceMultiplier = mouseInfluence * 0.0007  // Range: 0-0.0007
+                    const influenceMultiplier = mouseInfluence * 0.0007 // Range: 0-0.0007
+                    
+                    // Calculate angle from mouse to point (repel direction)
+                    const angleToPoint = Math.atan2(dy, dx)
 
-                    p.cursor.vx += Math.cos(mouse.a) * f * l * mouse.vs * influenceMultiplier
-                    p.cursor.vy += Math.sin(mouse.a) * f * l * mouse.vs * influenceMultiplier
+                    p.cursor.vx +=
+                        Math.cos(angleToPoint) *
+                        f *
+                        l *
+                        mouse.vs *
+                        influenceMultiplier
+                    p.cursor.vy +=
+                        Math.sin(angleToPoint) *
+                        f *
+                        l *
+                        mouse.vs *
+                        influenceMultiplier
                 }
 
-                p.cursor.vx += (0 - p.cursor.x) * 0.01   // Increased restoration force
-                p.cursor.vy += (0 - p.cursor.y) * 0.01   // Increased restoration force
+                p.cursor.vx += (0 - p.cursor.x) * 0.01 // Increased restoration force
+                p.cursor.vy += (0 - p.cursor.y) * 0.01 // Increased restoration force
 
-                p.cursor.vx *= 0.95  // Increased smoothness
-                p.cursor.vy *= 0.95  // Increased smoothness
+                p.cursor.vx *= 0.95 // Increased smoothness
+                p.cursor.vy *= 0.95 // Increased smoothness
 
                 p.cursor.x += p.cursor.vx
                 p.cursor.y += p.cursor.vy
 
-                p.cursor.x = Math.min(50, Math.max(-50, p.cursor.x))  // Limited deformation range
-                p.cursor.y = Math.min(50, Math.max(-50, p.cursor.y))  // Limited deformation range
+                p.cursor.x = Math.min(50, Math.max(-50, p.cursor.x)) // Limited deformation range
+                p.cursor.y = Math.min(50, Math.max(-50, p.cursor.y)) // Limited deformation range
             })
         })
     }
@@ -540,7 +551,7 @@ export default function InteractiveWaveBackground({
         const { current: paths } = pathsRef
 
         lines.forEach((points, lIndex) => {
-            if (points.length < 2 || !paths[lIndex]) return;
+            if (points.length < 2 || !paths[lIndex]) return
 
             // First point
             const firstPoint = moved(points[0], false)
@@ -552,7 +563,7 @@ export default function InteractiveWaveBackground({
                 d += `L ${current.x} ${current.y}`
             }
 
-            paths[lIndex].setAttribute('d', d)
+            paths[lIndex].setAttribute("d", d)
         })
     }
 
@@ -582,8 +593,8 @@ export default function InteractiveWaveBackground({
 
         // Animation
         if (containerRef.current) {
-            containerRef.current.style.setProperty('--x', `${mouse.sx}px`)
-            containerRef.current.style.setProperty('--y', `${mouse.sy}px`)
+            containerRef.current.style.setProperty("--x", `${mouse.sx}px`)
+            containerRef.current.style.setProperty("--y", `${mouse.sy}px`)
         }
 
         movePoints(time)
@@ -595,26 +606,30 @@ export default function InteractiveWaveBackground({
     return (
         <div
             ref={containerRef}
-            style={{
-                backgroundColor: backgroundColor ? backgroundColor :'transparent',
-                position: 'relative',
-                margin: 0,
-                padding: 0,
-                width: '100%',
-                height: '100%',
-                overflow: 'hidden',
-                '--x': '-0.5rem',
-                '--y': '50%',
-            } as React.CSSProperties}
+            style={
+                {
+                    backgroundColor: backgroundColor
+                        ? backgroundColor
+                        : "transparent",
+                    position: "relative",
+                    margin: 0,
+                    padding: 0,
+                    width: "100%",
+                    height: "100%",
+                    overflow: "hidden",
+                    "--x": "-0.5rem",
+                    "--y": "50%",
+                } as React.CSSProperties
+            }
         >
             <svg
                 ref={svgRef}
                 style={{
-                    position: 'absolute',
+                    position: "absolute",
                     inset: 0,
-                    width: '100%',
-                    height: '100%',
-                    display: 'block',
+                    width: "100%",
+                    height: "100%",
+                    display: "block",
                 }}
                 xmlns="http://www.w3.org/2000/svg"
             />
@@ -622,21 +637,21 @@ export default function InteractiveWaveBackground({
             <div
                 ref={zoomProbeRef}
                 style={{
-                    position: 'absolute',
+                    position: "absolute",
                     width: 20,
                     height: 20,
                     opacity: 0,
-                    pointerEvents: 'none',
+                    pointerEvents: "none",
                 }}
             />
             {/* Invisible sizing element to prevent collapse */}
             <div
                 style={{
-                    position: 'relative',
+                    position: "relative",
                     width: boundingRef.current?.width || 800,
                     height: boundingRef.current?.height || 600,
                     opacity: 0,
-                    pointerEvents: 'none',
+                    pointerEvents: "none",
                     zIndex: -1,
                 }}
             />
@@ -656,7 +671,7 @@ addPropertyControls(InteractiveWaveBackground, {
         title: "Amount",
         min: 0,
         max: 1,
-        step: 0.1,
+        step: 0.05,
         defaultValue: 0.5,
     },
     waveSpeed: {
@@ -677,7 +692,7 @@ addPropertyControls(InteractiveWaveBackground, {
     },
     mouseInfluence: {
         type: ControlType.Number,
-        title: "Influence",
+        title: "Hover Force",
         min: 0,
         max: 1,
         step: 0.1,
@@ -706,10 +721,11 @@ addPropertyControls(InteractiveWaveBackground, {
     },
     backgroundColor: {
         type: ControlType.Color,
-        optional:true,
+        optional: true,
         title: "Background",
         defaultValue: "#000000",
-        description: "More components at [Framer University](https://frameruni.link/cc).",
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 
