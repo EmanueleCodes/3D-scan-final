@@ -341,16 +341,22 @@ const ProgressFill: React.FC<ProgressFillProps> = ({
                     : `opacity ${fadeOutDuration}ms ease-in`
                 el.style.transition = appended
                 el.style.opacity = "0"
-            }, fadeInDuration + fillDuration - fadeOutDuration)
+            }, fadeInDuration + fillDuration)
 
             return () => {
                 window.clearTimeout(t1)
                 window.clearTimeout(t2)
             }
         } else {
-            // If becoming inactive, gently fade out
-            el.style.transition = `opacity ${fadeOutDuration}ms ease-in`
-            el.style.opacity = "0"
+            // If becoming inactive, append opacity transition and fade out on next frame
+            const currentTransition = el.style.transition || ""
+            const appended = currentTransition
+                ? `${currentTransition}, opacity ${fadeOutDuration}ms ease-in`
+                : `opacity ${fadeOutDuration}ms ease-in`
+            el.style.transition = appended
+            requestAnimationFrame(() => {
+                el.style.opacity = "0"
+            })
         }
 
     }, [durationMs, initialPercent, isActive, trigger])
