@@ -457,6 +457,7 @@ type PropType = {
     draggable: boolean
     skipSnaps: boolean
     duration?: number
+    dragThreshold?: number
     gap?: number
     borderRadius?: number
     backgroundColor?: string
@@ -576,6 +577,7 @@ export default function EmblaCarousel(props: PropType) {
         draggable = true,
         skipSnaps = false,
         duration = 25,
+        dragThreshold = 10,
         gap = 32,
         borderRadius = 12,
         backgroundColor = "transparent",
@@ -812,6 +814,7 @@ export default function EmblaCarousel(props: PropType) {
         containScroll: false, // Always Auto - allows empty space at edges
         skipSnaps,
         duration,
+        dragThreshold,
     }
 
     // Initialize Embla carousel with conditional autoplay plugin and wheel gestures
@@ -1010,53 +1013,6 @@ export default function EmblaCarousel(props: PropType) {
         onPrevButtonClick,
         onNextButtonClick,
     } = usePrevNextButtons(emblaApi, onNavButtonClick)
-
-    // Custom drag sensitivity - make small drags trigger slide changes
-    useEffect(() => {
-        if (!emblaApi || !emblaRef.current) return
-
-        let startX = 0
-        let isDragging = false
-        const minDragDistance = 30 // Minimum pixels to trigger slide change
-
-        const handlePointerDown = (e: PointerEvent) => {
-            startX = e.clientX
-            isDragging = true
-        }
-
-        const handlePointerMove = (e: PointerEvent) => {
-            if (!isDragging) return
-            
-            const deltaX = e.clientX - startX
-            
-            // If drag distance exceeds threshold, trigger slide change
-            if (Math.abs(deltaX) > minDragDistance) {
-                if (deltaX > 0) {
-                    // Dragged right - go to previous slide
-                    onPrevButtonClick()
-                } else {
-                    // Dragged left - go to next slide
-                    onNextButtonClick()
-                }
-                isDragging = false
-            }
-        }
-
-        const handlePointerUp = () => {
-            isDragging = false
-        }
-
-        const element = emblaRef.current
-        element.addEventListener('pointerdown', handlePointerDown)
-        element.addEventListener('pointermove', handlePointerMove)
-        element.addEventListener('pointerup', handlePointerUp)
-
-        return () => {
-            element.removeEventListener('pointerdown', handlePointerDown)
-            element.removeEventListener('pointermove', handlePointerMove)
-            element.removeEventListener('pointerup', handlePointerUp)
-        }
-    }, [emblaApi, emblaRef, onPrevButtonClick, onNextButtonClick])
 
     // Add pointer event listeners for cursor changes
     useEffect(() => {
@@ -1810,6 +1766,16 @@ addPropertyControls(EmblaCarousel, {
         max: 60,
         step: 1,
         defaultValue: 25,
+    },
+    dragThreshold: {
+        type: ControlType.Number,
+        title: "Drag Threshold",
+        min: 1,
+        max: 50,
+        step: 1,
+        defaultValue: 10,
+        unit: "px",
+        hidden: (props) => !props.draggable,
     },
     backgroundColor: {
         type: ControlType.Color,
