@@ -15,12 +15,14 @@ import {
 type LaserProps = {
     preview?: boolean
     color?: string
+    backgroundColor?: string
     // Positioning
     beamX?: number
     beamY?: number
     // Dynamics
     flowSpeed?: number
     flowStrength?: number
+    fadeDuration?: number
     // Sizing
     verticalSize?: number
     horizontalSize?: number
@@ -178,6 +180,7 @@ uniform float uFalloffStart;
 uniform float uFogFallSpeed;
 uniform vec3 uColor;
 uniform float uFade;
+uniform vec4 uBgColor; // rgba background from controls (a==0 => keep canvas transparent)
 
 #define PI 3.14159265359
 #define TWO_PI 6.28318530718
@@ -356,7 +359,15 @@ void mainImage(out vec4 fc,in vec2 frag){
   float eM=mix(xF,1.0,hi);
   col*=eM; alpha*=eM;
   col*=uFade; alpha*=uFade;
-  fc=vec4(col,alpha);
+  // Layer the beam (alpha) over a translucent background color (bgA)
+  // Straight alpha compositing: out = beam over bg, bg over transparent
+  float bgA = clamp(uBgColor.a, 0.0, 1.0);
+  float effA = clamp(alpha, 0.0, 1.0);
+  vec3 bgRGB = uBgColor.rgb;
+  vec3 effRGB = col;
+  float outA = effA + bgA * (1.0 - effA);
+  vec3 outRGB = (effRGB * effA + bgRGB * bgA * (1.0 - effA)) / max(outA, 1e-6);
+  fc = vec4(outRGB, outA);
 }
 
 void main(){
@@ -389,6 +400,7 @@ type LaserUniforms = {
     uFogFallSpeed: Uniform<number>
     uColor: Uniform<[number, number, number]>
     uFade: Uniform<number>
+    uBgColor: Uniform<[number, number, number, number]>
 }
 
 /**
@@ -401,10 +413,12 @@ type LaserUniforms = {
 export default function HulyLaser({
     preview = false,
     color = "#FF79C6",
+    backgroundColor = "#000000",
     beamX = 0.1,
     beamY = 0.0,
     flowSpeed = 0.35,
     flowStrength = 0.25,
+    fadeDuration = 1.0,
     verticalSize = 0.9,
     horizontalSize = 0.4,
     fogIntensity = 0.45,
@@ -429,8 +443,10 @@ export default function HulyLaser({
     const rafRef = useRef<number | null>(null)
     const lastTimeRef = useRef<number>(0)
     const fadeRef = useRef<number>(0)
+    const fadeElapsedRef = useRef<number>(0)
     const rectRef = useRef<DOMRect | null>(null)
     const previewRef = useRef<boolean>(preview)
+    const fadeDurationRef = useRef<number>(fadeDuration)
 
     useEffect(() => {
         const container = containerRef.current
@@ -489,6 +505,7 @@ export default function HulyLaser({
             uFogFallSpeed: { value: mapFogFallSpeed(fogFallSpeed) },
             uColor: { value: [1, 1, 1] },
             uFade: { value: 0 },
+            uBgColor: { value: [0, 0, 0, 0] },
         }
         uniformsRef.current = uniforms
 
@@ -550,9 +567,21 @@ export default function HulyLaser({
             const dt = Math.min(0.033, Math.max(0.001, now - lastTimeRef.current))
             lastTimeRef.current = now
 
-            // Fade-in
+            // Fade-in driven by real elapsed time; paused when not animating
             if (fadeRef.current < 1) {
-                fadeRef.current = Math.min(1, fadeRef.current + dt / 1.0)
+                const dur = Math.max(0, fadeDurationRef.current)
+                if (dur === 0) {
+                    fadeElapsedRef.current = 0
+                    fadeRef.current = 1
+                } else {
+                    if (shouldAnimate) {
+                        fadeElapsedRef.current = Math.min(
+                            dur,
+                            fadeElapsedRef.current + dt
+                        )
+                    }
+                    fadeRef.current = Math.min(1, fadeElapsedRef.current / dur)
+                }
                 uniforms.uFade.value = fadeRef.current
             }
 
@@ -593,6 +622,11 @@ export default function HulyLaser({
         const rgba = parseColorToRgba(typeof resolved === "string" ? resolved : "#FFFFFF")
         uniforms.uColor.value = [rgba.r, rgba.g, rgba.b]
 
+        // Background color: when alpha==0 keep canvas transparent, otherwise composite in-shader
+        const resolvedBg = resolveTokenColor(backgroundColor as any)
+        const bg = parseColorToRgba(typeof resolvedBg === "string" ? resolvedBg : "")
+        uniforms.uBgColor.value = [bg.r, bg.g, bg.b, bg.a]
+
         // Mapped values
         uniforms.uWispDensity.value = mapWispDensity(wispDensity)
         uniforms.uBeamXFrac.value = beamX
@@ -610,6 +644,7 @@ export default function HulyLaser({
         uniforms.uFogFallSpeed.value = mapFogFallSpeed(fogFallSpeed)
     }, [
         color,
+        backgroundColor,
         wispDensity,
         beamX,
         beamY,
@@ -630,6 +665,16 @@ export default function HulyLaser({
     useEffect(() => {
         previewRef.current = preview
     }, [preview])
+
+    // Keep fade duration live without re-init
+    useEffect(() => {
+        fadeDurationRef.current = fadeDuration
+        // If duration changes while mid-fade, remap progress to the new scale based on elapsed seconds
+        const oldDur = Math.max(0.000001, fadeDurationRef.current)
+        const newDur = Math.max(0.000001, fadeDuration)
+        const progress = fadeRef.current
+        fadeElapsedRef.current = progress * newDur
+    }, [fadeDuration])
 
     return (
         <div
@@ -657,15 +702,29 @@ addPropertyControls(HulyLaser, {
         enabledTitle: "On",
         disabledTitle: "Off",
     },
+    fadeDuration: {
+        type: ControlType.Number,
+        title: "Fade In",
+        min: 0,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1.0,
+        unit:"s"
+    },
 
     // Color
     color: {
         type: ControlType.Color,
         title: "Color",
-        defaultValue: "#96A4FF" as unknown as string,
+        defaultValue: "#FFB296" as unknown as string,
         optional: true,
     },
-
+    backgroundColor: {
+        type: ControlType.Color,
+        title: "Background",
+        defaultValue: "#160026",
+        optional: true,
+    },
     // Positioning
     beamX: {
         type: ControlType.Number,
@@ -773,6 +832,7 @@ addPropertyControls(HulyLaser, {
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
+    
 })
 
 HulyLaser.displayName = "Huly Laser"
