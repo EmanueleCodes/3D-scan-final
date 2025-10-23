@@ -14,7 +14,8 @@ import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import {
     useEmblaCarousel,
     Autoplay,
-} from "https://cdn.jsdelivr.net/gh/Emanuele-Webtales/clients-projects/embla-bundle.js"
+    WheelGestures,
+} from "https://cdn.jsdelivr.net/gh/Emanuele-Webtales/clients-projects/embla-bundle1.js"
 
 // Type definitions for Embla Carousel (since types can't be imported from CDN)
 type EmblaCarouselType = ReturnType<typeof useEmblaCarousel>[1]
@@ -451,6 +452,7 @@ type PropType = {
     autoplayDelay: number
     autoplayStopOnInteraction: "stop" | "continue"
     align: "start" | "center" | "end"
+    trackpad: "enable" | "disable"
     dragFree: boolean
     draggable: boolean
     skipSnaps: boolean
@@ -569,6 +571,7 @@ export default function EmblaCarousel(props: PropType) {
         autoplayDelay = 3000,
         autoplayStopOnInteraction = "stop",
         align = "center",
+        trackpad = "enable",
         dragFree = true,
         draggable = true,
         skipSnaps = false,
@@ -811,16 +814,23 @@ export default function EmblaCarousel(props: PropType) {
         duration,
     }
 
-    // Initialize Embla carousel with conditional autoplay plugin
-    const plugins =
-        autoplay && !isCanvas
-            ? [
-                  Autoplay({
-                      delay: autoplayDelay * 1000, // Convert seconds to milliseconds
-                      stopOnInteraction: autoplayStopOnInteraction === "stop",
-                  }),
-              ]
-            : []
+    // Initialize Embla carousel with conditional autoplay plugin and wheel gestures
+    const plugins = []
+    
+    // Add autoplay plugin if enabled and not in canvas
+    if (autoplay && !isCanvas) {
+        plugins.push(
+            Autoplay({
+                delay: autoplayDelay * 1000, // Convert seconds to milliseconds
+                stopOnInteraction: autoplayStopOnInteraction === "stop",
+            })
+        )
+    }
+    
+    // Add wheel gestures plugin for natural trackpad scrolling (if enabled)
+    if (trackpad === "enable") {
+        plugins.push(WheelGestures())
+    }
 
     const [emblaRef, emblaApi] = useEmblaCarousel(options, plugins)
 
@@ -1000,6 +1010,53 @@ export default function EmblaCarousel(props: PropType) {
         onPrevButtonClick,
         onNextButtonClick,
     } = usePrevNextButtons(emblaApi, onNavButtonClick)
+
+    // Custom drag sensitivity - make small drags trigger slide changes
+    useEffect(() => {
+        if (!emblaApi || !emblaRef.current) return
+
+        let startX = 0
+        let isDragging = false
+        const minDragDistance = 30 // Minimum pixels to trigger slide change
+
+        const handlePointerDown = (e: PointerEvent) => {
+            startX = e.clientX
+            isDragging = true
+        }
+
+        const handlePointerMove = (e: PointerEvent) => {
+            if (!isDragging) return
+            
+            const deltaX = e.clientX - startX
+            
+            // If drag distance exceeds threshold, trigger slide change
+            if (Math.abs(deltaX) > minDragDistance) {
+                if (deltaX > 0) {
+                    // Dragged right - go to previous slide
+                    onPrevButtonClick()
+                } else {
+                    // Dragged left - go to next slide
+                    onNextButtonClick()
+                }
+                isDragging = false
+            }
+        }
+
+        const handlePointerUp = () => {
+            isDragging = false
+        }
+
+        const element = emblaRef.current
+        element.addEventListener('pointerdown', handlePointerDown)
+        element.addEventListener('pointermove', handlePointerMove)
+        element.addEventListener('pointerup', handlePointerUp)
+
+        return () => {
+            element.removeEventListener('pointerdown', handlePointerDown)
+            element.removeEventListener('pointermove', handlePointerMove)
+            element.removeEventListener('pointerup', handlePointerUp)
+        }
+    }, [emblaApi, emblaRef, onPrevButtonClick, onNextButtonClick])
 
     // Add pointer event listeners for cursor changes
     useEffect(() => {
@@ -1715,6 +1772,15 @@ addPropertyControls(EmblaCarousel, {
         options: ["start", "center", "end"],
         optionTitles: ["Left", "Center", "Right"],
         defaultValue: "center",
+        displaySegmentedControl: true,
+        segmentedControlDirection: "horizontal",
+    },
+    trackpad: {
+        type: ControlType.Enum,
+        title: "Trackpad",
+        options: ["enable", "disable"],
+        optionTitles: ["Enable", "Disable"],
+        defaultValue: "enable",
         displaySegmentedControl: true,
         segmentedControlDirection: "horizontal",
     },
