@@ -551,7 +551,6 @@ type PropType = {
     loop: boolean
     autoplay: boolean
     autoplayDelay: number
-    autoplayStopOnInteraction: "stop" | "continue"
     align: "start" | "center" | "end"
     trackpad: "enable" | "disable"
     dragFree: boolean
@@ -679,7 +678,7 @@ export default function EmblaCarousel(props: PropType) {
         loop = true,
         autoplay = true,
         autoplayDelay = 3000,
-        autoplayStopOnInteraction = "stop",
+        
         align = "center",
         trackpad = "enable",
         dragFree = true,
@@ -941,7 +940,8 @@ export default function EmblaCarousel(props: PropType) {
         plugins.push(
             Autoplay({
                 delay: autoplayDelay * 1000, // Convert seconds to milliseconds
-                stopOnInteraction: autoplayStopOnInteraction === "stop",
+                // We handle interaction semantics manually (pause on down, reset on up)
+                stopOnInteraction: false,
             })
         )
     }
@@ -963,7 +963,7 @@ export default function EmblaCarousel(props: PropType) {
         return cancel
     }, [queueReInit, emblaApi, gap, slideBasis, outerWidth, slidesPerView])
 
-    // Handle navigation button clicks and autoplay interaction
+    // Autoplay interaction: call on actual press (pointer down) or while dragging
     const onNavButtonClick = useCallback((emblaApi: EmblaCarouselType) => {
         const autoplay = emblaApi?.plugins()?.autoplay
         if (!autoplay) return
@@ -981,10 +981,24 @@ export default function EmblaCarousel(props: PropType) {
     const [isDragging, setIsDragging] = useState(false)
     const onPointerDown = useCallback(() => {
         if (draggable) setIsDragging(true)
-    }, [draggable])
+        // Pause autoplay immediately on pointer down
+        if (emblaApi && autoplay) {
+            try {
+                const ap = emblaApi.plugins()?.autoplay
+                ap?.stop?.()
+            } catch (_) {}
+        }
+    }, [draggable, emblaApi, autoplay])
     const onPointerUp = useCallback(() => {
         if (draggable) setIsDragging(false)
-    }, [draggable])
+        if (emblaApi && autoplay) {
+            try {
+                const ap = emblaApi.plugins()?.autoplay
+                // Resume/reset autoplay on pointer up
+                ap?.reset?.()
+            } catch (_) {}
+        }
+    }, [draggable, emblaApi, autoplay])
 
     // Dots progress: key that changes on slide change to restart animation
     const [progressKey, setProgressKey] = useState(0)
@@ -998,6 +1012,15 @@ export default function EmblaCarousel(props: PropType) {
             } catch (_) {}
         }
     }, [emblaApi])
+
+    // Reset autoplay timer on controlled navigation (arrows/dots) without stopping it
+    const onNavResetClick = useCallback((api: EmblaCarouselType) => {
+        const autoplay = api?.plugins()?.autoplay
+        if (!autoplay) return
+        try {
+            autoplay.reset()
+        } catch (_) {}
+    }, [])
 
     // Imperatively apply parallax transform to originals and clones
     const applyParallax = useCallback(
@@ -1132,7 +1155,7 @@ export default function EmblaCarousel(props: PropType) {
     // Initialize dot button navigation
     const { selectedIndex, scrollSnaps, onDotButtonClick } = useDotButton(
         emblaApi,
-        onNavButtonClick
+        onNavResetClick
     )
 
     // Initialize arrow button navigation
@@ -1141,7 +1164,7 @@ export default function EmblaCarousel(props: PropType) {
         nextBtnDisabled,
         onPrevButtonClick,
         onNextButtonClick,
-    } = usePrevNextButtons(emblaApi, onNavButtonClick)
+    } = usePrevNextButtons(emblaApi, onNavResetClick)
 
     // Add pointer event listeners for cursor changes
     useEffect(() => {
@@ -2457,16 +2480,7 @@ addPropertyControls(EmblaCarousel, {
         title: "Next Arrow",
         hidden: (props) => props.arrowsUI?.arrowMode !== "components",
     },
-    autoplayStopOnInteraction: {
-        type: ControlType.Enum,
-        title: "On interaction",
-        options: ["stop", "continue"],
-        optionTitles: ["Stop autoplay", "Continue autoplay"],
-        defaultValue: "stop",
-        displaySegmentedControl: true,
-        segmentedControlDirection: "vertical",
-        hidden: (props) => !props.autoplay,
-    },
+    // Removed autoplayStopOnInteraction; autoplay always pauses on pointer down and resets on release
 })
 
 EmblaCarousel.displayName = "Adriano's Carousel"
