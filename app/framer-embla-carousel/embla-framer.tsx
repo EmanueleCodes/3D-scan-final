@@ -279,6 +279,57 @@ export const DotButton: React.FC<DotButtonPropType & { styles: any }> = (
     )
 }
 
+// A tiny component that animates a left-to-right fill using a width transition.
+// The animation restarts on remount (key change).
+type ProgressFillProps = {
+    durationMs: number
+    color: string
+    borderRadiusPx: number
+    initialPercent: number
+    minWidth: number
+}
+
+const ProgressFill: React.FC<ProgressFillProps> = ({
+    durationMs,
+    color,
+    borderRadiusPx,
+    initialPercent,
+    minWidth,
+}) => {
+    const fillRef = React.useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        const el = fillRef.current
+        if (!el) return
+        // Reset instantly to 0, then transition to 100%
+        el.style.transition = "none"
+        el.style.width = `${Math.max(0, Math.min(100, initialPercent))}%`
+        // Force reflow
+        void el.offsetWidth
+        el.style.transition = `width ${durationMs}ms linear`
+        requestAnimationFrame(() => {
+            el.style.width = "100%"
+        })
+    }, [durationMs, initialPercent])
+
+    return (
+        <div
+            ref={fillRef}
+            style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: "0%",
+                backgroundColor: color,
+                borderRadius: `${borderRadiusPx}px`,
+                pointerEvents: "none",
+                minWidth: `${minWidth}px`,
+            }}
+        />
+    )
+}
+
 // ============================================================================
 // ARROW BUTTON NAVIGATION
 // ============================================================================
@@ -505,6 +556,14 @@ type PropType = {
         horizontalAlign?: "left" | "center" | "right"
         offsetX?: number
         offsetY?: number
+        /** Progress-style active dot for autoplay */
+        progress?: {
+            enabled?: boolean
+            /** how many times wider than base width when active */
+            widthMultiplier?: number
+            /** color of the moving fill */
+            fillColor?: string
+        }
     }
     /** Arrows UI customization and positioning */
     arrowsUI?: {
@@ -599,6 +658,11 @@ export default function EmblaCarousel(props: PropType) {
             current: 1,
             scale: 1.1,
             blur: 0,
+            progress: {
+                enabled: false,
+                widthMultiplier: 5,
+                fillColor: "#000000",
+            },
             verticalAlign: "bottom",
             horizontalAlign: "center",
             offsetX: 0,
@@ -869,6 +933,19 @@ export default function EmblaCarousel(props: PropType) {
     const onPointerUp = useCallback(() => {
         if (draggable) setIsDragging(false)
     }, [draggable])
+
+    // Dots progress: key that changes on slide change to restart animation
+    const [progressKey, setProgressKey] = useState(0)
+    useEffect(() => {
+        if (!emblaApi) return
+        const handler = () => setProgressKey((k) => k + 1)
+        emblaApi.on("select", handler).on("reInit", handler)
+        return () => {
+            try {
+                emblaApi.off("select", handler).off("reInit", handler)
+            } catch (_) {}
+        }
+    }, [emblaApi])
 
     // Imperatively apply parallax transform to originals and clones
     const applyParallax = useCallback(
@@ -1529,6 +1606,7 @@ export default function EmblaCarousel(props: PropType) {
                             const baseSizeW = Math.max(dotsUI.width ?? 10, 2)
                             const baseSizeH = Math.max(dotsUI.height ?? 10, 2)
                             const baseRadius = dotsUI.radius ?? 50
+                            const useProgress = Boolean(dotsUI?.progress?.enabled && autoplay)
                             const targetScale = isSel
                                 ? (dotsUI.scale ?? 1.1)
                                 : 1
@@ -1546,26 +1624,44 @@ export default function EmblaCarousel(props: PropType) {
                                     isSelected={isSel}
                                     styles={styles}
                                     buttonStyle={{
-                                        width: `${baseSizeW}px`,
+                                        width:
+                                            useProgress && isSel
+                                                ? `${baseSizeW * (dotsUI.progress?.widthMultiplier ?? 5)}px`
+                                                : `${baseSizeW}px`,
                                         height: `${baseSizeH}px`,
                                         borderRadius: `${baseRadius}px`,
+                                        transition: `all ${transitionDuration} easeInOut`,
                                     }}
                                     innerStyle={{
-                                        width: `${baseSizeW}px`,
+                                        width: useProgress && isSel ? "100%" : `${baseSizeW}px`,
                                         height: `${baseSizeH}px`,
                                         borderRadius: `${baseRadius}px`,
-                                        backgroundColor:
-                                            dotsUI.fill || "#FFFFFF",
+                                        overflow:"hidden",
                                         backdropFilter:
                                             dotsUI.blur && dotsUI.blur > 0
                                                 ? `blur(${dotsUI.blur}px)`
                                                 : "none",
                                         transform: `scale(${targetScale})`,
-                                        opacity: targetOpacity,
+    
                                         border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
                                         boxShadow: "none",
+                                        position: useProgress && isSel ? "relative" : undefined,
                                     }}
-                                />
+                                >
+                                    <div style={{width:"100%", opacity: dotsUI.opacity, height:"100%", position:"absolute", inset:0, backgroundColor:dotsUI.fill}}/>
+
+                                    {useProgress && isSel ? (
+                                        
+                                        <ProgressFill
+                                            key={`${progressKey}-${selectedIndex}`}
+                                            durationMs={Math.max(0, (autoplayDelay * 1000) - mapEmblaDurationToMs(duration))}
+                                            color={dotsUI.progress?.fillColor || "#000000"}
+                                            borderRadiusPx={baseRadius}
+                                            minWidth={dotsUI.width ?? 10}
+                                            initialPercent={(baseSizeW / Math.max(baseSizeW * (dotsUI.progress?.widthMultiplier ?? 5), 1)) * 100}
+                                        />
+                                    ) :  <div style={{width:"100%", opacity: targetOpacity, height:"100%", position:"absolute", inset:0, backgroundColor:dotsUI.fill}}/>}
+                                </DotButton>
                             )
                         }) || []}
                     </div>
@@ -2057,6 +2153,32 @@ addPropertyControls(EmblaCarousel, {
                 step: 5,
                 defaultValue: 20,
                 hidden: (props) => !props.enabled,
+            },
+            progress: {
+                type: ControlType.Object,
+                title: "Progress",
+                controls: {
+                    enabled: {
+                        type: ControlType.Boolean,
+                        title: "Enable",
+                        defaultValue: false,
+                    },
+                    widthMultiplier: {
+                        type: ControlType.Number,
+                        title: "Width x",
+                        min: 1,
+                        max: 10,
+                        step: 0.5,
+                        defaultValue: 5,
+                        hidden: (p) => !p.enabled,
+                    },
+                    fillColor: {
+                        type: ControlType.Color,
+                        title: "Fill",
+                        defaultValue: "#000000",
+                        hidden: (p) => !p.enabled,
+                    },
+                },
             },
         },
     },
