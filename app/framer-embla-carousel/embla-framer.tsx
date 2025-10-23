@@ -45,7 +45,7 @@ const createStyles = (transitionDuration: string) => ({
     viewport: {
         overflow: "visible",
         height: "100%",
-        width:"100vw"
+        width: "100vw",
     } as React.CSSProperties,
 
     // Container - holds all slides
@@ -247,9 +247,17 @@ type DotButtonPropType = ComponentPropsWithRef<"button"> & {
     innerStyle?: React.CSSProperties
 }
 
-export const DotButton: React.FC<DotButtonPropType & { styles: any }> = (props) => {
-    const { children, isSelected, buttonStyle, innerStyle, styles, ...restProps } =
-        props
+export const DotButton: React.FC<DotButtonPropType & { styles: any }> = (
+    props
+) => {
+    const {
+        children,
+        isSelected,
+        buttonStyle,
+        innerStyle,
+        styles,
+        ...restProps
+    } = props
 
     return (
         <button
@@ -343,7 +351,14 @@ export const PrevButton: React.FC<
         styles: any
     }
 > = (props) => {
-    const { children, disabled, buttonStyle, strokeColor, styles, ...restProps } = props
+    const {
+        children,
+        disabled,
+        buttonStyle,
+        strokeColor,
+        styles,
+        ...restProps
+    } = props
 
     return (
         <button
@@ -384,7 +399,14 @@ export const NextButton: React.FC<
         styles: any
     }
 > = (props) => {
-    const { children, disabled, buttonStyle, strokeColor, styles, ...restProps } = props
+    const {
+        children,
+        disabled,
+        buttonStyle,
+        strokeColor,
+        styles,
+        ...restProps
+    } = props
 
     return (
         <button
@@ -621,8 +643,10 @@ export default function EmblaCarousel(props: PropType) {
         if (typeof node === "string") return node.trim().length > 0
         if (typeof node === "number") return true
         if (React.isValidElement(node)) {
-            const style = ((node as any).props?.style || {}) as React.CSSProperties
-            if (style.display === "none" || style.visibility === "hidden") return false
+            const style = ((node as any).props?.style ||
+                {}) as React.CSSProperties
+            if (style.display === "none" || style.visibility === "hidden")
+                return false
             // If it's a fragment, evaluate its children
             // @ts-ignore
             if (node.type === React.Fragment) {
@@ -657,12 +681,12 @@ export default function EmblaCarousel(props: PropType) {
     // Determine actual slide count based on filtered inputs (fallback to props when empty)
     const actualSlideCount =
         mode === "components"
-            ? (contentToRender.length > 0
-                  ? contentToRender.length
-                  : Math.max(1, Math.min(5, slideCount)))
-            : (imagesToRender.length > 0
-                  ? imagesToRender.length
-                  : requestedImageCount)
+            ? contentToRender.length > 0
+                ? contentToRender.length
+                : Math.max(1, Math.min(5, slideCount))
+            : imagesToRender.length > 0
+              ? imagesToRender.length
+              : requestedImageCount
 
     // Generate slides array indices
     const slidesArray = Array.from({ length: actualSlideCount }, (_, i) => i)
@@ -680,15 +704,22 @@ export default function EmblaCarousel(props: PropType) {
         const maxEmblaDuration = 60
         const minMs = 300
         const maxMs = 600
-        
-        const clampedDuration = Math.min(Math.max(emblaDuration, minEmblaDuration), maxEmblaDuration)
-        const mappedMs = ((clampedDuration - minEmblaDuration) / (maxEmblaDuration - minEmblaDuration)) * (maxMs - minMs) + minMs
-        
+
+        const clampedDuration = Math.min(
+            Math.max(emblaDuration, minEmblaDuration),
+            maxEmblaDuration
+        )
+        const mappedMs =
+            ((clampedDuration - minEmblaDuration) /
+                (maxEmblaDuration - minEmblaDuration)) *
+                (maxMs - minMs) +
+            minMs
+
         return Math.round(mappedMs)
     }
 
     const transitionDuration = `${mapEmblaDurationToMs(duration)}ms`
-    
+
     // Create styles with dynamic transition duration
     const styles = createStyles(transitionDuration)
 
@@ -702,7 +733,11 @@ export default function EmblaCarousel(props: PropType) {
         const update = () => {
             try {
                 // Prefer fast measurements; fall back to rect
-                const w = el.clientWidth || el.offsetWidth || el.getBoundingClientRect().width || 0
+                const w =
+                    el.clientWidth ||
+                    el.offsetWidth ||
+                    el.getBoundingClientRect().width ||
+                    0
                 setOuterWidth(w)
             } catch (_) {}
         }
@@ -729,10 +764,17 @@ export default function EmblaCarousel(props: PropType) {
         const tick = () => {
             const el = outerRef.current
             if (el) {
-                const w = el.clientWidth || el.offsetWidth || el.getBoundingClientRect().width || 0
+                const w =
+                    el.clientWidth ||
+                    el.offsetWidth ||
+                    el.getBoundingClientRect().width ||
+                    0
                 if (w && w !== outerWidth) setOuterWidth(w)
             }
-            if (attempts++ < 15 && RenderTarget.current() === RenderTarget.canvas) {
+            if (
+                attempts++ < 15 &&
+                RenderTarget.current() === RenderTarget.canvas
+            ) {
                 raf = requestAnimationFrame(tick)
             }
         }
@@ -742,15 +784,18 @@ export default function EmblaCarousel(props: PropType) {
     }, [RenderTarget.current() === RenderTarget.canvas])
 
     // Slide basis computed from the outer wrapper when available; fallback to %
-    const slideBasis = outerWidth > 0
-        ? `${(outerWidth / Math.max(slidesPerView || 1, 0.0001)).toFixed(4)}px`
-        : slideWidthPercentage
+    const slideBasis =
+        outerWidth > 0
+            ? `${(outerWidth / Math.max(slidesPerView || 1, 0.0001)).toFixed(4)}px`
+            : slideWidthPercentage
 
     // Re-initialize Embla when layout-affecting values change (e.g., gap) so snaps update and no overlap occurs.
     const queueReInit = useCallback((api?: EmblaCarouselType) => {
         if (!api) return
         const raf = requestAnimationFrame(() => {
-            try { api.reInit() } catch (_) {}
+            try {
+                api.reInit()
+            } catch (_) {}
         })
         return () => cancelAnimationFrame(raf)
     }, [])
@@ -1022,7 +1067,10 @@ export default function EmblaCarousel(props: PropType) {
         const arrowsGroupGap = arrowsUI.gap ?? 10
         const insetRef = arrowsUI.insetXReference ?? "container"
         const insetUnit = arrowsUI.insetXUnit ?? "px"
-        const currentSlidePx = outerWidth > 0 ? outerWidth / Math.max(slidesPerView || 1, 1) : undefined
+        const currentSlidePx =
+            outerWidth > 0
+                ? outerWidth / Math.max(slidesPerView || 1, 1)
+                : undefined
 
         const baseStyle: React.CSSProperties = {
             position: "absolute",
@@ -1045,7 +1093,8 @@ export default function EmblaCarousel(props: PropType) {
         if (mode === "space-between") {
             // Always add quarter of slide gap to horizontal offset so arrows hug the slide edges at 0 offset
             const halfSlideGapPx = (gap ?? 0) / 4
-            const offsetToken = insetUnit === "%" ? `${offsetX}%` : `${offsetX}px`
+            const offsetToken =
+                insetUnit === "%" ? `${offsetX}%` : `${offsetX}px`
 
             if (insetRef === "central-slide" && currentSlidePx) {
                 // Relative to the central slide edges based on the OUTER WRAPPER width
@@ -1102,7 +1151,8 @@ export default function EmblaCarousel(props: PropType) {
         }
 
         // Horizontal positioning relative to outer wrapper when known
-        const outerHalf = outerWidth > 0 ? `${(outerWidth / 2).toFixed(2)}px` : null
+        const outerHalf =
+            outerWidth > 0 ? `${(outerWidth / 2).toFixed(2)}px` : null
         if (hAlign === "left") {
             if (outerHalf) {
                 baseStyle.left = `calc(50% - ${outerHalf} + ${offsetX}px)`
@@ -1128,351 +1178,386 @@ export default function EmblaCarousel(props: PropType) {
     }
 
     return (
-        <div ref={outerRef} style={{ width: "100%", height: "100%", overflow: "visible", position: "relative", display:"flex",justifyContent:"center" }}>
-        <section style={{ ...styles.embla, backgroundColor, width: "100vw", maxWidth: "100vw", opacity: isReady ? 1 : 0, transition: isReady ? "opacity 0.001s linear" : "none" }}>
-            {/* Carousel viewport and slides */}
-            <div
+        <div
+            ref={outerRef}
+            style={{
+                width: "100%",
+                height: "100%",
+                overflow: "visible",
+                position: "relative",
+                display: "flex",
+                justifyContent: "center",
+            }}
+        >
+            <section
                 style={{
-                    ...styles.viewport,
-                    cursor: draggable
-                        ? isDragging
-                            ? "grabbing"
-                            : "grab"
-                        : "default",
-                        overflow:"visible",
+                    ...styles.embla,
+                    backgroundColor,
+                    width: "100vw",
+                    maxWidth: "100vw",
+                    opacity: isReady ? 1 : 0,
+                    transition: isReady ? "opacity 0.001s linear" : "none",
                 }}
-                ref={emblaRef}
             >
+                {/* Carousel viewport and slides */}
                 <div
                     style={{
-                        ...styles.container,
+                        ...styles.viewport,
+                        cursor: draggable
+                            ? isDragging
+                                ? "grabbing"
+                                : "grab"
+                            : "default",
+                        overflow: "visible",
                     }}
+                    ref={emblaRef}
                 >
-                    {slidesArray?.map((index) => (
-                        <div
-                            style={{
-                                ...styles.slide,
+                    <div
+                        style={{
+                            ...styles.container,
+                        }}
+                    >
+                        {slidesArray?.map((index) => (
+                            <div
+                                style={{
+                                    ...styles.slide,
 
-                                marginRight: `${gap}px`,
-                                // Lock slide width purely to slidesPerView
-                                flex:
-                                    mode === "images" || sizing === "fixed"
-                                        ? `0 0 ${slideBasis}`
-                                        : "0 0 auto",
-                                width:
-                                    mode === "images" || sizing === "fixed"
-                                        ? slideBasis
-                                        : undefined,
-                                boxSizing: "border-box",
-                                // Only clip overflow if effects with blur are disabled
-                                overflow:"visible",
-                                minWidth:
-                                    mode === "components" &&
-                                    (contentToRender?.length ?? 0) === 0
-                                        ? "40%"
-                                        : undefined,
-                                height:
-                                    mode === "images" || sizing === "fixed"
-                                        ? "100%"
-                                        : undefined,
-                            }}
-                            key={index}
-                        >
-                            {mode === "images" ? (
-                                imagesToRender[index] ? (
-                                    parallaxEnabled ? (
-                                        // Parallax wrapper
-                                        <div
-                                            style={{
-                                                height: "100%",
-                                                overflow: "hidden",
-                                                overflowY:"visible",
-                                                width: "100%",
-                                                borderRadius: borderRadius,
-                                            }}
-                                        >
+                                    marginRight: `${gap}px`,
+                                    // Lock slide width purely to slidesPerView
+                                    flex:
+                                        mode === "images" || sizing === "fixed"
+                                            ? `0 0 ${slideBasis}`
+                                            : "0 0 auto",
+                                    width:
+                                        mode === "images" || sizing === "fixed"
+                                            ? slideBasis
+                                            : undefined,
+                                    boxSizing: "border-box",
+                                    // Only clip overflow if effects with blur are disabled
+                                    overflow: "visible",
+                                    minWidth:
+                                        mode === "components" &&
+                                        (contentToRender?.length ?? 0) === 0
+                                            ? "40%"
+                                            : undefined,
+                                    height:
+                                        mode === "images" || sizing === "fixed"
+                                            ? "100%"
+                                            : undefined,
+                                }}
+                                key={index}
+                            >
+                                {mode === "images" ? (
+                                    imagesToRender[index] ? (
+                                        parallaxEnabled ? (
+                                            // Parallax wrapper
                                             <div
                                                 style={{
-                                                    position: "relative",
                                                     height: "100%",
+                                                    overflow: "hidden",
+                                                    overflowY: "visible",
                                                     width: "100%",
-                                                    display: "flex",
-                                                    justifyContent: "center",
+                                                    borderRadius: borderRadius,
                                                 }}
                                             >
-                                                <img
-                                                    src={imagesToRender[index].src}
-                                                    alt={`Slide ${index + 1}`}
+                                                <div
                                                     style={{
-                                                        maxWidth: "none",
-                                                        // Overfill scales with intensity: 100%..150% + 2 * gap
-                                                        flex: `0 0 calc(${overfillPercent}% + ${gap * 2}px)`,
-                                                        objectFit: "cover",
+                                                        position: "relative",
                                                         height: "100%",
-                                                        display: "block",
-                                                        transform:
-                                                            "translateX(0%)",
-                                                        willChange: "transform",
+                                                        width: "100%",
+                                                        display: "flex",
+                                                        justifyContent:
+                                                            "center",
                                                     }}
-                                                    data-parallax-index={index}
-                                                />
+                                                >
+                                                    <img
+                                                        src={
+                                                            imagesToRender[
+                                                                index
+                                                            ].src
+                                                        }
+                                                        alt={`Slide ${index + 1}`}
+                                                        style={{
+                                                            maxWidth: "none",
+                                                            // Overfill scales with intensity: 100%..150% + 2 * gap
+                                                            flex: `0 0 calc(${overfillPercent}% + ${gap * 2}px)`,
+                                                            objectFit: "cover",
+                                                            height: "100%",
+                                                            display: "block",
+                                                            transform:
+                                                                "translateX(0%)",
+                                                            willChange:
+                                                                "transform",
+                                                        }}
+                                                        data-parallax-index={
+                                                            index
+                                                        }
+                                                    />
+                                                </div>
                                             </div>
-                                        </div>
+                                        ) : (
+                                            // Regular image without parallax
+                                            <img
+                                                src={imagesToRender[index].src}
+                                                alt={`Slide ${index + 1}`}
+                                                style={{
+                                                    width: "100%",
+                                                    height: "100%",
+                                                    objectFit: "cover",
+                                                    borderRadius: borderRadius,
+                                                }}
+                                            />
+                                        )
                                     ) : (
-                                        // Regular image without parallax
-                                        <img
-                                            src={imagesToRender[index].src}
-                                            alt={`Slide ${index + 1}`}
+                                        <div
                                             style={{
-                                                width: "100%",
-                                                height: "100%",
-                                                objectFit: "cover",
+                                                ...styles.slideNumber,
                                                 borderRadius: borderRadius,
+                                                height: "100%",
                                             }}
-                                        />
+                                        >
+                                            {index + 1}
+                                        </div>
                                     )
+                                ) : contentToRender[index] ? (
+                                    <div
+                                        style={{
+                                            position: "relative",
+                                            width: "100%",
+                                            height: "100%",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            borderRadius: borderRadius,
+                                            overflow: "visible",
+                                        }}
+                                    >
+                                        {(() => {
+                                            const child = contentToRender[
+                                                index
+                                            ] as any
+                                            if (sizing === "fixed") {
+                                                // Child adapts to slide; fill 100%
+                                                return React.cloneElement(
+                                                    child,
+                                                    {
+                                                        style: {
+                                                            width: "100%",
+                                                            height: "100%",
+                                                            position:
+                                                                "absolute",
+                                                            top: 0,
+                                                            left: 0,
+                                                            ...child?.props
+                                                                ?.style,
+                                                        },
+                                                    }
+                                                )
+                                            }
+                                            // fit-content: preserve intrinsic size
+                                            return (
+                                                <div
+                                                    style={{
+                                                        position: "relative",
+                                                        display: "inline-block",
+                                                    }}
+                                                >
+                                                    {React.cloneElement(child, {
+                                                        style: {
+                                                            ...child?.props
+                                                                ?.style,
+                                                        },
+                                                    })}
+                                                </div>
+                                            )
+                                        })()}
+                                    </div>
                                 ) : (
                                     <div
                                         style={{
                                             ...styles.slideNumber,
-                                            borderRadius: borderRadius,
                                             height: "100%",
+                                            borderRadius: borderRadius,
                                         }}
                                     >
                                         {index + 1}
                                     </div>
-                                )
-                            ) : contentToRender[index] ? (
-                                <div
-                                    style={{
-                                        position: "relative",
-                                        width: "100%",
-                                        height: "100%",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        borderRadius: borderRadius,
-                                        overflow: "visible",
-                                    }}
-                                >
-                                    {(() => {
-                                        const child = contentToRender[index] as any
-                                        if (sizing === "fixed") {
-                                            // Child adapts to slide; fill 100%
-                                            return React.cloneElement(child, {
-                                                style: {
-                                                    width: "100%",
-                                                    height: "100%",
-                                                    position: "absolute",
-                                                    top: 0,
-                                                    left: 0,
-                                                    ...child?.props?.style,
-                                                },
-                                            })
-                                        }
-                                        // fit-content: preserve intrinsic size
-                                        return (
-                                            <div
-                                                style={{
-                                                    position: "relative",
-                                                    display: "inline-block",
-                                                }}
-                                            >
-                                                {React.cloneElement(child, {
-                                                    style: {
-                                                        ...child?.props?.style,
-                                                    },
-                                                })}
-                                            </div>
-                                        )
-                                    })()}
-                                </div>
-                            ) : (
-                                <div
-                                    style={{
-                                        ...styles.slideNumber,
-                                        height: "100%",
-                                        borderRadius: borderRadius,
-                                    }}
-                                >
-                                    {index + 1}
-                                </div>
-                            )}
-                        </div>
-                    )) || []}
+                                )}
+                            </div>
+                        )) || []}
+                    </div>
                 </div>
-            </div>
 
-            {/* Arrows & Dots are rendered relative to the OUTER container */}
-        </section>
-        {isReady && arrowsUI?.enabled !== false && (
-            <div style={getArrowsContainerStyle()}>
-                <div style={{ pointerEvents: "auto" }}>
-                    {arrowsUI.arrowMode === "components" && prevArrow ? (
-                        <div
-                            onClick={onPrevButtonClick}
-                            style={{
-                                cursor: prevBtnDisabled
-                                    ? "not-allowed"
-                                    : "pointer",
-                                opacity: prevBtnDisabled 
-                                    ? (arrowsUI.opacity ?? 1) * 0.5
-                                    : (arrowsUI.activeOpacity ?? 1),
-                                transition: `all ${transitionDuration} ease-out`,
-                            }}
-                        >
-                            {prevArrow}
-                        </div>
-                    ) : (
-                        <PrevButton
-                            onClick={onPrevButtonClick}
-                            disabled={prevBtnDisabled}
-                            strokeColor={
-                                arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
-                            }
-                            styles={styles}
-                            buttonStyle={{
-                                width: `${arrowsUI.size ?? 58}px`,
-                                height: `${arrowsUI.size ?? 58}px`,
-                                backgroundColor:
-                                    arrowsUI.backgroundColor ??
-                                    "transparent",
-                                border:
-                                    arrowsUI.borderWidth &&
-                                    arrowsUI.borderWidth > 0
-                                        ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
-                                        : "none",
-                                boxShadow:
-                                    arrowsUI.dropShadow === "none"
-                                        ? "none"
-                                        : (arrowsUI.dropShadow ?? "none"),
-                                backdropFilter:
-                                    arrowsUI.backdropBlur &&
-                                    arrowsUI.backdropBlur > 0
-                                        ? `blur(${arrowsUI.backdropBlur}px)`
-                                        : "none",
-                                borderRadius: `${arrowsUI.radius ?? 50}px`,
-                                opacity: prevBtnDisabled
-                                    ? (arrowsUI.opacity ?? 1) * 0.5
-                                    : (arrowsUI.activeOpacity ?? 1),
-                            }}
-                        />
-                    )}
-                </div>
-                <div style={{ pointerEvents: "auto" }}>
-                    {arrowsUI.arrowMode === "components" && nextArrow ? (
-                        <div
-                            onClick={onNextButtonClick}
-                            style={{
-                                cursor: nextBtnDisabled
-                                    ? "not-allowed"
-                                    : "pointer",
-                                opacity: nextBtnDisabled 
-                                    ? (arrowsUI.opacity ?? 1) * 0.5
-                                    : (arrowsUI.activeOpacity ?? 1),
-                                transition: `all ${transitionDuration} ease-out`,
-                            }}
-                        >
-                            {nextArrow}
-                        </div>
-                    ) : (
-                        <NextButton
-                            onClick={onNextButtonClick}
-                            disabled={nextBtnDisabled}
-                            strokeColor={
-                                arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
-                            }
-                            styles={styles}
-                            buttonStyle={{
-                                width: `${arrowsUI.size ?? 58}px`,
-                                height: `${arrowsUI.size ?? 58}px`,
-                                backgroundColor:
-                                    arrowsUI.backgroundColor ??
-                                    "transparent",
-                                border:
-                                    arrowsUI.borderWidth &&
-                                    arrowsUI.borderWidth > 0
-                                        ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
-                                        : "none",
-                                boxShadow:
-                                    arrowsUI.dropShadow === "none"
-                                        ? "none"
-                                        : (arrowsUI.dropShadow ?? "none"),
-                                backdropFilter:
-                                    arrowsUI.backdropBlur &&
-                                    arrowsUI.backdropBlur > 0
-                                        ? `blur(${arrowsUI.backdropBlur}px)`
-                                        : "none",
-                                borderRadius: `${arrowsUI.radius ?? 50}px`,
-                                opacity: nextBtnDisabled
-                                    ? (arrowsUI.opacity ?? 1) * 0.5
-                                    : (arrowsUI.activeOpacity ?? 1),
-                            }}
-                        />
-                    )}
-                </div>
-            </div>
-        )}
-
-        {isReady && dotsUI?.enabled !== false && (
-            <div style={getDotsContainerStyle()}>
-                <div
-                    style={{
-                        display: "inline-flex",
-                        gap: `${dotsUI.gap ?? 10}px`,
-                        backgroundColor: dotsUI.backdrop || "transparent",
-                        borderRadius: dotsUI.backdropRadius ?? 20,
-                        padding: dotsUI.padding ?? 0,
-                        pointerEvents: "auto",
-                    }}
-                >
-                    {scrollSnaps?.map((_, index) => {
-                        const isSel = index === selectedIndex
-                        const baseSizeW = Math.max(dotsUI.width ?? 10, 2)
-                        const baseSizeH = Math.max(dotsUI.height ?? 10, 2)
-                        const baseRadius = dotsUI.radius ?? 50
-                        const targetScale = isSel
-                            ? (dotsUI.scale ?? 1.1)
-                            : 1
-                        const targetOpacity = isSel
-                            ? (dotsUI.current ?? 1)
-                            : (dotsUI.opacity ?? 0.5)
-                        const bw = dotsUI.borderWidth ?? 0
-                        const bws = dotsUI.currentBorderWidth ?? bw
-                        const bc = dotsUI.borderColor ?? "transparent"
-                        const bcs = dotsUI.currentBorderColor ?? bc
-                        return (
-                            <DotButton
-                                key={index}
-                                onClick={() => onDotButtonClick(index)}
-                                isSelected={isSel}
+                {/* Arrows & Dots are rendered relative to the OUTER container */}
+            </section>
+            {isReady && arrowsUI?.enabled !== false && (
+                <div style={getArrowsContainerStyle()}>
+                    <div style={{ pointerEvents: "auto" }}>
+                        {arrowsUI.arrowMode === "components" && prevArrow ? (
+                            <div
+                                onClick={onPrevButtonClick}
+                                style={{
+                                    cursor: prevBtnDisabled
+                                        ? "not-allowed"
+                                        : "pointer",
+                                    opacity: prevBtnDisabled
+                                        ? (arrowsUI.opacity ?? 1)
+                                        : (arrowsUI.activeOpacity ?? 1),
+                                    transition: `all ${transitionDuration} ease-out`,
+                                }}
+                            >
+                                {prevArrow}
+                            </div>
+                        ) : (
+                            <PrevButton
+                                onClick={onPrevButtonClick}
+                                disabled={prevBtnDisabled}
+                                strokeColor={
+                                    arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
+                                }
                                 styles={styles}
                                 buttonStyle={{
-                                    width: `${baseSizeW}px`,
-                                    height: `${baseSizeH}px`,
-                                    borderRadius: `${baseRadius}px`,
-                                }}
-                                innerStyle={{
-                                    width: `${baseSizeW}px`,
-                                    height: `${baseSizeH}px`,
-                                    borderRadius: `${baseRadius}px`,
+                                    width: `${arrowsUI.size ?? 58}px`,
+                                    height: `${arrowsUI.size ?? 58}px`,
                                     backgroundColor:
-                                        dotsUI.fill || "#FFFFFF",
-                                    backdropFilter:
-                                        dotsUI.blur && dotsUI.blur > 0
-                                            ? `blur(${dotsUI.blur}px)`
+                                        arrowsUI.backgroundColor ??
+                                        "transparent",
+                                    border:
+                                        arrowsUI.borderWidth &&
+                                        arrowsUI.borderWidth > 0
+                                            ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
                                             : "none",
-                                    transform: `scale(${targetScale})`,
-                                    opacity: targetOpacity,
-                                    border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
-                                    boxShadow: "none",
+                                    boxShadow:
+                                        arrowsUI.dropShadow === "none"
+                                            ? "none"
+                                            : (arrowsUI.dropShadow ?? "none"),
+                                    backdropFilter:
+                                        arrowsUI.backdropBlur &&
+                                        arrowsUI.backdropBlur > 0
+                                            ? `blur(${arrowsUI.backdropBlur}px)`
+                                            : "none",
+                                    borderRadius: `${arrowsUI.radius ?? 50}px`,
+                                    opacity: prevBtnDisabled
+                                        ? (arrowsUI.opacity ?? 1)
+                                        : (arrowsUI.activeOpacity ?? 1),
                                 }}
                             />
-                        )
-                    }) || []}
+                        )}
+                    </div>
+                    <div style={{ pointerEvents: "auto" }}>
+                        {arrowsUI.arrowMode === "components" && nextArrow ? (
+                            <div
+                                onClick={onNextButtonClick}
+                                style={{
+                                    cursor: nextBtnDisabled
+                                        ? "not-allowed"
+                                        : "pointer",
+                                    opacity: nextBtnDisabled
+                                        ? (arrowsUI.opacity ?? 1)
+                                        : (arrowsUI.activeOpacity ?? 1),
+                                    transition: `all ${transitionDuration} ease-out`,
+                                }}
+                            >
+                                {nextArrow}
+                            </div>
+                        ) : (
+                            <NextButton
+                                onClick={onNextButtonClick}
+                                disabled={nextBtnDisabled}
+                                strokeColor={
+                                    arrowsUI.strokeColor ?? "rgb(54, 49, 61)"
+                                }
+                                styles={styles}
+                                buttonStyle={{
+                                    width: `${arrowsUI.size ?? 58}px`,
+                                    height: `${arrowsUI.size ?? 58}px`,
+                                    backgroundColor:
+                                        arrowsUI.backgroundColor ??
+                                        "transparent",
+                                    border:
+                                        arrowsUI.borderWidth &&
+                                        arrowsUI.borderWidth > 0
+                                            ? `${arrowsUI.borderWidth}px solid ${arrowsUI.borderColor ?? "rgba(234, 234, 234, 1)"}`
+                                            : "none",
+                                    boxShadow:
+                                        arrowsUI.dropShadow === "none"
+                                            ? "none"
+                                            : (arrowsUI.dropShadow ?? "none"),
+                                    backdropFilter:
+                                        arrowsUI.backdropBlur &&
+                                        arrowsUI.backdropBlur > 0
+                                            ? `blur(${arrowsUI.backdropBlur}px)`
+                                            : "none",
+                                    borderRadius: `${arrowsUI.radius ?? 50}px`,
+                                    opacity: nextBtnDisabled
+                                        ? (arrowsUI.opacity ?? 1)
+                                        : (arrowsUI.activeOpacity ?? 1),
+                                }}
+                            />
+                        )}
+                    </div>
                 </div>
-            </div>
-        )}
+            )}
+
+            {isReady && dotsUI?.enabled !== false && (
+                <div style={getDotsContainerStyle()}>
+                    <div
+                        style={{
+                            display: "inline-flex",
+                            gap: `${dotsUI.gap ?? 10}px`,
+                            backgroundColor: dotsUI.backdrop || "transparent",
+                            borderRadius: dotsUI.backdropRadius ?? 20,
+                            padding: dotsUI.padding ?? 0,
+                            pointerEvents: "auto",
+                        }}
+                    >
+                        {scrollSnaps?.map((_, index) => {
+                            const isSel = index === selectedIndex
+                            const baseSizeW = Math.max(dotsUI.width ?? 10, 2)
+                            const baseSizeH = Math.max(dotsUI.height ?? 10, 2)
+                            const baseRadius = dotsUI.radius ?? 50
+                            const targetScale = isSel
+                                ? (dotsUI.scale ?? 1.1)
+                                : 1
+                            const targetOpacity = isSel
+                                ? (dotsUI.current ?? 1)
+                                : (dotsUI.opacity ?? 0.5)
+                            const bw = dotsUI.borderWidth ?? 0
+                            const bws = dotsUI.currentBorderWidth ?? bw
+                            const bc = dotsUI.borderColor ?? "transparent"
+                            const bcs = dotsUI.currentBorderColor ?? bc
+                            return (
+                                <DotButton
+                                    key={index}
+                                    onClick={() => onDotButtonClick(index)}
+                                    isSelected={isSel}
+                                    styles={styles}
+                                    buttonStyle={{
+                                        width: `${baseSizeW}px`,
+                                        height: `${baseSizeH}px`,
+                                        borderRadius: `${baseRadius}px`,
+                                    }}
+                                    innerStyle={{
+                                        width: `${baseSizeW}px`,
+                                        height: `${baseSizeH}px`,
+                                        borderRadius: `${baseRadius}px`,
+                                        backgroundColor:
+                                            dotsUI.fill || "#FFFFFF",
+                                        backdropFilter:
+                                            dotsUI.blur && dotsUI.blur > 0
+                                                ? `blur(${dotsUI.blur}px)`
+                                                : "none",
+                                        transform: `scale(${targetScale})`,
+                                        opacity: targetOpacity,
+                                        border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
+                                        boxShadow: "none",
+                                    }}
+                                />
+                            )
+                        }) || []}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
@@ -1960,6 +2045,7 @@ addPropertyControls(EmblaCarousel, {
                 optionTitles: ["Default", "Components"],
                 defaultValue: "default",
                 displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
                 hidden: (props) => !props.enabled,
             },
             mode: {
@@ -2012,11 +2098,14 @@ addPropertyControls(EmblaCarousel, {
                 type: ControlType.Enum,
                 title: "Reference",
                 options: ["container", "central-slide"],
-                optionTitles: ["Container", "Central"],
+                optionTitles: ["Container", "Central slide"],
                 defaultValue: "container",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
-                hidden: (props) => !props.enabled || props.arrowMode === "components" || props.mode !== "space-between",
+                hidden: (props) =>
+                    !props.enabled ||
+                    props.arrowMode === "components" ||
+                    props.mode !== "space-between",
             },
             insetXUnit: {
                 type: ControlType.Enum,
@@ -2026,7 +2115,10 @@ addPropertyControls(EmblaCarousel, {
                 defaultValue: "px",
                 displaySegmentedControl: true,
                 segmentedControlDirection: "horizontal",
-                hidden: (props) => !props.enabled || props.arrowMode === "components" || props.mode !== "space-between",
+                hidden: (props) =>
+                    !props.enabled ||
+                    props.arrowMode === "components" ||
+                    props.mode !== "space-between",
             },
             offsetX: {
                 type: ControlType.Number,
@@ -2048,7 +2140,7 @@ addPropertyControls(EmblaCarousel, {
                 hidden: (props) =>
                     !props.enabled || props.arrowMode === "components",
             },
-        
+
             borderColor: {
                 type: ControlType.Color,
                 title: "Border",
@@ -2121,7 +2213,7 @@ addPropertyControls(EmblaCarousel, {
                 hidden: (props) =>
                     !props.enabled || props.arrowMode === "components",
             },
-            
+
             backdropBlur: {
                 type: ControlType.Number,
                 title: "Blur",
