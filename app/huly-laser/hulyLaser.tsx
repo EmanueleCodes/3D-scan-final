@@ -413,7 +413,7 @@ type LaserUniforms = {
 export default function HulyLaser({
     preview = false,
     color = "#FF79C6",
-    backgroundColor = "#000000",
+    backgroundColor,
     beamX = 0.1,
     beamY = 0.0,
     flowSpeed = 0.35,
@@ -623,9 +623,14 @@ export default function HulyLaser({
         uniforms.uColor.value = [rgba.r, rgba.g, rgba.b]
 
         // Background color: when alpha==0 keep canvas transparent, otherwise composite in-shader
-        const resolvedBg = resolveTokenColor(backgroundColor as any)
-        const bg = parseColorToRgba(typeof resolvedBg === "string" ? resolvedBg : "")
-        uniforms.uBgColor.value = [bg.r, bg.g, bg.b, bg.a]
+        // If background is not provided, keep canvas fully transparent
+        if (typeof backgroundColor === "string" && backgroundColor.trim() !== "") {
+            const resolvedBg = resolveTokenColor(backgroundColor as any)
+            const bg = parseColorToRgba(typeof resolvedBg === "string" ? resolvedBg : "")
+            uniforms.uBgColor.value = [bg.r, bg.g, bg.b, bg.a]
+        } else {
+            uniforms.uBgColor.value = [0, 0, 0, 0]
+        }
 
         // Mapped values
         uniforms.uWispDensity.value = mapWispDensity(wispDensity)
@@ -717,7 +722,6 @@ addPropertyControls(HulyLaser, {
         type: ControlType.Color,
         title: "Color",
         defaultValue: "#FFB296" as unknown as string,
-        optional: true,
     },
     backgroundColor: {
         type: ControlType.Color,
