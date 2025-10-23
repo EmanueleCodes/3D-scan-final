@@ -19,21 +19,16 @@ type LaserProps = {
     // Positioning
     beamX?: number
     beamY?: number
-    // Dynamics
-    flowSpeed?: number
-    flowStrength?: number
+    // Dynamics (Flow)
+    dynamics?: { speed?: number; strength?: number }
     fadeDuration?: number
     // Sizing
     verticalSize?: number
     horizontalSize?: number
     // Fog
-    fogIntensity?: number
-    fogScale?: number
-    fogFallSpeed?: number
+    fog?: { intensity?: number; scale?: number; fall?: number }
     // Wisps
-    wispDensity?: number
-    wispSpeed?: number
-    wispIntensity?: number
+    wisps?: { density?: number; speed?: number; intensity?: number }
     // Falloff shaping
     decay?: number
     falloffStart?: number
@@ -416,17 +411,12 @@ export default function HulyLaser({
     backgroundColor,
     beamX = 0.1,
     beamY = 0.0,
-    flowSpeed = 0.35,
-    flowStrength = 0.25,
+    dynamics = { speed: 0.35, strength: 0.25 },
     fadeDuration = 1.0,
     verticalSize = 0.9,
     horizontalSize = 0.4,
-    fogIntensity = 0.45,
-    fogScale = 0.3,
-    fogFallSpeed = 0.6,
-    wispDensity = 1.0,
-    wispSpeed = 0.6,
-    wispIntensity = 0.6,
+    fog = { intensity: 0.45, scale: 0.3, fall: 0.6 },
+    wisps = { density: 1.0, speed: 0.6, intensity: 0.6 },
     decay = 0.6,
     falloffStart = 0.6,
     style,
@@ -486,23 +476,23 @@ export default function HulyLaser({
             iTime: { value: 0 },
             iResolution: { value: [1, 1, 1] },
             iMouse: { value: [0, 0, 0, 0] },
-            uWispDensity: { value: mapWispDensity(wispDensity) },
+            uWispDensity: { value: mapWispDensity(wisps?.density ?? 1.0) },
             uTiltScale: { value: 0.01 }, // Fixed tilt scale
             uFlowTime: { value: 0 },
             uFogTime: { value: 0 },
             uBeamXFrac: { value: beamX },
             uBeamYFrac: { value: beamY },
-            uFlowSpeed: { value: mapFlowSpeed(flowSpeed) },
+            uFlowSpeed: { value: mapFlowSpeed(dynamics?.speed ?? 0.35) },
             uVLenFactor: { value: mapVerticalSize(verticalSize) },
             uHLenFactor: { value: mapHorizontalSize(horizontalSize) },
-            uFogIntensity: { value: mapFogIntensity(fogIntensity) },
-            uFogScale: { value: mapFogScale(fogScale) },
-            uWSpeed: { value: mapWispSpeed(wispSpeed) },
-            uWIntensity: { value: mapWispIntensity(wispIntensity) },
-            uFlowStrength: { value: mapFlowStrength(flowStrength) },
+            uFogIntensity: { value: mapFogIntensity(fog?.intensity ?? 0.45) },
+            uFogScale: { value: mapFogScale(fog?.scale ?? 0.3) },
+            uWSpeed: { value: mapWispSpeed(wisps?.speed ?? 0.6) },
+            uWIntensity: { value: mapWispIntensity(wisps?.intensity ?? 0.6) },
+            uFlowStrength: { value: mapFlowStrength(dynamics?.strength ?? 0.25) },
             uDecay: { value: mapDecay(decay) },
             uFalloffStart: { value: mapFalloffStart(falloffStart) },
-            uFogFallSpeed: { value: mapFogFallSpeed(fogFallSpeed) },
+            uFogFallSpeed: { value: mapFogFallSpeed(fog?.fall ?? 0.6) },
             uColor: { value: [1, 1, 1] },
             uFade: { value: 0 },
             uBgColor: { value: [0, 0, 0, 0] },
@@ -633,37 +623,33 @@ export default function HulyLaser({
         }
 
         // Mapped values
-        uniforms.uWispDensity.value = mapWispDensity(wispDensity)
+        uniforms.uWispDensity.value = mapWispDensity(wisps?.density ?? 1.0)
         uniforms.uBeamXFrac.value = beamX
         uniforms.uBeamYFrac.value = beamY
-        uniforms.uFlowSpeed.value = mapFlowSpeed(flowSpeed)
+        uniforms.uFlowSpeed.value = mapFlowSpeed(dynamics?.speed ?? 0.35)
         uniforms.uVLenFactor.value = mapVerticalSize(verticalSize)
         uniforms.uHLenFactor.value = mapHorizontalSize(horizontalSize)
-        uniforms.uFogIntensity.value = mapFogIntensity(fogIntensity)
-        uniforms.uFogScale.value = mapFogScale(fogScale)
-        uniforms.uWSpeed.value = mapWispSpeed(wispSpeed)
-        uniforms.uWIntensity.value = mapWispIntensity(wispIntensity)
-        uniforms.uFlowStrength.value = mapFlowStrength(flowStrength)
+        uniforms.uFogIntensity.value = mapFogIntensity(fog?.intensity ?? 0.45)
+        uniforms.uFogScale.value = mapFogScale(fog?.scale ?? 0.3)
+        uniforms.uWSpeed.value = mapWispSpeed(wisps?.speed ?? 0.6)
+        uniforms.uWIntensity.value = mapWispIntensity(wisps?.intensity ?? 0.6)
+        uniforms.uFlowStrength.value = mapFlowStrength(dynamics?.strength ?? 0.25)
         uniforms.uDecay.value = mapDecay(decay)
         uniforms.uFalloffStart.value = mapFalloffStart(falloffStart)
-        uniforms.uFogFallSpeed.value = mapFogFallSpeed(fogFallSpeed)
+        uniforms.uFogFallSpeed.value = mapFogFallSpeed(fog?.fall ?? 0.6)
     }, [
         color,
         backgroundColor,
-        wispDensity,
+        wisps,
         beamX,
         beamY,
-        flowSpeed,
+        dynamics,
         verticalSize,
         horizontalSize,
-        fogIntensity,
-        fogScale,
-        wispSpeed,
-        wispIntensity,
-        flowStrength,
+        fog,
         decay,
         falloffStart,
-        fogFallSpeed,
+        // no direct dep: fall is inside fog object
     ])
 
     // Keep a live ref of preview like ShaderLines (no re-init)
@@ -726,7 +712,7 @@ addPropertyControls(HulyLaser, {
     backgroundColor: {
         type: ControlType.Color,
         title: "Background",
-        defaultValue: "#160026",
+        defaultValue: "#000000",
         optional: true,
     },
     // Positioning
@@ -747,24 +733,6 @@ addPropertyControls(HulyLaser, {
         defaultValue: 0.0,
     },
 
-    // Dynamics
-    flowSpeed: {
-        type: ControlType.Number,
-        title: "Flow Speed",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.35,
-    },
-    flowStrength: {
-        type: ControlType.Number,
-        title: "Flow Strength",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.25,
-    },
-
     // Sizing
     verticalSize: {
         type: ControlType.Number,
@@ -783,58 +751,95 @@ addPropertyControls(HulyLaser, {
         defaultValue: 0.75,
     },
 
-    // Fog
-    fogIntensity: {
-        type: ControlType.Number,
-        title: "Fog",
-        min: 0,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.45,
-    },
-    fogScale: {
-        type: ControlType.Number,
-        title: "Fog Scale",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.3,
-    },
-    fogFallSpeed: {
-        type: ControlType.Number,
-        title: "Fog Fall",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.6,
+    // Dynamics (group)
+    dynamics: {
+        type: ControlType.Object,
+        title: "Dynamics",
+        controls: {
+            speed: {
+                type: ControlType.Number,
+                title: "Speed",
+                min: 0.1,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.35,
+            },
+            strength: {
+                type: ControlType.Number,
+                title: "Strength",
+                min: 0,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.25,
+            },
+        },
     },
 
-    // Wisps
-    wispDensity: {
-        type: ControlType.Number,
-        title: "Wisp Density",
-        min: 0,
-        max: 2,
-        step: 0.05,
-        defaultValue: 1.0,
+    // Fog (group)
+    fog: {
+        type: ControlType.Object,
+        title: "Fog",
+        controls: {
+            intensity: {
+                type: ControlType.Number,
+                title: "Intensity",
+                min: 0,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.45,
+            },
+            scale: {
+                type: ControlType.Number,
+                title: "Scale",
+                min: 0.1,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.3,
+            },
+            fall: {
+                type: ControlType.Number,
+                title: "Fall",
+                min: 0.1,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.6,
+            },
+        },
     },
-    wispSpeed: {
-        type: ControlType.Number,
-        title: "Wisp Speed",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.6,
-    },
-    wispIntensity: {
-        type: ControlType.Number,
-        title: "Wisp Intensity",
-        min: 0.1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.6,
+
+    // Wisps (group)
+    wisps: {
+        type: ControlType.Object,
+        title: "Wisps",
         description:
-            "More components at [Framer University](https://frameruni.link/cc).",
+                    "More components at [Framer University](https://frameruni.link/cc).",
+        controls: {
+            density: {
+                type: ControlType.Number,
+                title: "Density",
+                min: 0,
+                max: 2,
+                step: 0.05,
+                defaultValue: 1.0,
+            },
+            speed: {
+                type: ControlType.Number,
+                title: "Speed",
+                min: 0.1,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.6,
+            },
+            intensity: {
+                type: ControlType.Number,
+                title: "Intensity",
+                min: 0.1,
+                max: 1,
+                step: 0.05,
+                defaultValue: 0.6,
+                
+            },
+        },
     },
     
 })
