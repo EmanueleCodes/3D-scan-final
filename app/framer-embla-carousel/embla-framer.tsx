@@ -287,6 +287,8 @@ type ProgressFillProps = {
     borderRadiusPx: number
     initialPercent: number
     minWidth: number
+    isActive: boolean
+    trigger: number
 }
 
 const ProgressFill: React.FC<ProgressFillProps> = ({
@@ -295,22 +297,63 @@ const ProgressFill: React.FC<ProgressFillProps> = ({
     borderRadiusPx,
     initialPercent,
     minWidth,
+    isActive,
+    trigger,
 }) => {
     const fillRef = React.useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
         const el = fillRef.current
         if (!el) return
-        // Reset instantly to 0, then transition to 100%
-        el.style.transition = "none"
-        el.style.width = `${Math.max(0, Math.min(100, initialPercent))}%`
-        // Force reflow
-        void el.offsetWidth
-        el.style.transition = `width ${durationMs}ms linear`
-        requestAnimationFrame(() => {
-            el.style.width = "100%"
-        })
-    }, [durationMs, initialPercent])
+        
+        // Fade in duration (10% of total duration)
+        const fadeInDuration = Math.max(50, durationMs * 0.1)
+        // Fade out duration (10% of total duration) 
+        const fadeOutDuration = Math.max(50, durationMs * 0.1)
+        // Main fill duration (80% of total duration)
+        const fillDuration = durationMs - fadeInDuration - fadeOutDuration
+        
+        if (isActive) {
+            // Reset instantly
+            el.style.transition = "none"
+            el.style.width = `${Math.max(0, Math.min(100, initialPercent))}%`
+            el.style.opacity = "0"
+
+            // Force reflow
+            void el.offsetWidth
+
+            // Start fade in
+            el.style.transition = `opacity ${fadeInDuration}ms ease-out`
+            el.style.opacity = "1"
+
+            // After fade in, start width animation
+            const t1 = window.setTimeout(() => {
+                el.style.transition = `width ${fillDuration}ms linear`
+                el.style.width = "100%"
+            }, fadeInDuration)
+
+            // Near the end, start fade out
+            const t2 = window.setTimeout(() => {
+                // Do not cancel the ongoing width transition; append opacity transition instead
+                const currentTransition = el.style.transition || ""
+                const appended = currentTransition
+                    ? `${currentTransition}, opacity ${fadeOutDuration}ms ease-in`
+                    : `opacity ${fadeOutDuration}ms ease-in`
+                el.style.transition = appended
+                el.style.opacity = "0"
+            }, fadeInDuration + fillDuration - fadeOutDuration)
+
+            return () => {
+                window.clearTimeout(t1)
+                window.clearTimeout(t2)
+            }
+        } else {
+            // If becoming inactive, gently fade out
+            el.style.transition = `opacity ${fadeOutDuration}ms ease-in`
+            el.style.opacity = "0"
+        }
+
+    }, [durationMs, initialPercent, isActive, trigger])
 
     return (
         <div
@@ -325,6 +368,7 @@ const ProgressFill: React.FC<ProgressFillProps> = ({
                 borderRadius: `${borderRadiusPx}px`,
                 pointerEvents: "none",
                 minWidth: `${minWidth}px`,
+                opacity: 0,
             }}
         />
     )
@@ -788,6 +832,8 @@ export default function EmblaCarousel(props: PropType) {
     }
 
     const transitionDuration = `${mapEmblaDurationToMs(duration)}ms`
+    // Slightly slower transitions for dots for a smoother feel
+    const dotsTransitionDuration = `${Math.round(mapEmblaDurationToMs(duration) * 1.3)}ms`
 
     // Create styles with dynamic transition duration
     const styles = createStyles(transitionDuration)
@@ -1630,10 +1676,10 @@ export default function EmblaCarousel(props: PropType) {
                                                 : `${baseSizeW}px`,
                                         height: `${baseSizeH}px`,
                                         borderRadius: `${baseRadius}px`,
-                                        transition: `all ${transitionDuration} easeInOut`,
+                                        transition: `width ${dotsTransitionDuration} ease-in-out, border-radius ${dotsTransitionDuration} ease-in-out, opacity ${dotsTransitionDuration} ease-in-out`,
                                     }}
                                     innerStyle={{
-                                        width: useProgress && isSel ? "100%" : `${baseSizeW}px`,
+                                        width: "100%",
                                         height: `${baseSizeH}px`,
                                         borderRadius: `${baseRadius}px`,
                                         overflow:"hidden",
@@ -1642,7 +1688,7 @@ export default function EmblaCarousel(props: PropType) {
                                                 ? `blur(${dotsUI.blur}px)`
                                                 : "none",
                                         transform: `scale(${targetScale})`,
-    
+                                        transition: `transform ${dotsTransitionDuration} ease-in-out, opacity ${dotsTransitionDuration} ease-in-out`,
                                         border: `${isSel ? bws : bw}px solid ${isSel ? bcs : bc}`,
                                         boxShadow: "none",
                                         position: useProgress && isSel ? "relative" : undefined,
@@ -1650,17 +1696,22 @@ export default function EmblaCarousel(props: PropType) {
                                 >
                                     <div style={{width:"100%", opacity: dotsUI.opacity, height:"100%", position:"absolute", inset:0, backgroundColor:dotsUI.fill}}/>
 
-                                    {useProgress && isSel ? (
-                                        
+                                    {useProgress ? (
                                         <ProgressFill
-                                            key={`${progressKey}-${selectedIndex}`}
-                                            durationMs={Math.max(0, (autoplayDelay * 1000) - mapEmblaDurationToMs(duration))}
+                                            key={`pf-${index}`}
+                                            durationMs={Math.max(0, (autoplayDelay * 1000))}
                                             color={dotsUI.progress?.fillColor || "#000000"}
                                             borderRadiusPx={baseRadius}
                                             minWidth={dotsUI.width ?? 10}
                                             initialPercent={(baseSizeW / Math.max(baseSizeW * (dotsUI.progress?.widthMultiplier ?? 5), 1)) * 100}
+                                            isActive={isSel}
+                                            trigger={progressKey}
                                         />
-                                    ) :  <div style={{width:"100%", opacity: targetOpacity, height:"100%", position:"absolute", inset:0, backgroundColor:dotsUI.fill}}/>}
+                                    ) : null}
+
+                                    {!isSel && (
+                                        <div style={{width:"100%", opacity: targetOpacity, height:"100%", position:"absolute", inset:0, backgroundColor:dotsUI.fill}}/>
+                                    )}
                                 </DotButton>
                             )
                         }) || []}
