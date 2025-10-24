@@ -1222,6 +1222,87 @@ export default function EmblaCarousel(props: PropType) {
         setTweenFactor,
     ])
 
+    // Stop autoplay when the carousel goes out of view or tab is hidden; resume when visible again
+    useEffect(() => {
+        if (!emblaApi || !autoplay || isCanvas) return
+
+        const plugin = (() => {
+            try {
+                return emblaApi.plugins()?.autoplay as
+                    | { stop?: () => void; reset?: () => void }
+                    | undefined
+            } catch (_) {
+                return undefined
+            }
+        })()
+
+        if (!plugin) return
+
+        let observer: IntersectionObserver | null = null
+        let rafId = 0
+        const targetEl = outerRef.current
+        const inViewportRef = { current: true }
+
+        const applyState = (inViewport: boolean, pageVisible: boolean) => {
+            try {
+                if (!plugin) return
+                if (inViewport && pageVisible) {
+                    // When re-entering viewport or tab becomes visible, ensure autoplay resumes
+                    // Prefer play/start if available; fall back to reset
+                    ;(plugin as unknown as { play?: () => void }).play?.()
+                    ;(plugin as unknown as { start?: () => void }).start?.()
+                    plugin.reset?.()
+                    // Ensure plugin/timers are in a clean state and progress restarts
+                    rafId = requestAnimationFrame(() => {
+                        try { emblaApi.reInit() } catch (_) {}
+                    })
+                    // Restart progress fill animation even if slide index didn't change
+                    setProgressKey((k) => k + 1)
+                } else {
+                    plugin.stop?.()
+                }
+            } catch (_) {}
+        }
+
+        const onVisibility = () => {
+            applyState(inViewportRef.current, !document.hidden)
+        }
+
+        if (
+            typeof window !== "undefined" &&
+            typeof IntersectionObserver !== "undefined" &&
+            targetEl
+        ) {
+            observer = new IntersectionObserver(
+                (entries: IntersectionObserverEntry[]) => {
+                    const entry = entries[0]
+                    const inView =
+                        Boolean(entry?.isIntersecting) &&
+                        (entry?.intersectionRatio ?? 0) > 0.05
+                    inViewportRef.current = inView
+                    applyState(inView, !document.hidden)
+                },
+                { root: null, threshold: [0, 0.05, 0.1, 0.25, 0.5, 1] }
+            )
+            try {
+                observer.observe(targetEl)
+            } catch (_) {}
+        }
+
+        document.addEventListener("visibilitychange", onVisibility)
+        // Initial sync
+        applyState(true, !document.hidden)
+
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibility)
+            try {
+                if (observer && targetEl) observer.unobserve(targetEl)
+                observer?.disconnect()
+            } catch (_) {}
+            if (rafId) cancelAnimationFrame(rafId)
+        }
+    }, [emblaApi, autoplay, isCanvas, setProgressKey])
+
     // Calculate arrow positioning styles based on arrowsUI settings
     const getArrowsContainerStyle = (): React.CSSProperties => {
         const mode = arrowsUI.mode ?? "space-between"
