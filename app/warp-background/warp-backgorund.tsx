@@ -102,7 +102,11 @@ const Beam = ({
                 transform: "translateX(-50%)",
             }}
             initial={staticMode ? { y: staticY ?? "-40%", opacity: 1 } : { y: "100cqmax", opacity: 0 }}
-            animate={staticMode ? { y: staticY ?? "-40%", opacity: 1 } : { y: "-100%", opacity: 1 }}
+            animate={
+                staticMode
+                    ? { y: staticY ?? "-40%", opacity: 1 }
+                    : { y: "-100%", opacity: [0, 1, 1, 0] }
+            }
       transition={
                 staticMode
                     ? { duration: 0 }
@@ -111,9 +115,10 @@ const Beam = ({
                           delay,
                           ease: "linear",
                           opacity: {
-                              duration: 0.5,
-                              delay: delay,
-                              ease: "easeOut",
+                              duration,
+                              delay,
+                              ease: "linear",
+                              times: [0, 0.1, 0.85, 1],
                           },
                       }
             }
