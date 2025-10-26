@@ -1,5 +1,5 @@
 import { motion } from "framer-motion"
-import React, { useMemo, ComponentType } from "react"
+import React, { useMemo, ComponentType, useState, useEffect } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 // Props interface for the Warp Background component
@@ -69,19 +69,19 @@ function mapBeamSizeUiToPercent(ui: number): number {
 const Beam = ({
   width,
   x,
-  delay,
   duration,
     color,
     staticMode,
     staticY,
+    onComplete,
 }: {
     width: string | number
     x: string | number
-    delay: number
     duration: number
     color?: string
     staticMode?: boolean
     staticY?: string | number
+    onComplete?: () => void
 }) => {
     // Random hue for colorful beams (0-360 degrees on color wheel)
     const hue = Math.floor(Math.random() * 360)
@@ -112,16 +112,15 @@ const Beam = ({
                     ? { duration: 0 }
                     : {
                           duration,
-                          delay,
                           ease: "linear",
                           opacity: {
                               duration,
-                              delay,
                               ease: "linear",
                               times: [0, 0.1, 0.85, 1],
                           },
                       }
             }
+            onAnimationComplete={onComplete}
         />
     )
 }
@@ -190,46 +189,32 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         return list
     }, [colors])
 
-    /**
-     * Generates a continuous stream of random beams
-     * Each beam appears with proper spacing, only beamsPerSide visible at once
-     */
-    const generateBeamsStream = () => {
-        const beams: { x: number; delay: number; color?: string }[] = []
-
-        // Create multiple cycles to ensure continuous stream
-        const numCycles = 10
-        const slot = beamDuration / Math.max(1, beamsPerSide)
-        // Phase offset so each side doesn't always start at t=0
-        const phaseOffset = Math.random() * slot
-        // Limit jitter to keep starts inside their slot, preserving concurrency
-        const maxJitter = Math.max(0, slot * 0.6)
-
-        for (let cycle = 0; cycle < numCycles; cycle++) {
-            for (let i = 0; i < beamsPerSide; i++) {
-                // Random grid position
-                const x = Math.floor(Math.random() * cellsPerSide)
-
-                // Base start time for this slot
-                const base = cycle * beamDuration + i * slot
-                // Add a small random offset but keep it inside the slot
-                const jitter = Math.random() * maxJitter
-                const delay = Math.min(
-                    base + phaseOffset + jitter,
-                    base + slot - 0.001
-                )
-
-                // Pick color from palette if provided
-                const color = palette.length
-                    ? palette[Math.floor(Math.random() * palette.length)]
-                    : undefined
-
-                beams.push({ x, delay, color })
-            }
-        }
-
-        return beams
-    }
+    // Beam ID counter for unique keys
+    const beamIdRef = React.useRef(0)
+    
+    // Function to spawn a new beam when one completes
+    const spawnNewBeam = () => ({
+        id: beamIdRef.current++,
+        x: Math.floor(Math.random() * cellsPerSide),
+        color: palette.length ? palette[Math.floor(Math.random() * palette.length)] : undefined
+    })
+    
+    // State for active beams on each side - each beam has id, x position, and color
+    const [topBeams, setTopBeams] = useState(() => 
+        Array.from({ length: beamsPerSide }, () => spawnNewBeam())
+    )
+    const [bottomBeams, setBottomBeams] = useState(() => 
+        Array.from({ length: beamsPerSide }, () => spawnNewBeam())
+    )
+    const [leftBeams, setLeftBeams] = useState(() => 
+        Array.from({ length: beamsPerSide }, () => spawnNewBeam())
+    )
+    const [rightBeams, setRightBeams] = useState(() => 
+        Array.from({ length: beamsPerSide }, () => spawnNewBeam())
+    )
+    const [centerBeams, setCenterBeams] = useState(() => 
+        Array.from({ length: beamsPerSide }, () => spawnNewBeam())
+    )
 
     // Static preview beams (visible snapshot in canvas when Preview is Off)
     const generateStaticBeams = () => {
@@ -247,24 +232,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         return beams
     }
 
-    // Generate continuous beam streams for each side
-    const topBeams = useMemo(
-        () => generateBeamsStream(),
-        [beamsPerSide, cellsPerSide, beamDuration, palette]
-    )
-    const rightBeams = useMemo(
-        () => generateBeamsStream(),
-        [beamsPerSide, cellsPerSide, beamDuration, palette]
-    )
-    const bottomBeams = useMemo(
-        () => generateBeamsStream(),
-        [beamsPerSide, cellsPerSide, beamDuration, palette]
-    )
-    const leftBeams = useMemo(
-        () => generateBeamsStream(),
-        [beamsPerSide, cellsPerSide, beamDuration, palette]
-    )
-
+    // Static beams for canvas mode only
     const staticTopBeams = useMemo(
         () => generateStaticBeams(),
         [beamsPerSide, cellsPerSide, palette]
@@ -284,12 +252,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     const staticCenterBeams = useMemo(
         () => generateStaticBeams(),
         [beamsPerSide, cellsPerSide, palette]
-    )
-
-    // Generate center beams for the floor area
-    const centerBeams = useMemo(
-        () => generateBeamsStream(),
-        [beamsPerSide, cellsPerSide, beamDuration, palette]
     )
 
     // Grid background pattern using CSS gradients
@@ -337,16 +299,18 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-          {(isCanvas ? staticTopBeams : topBeams).map((beam: any, index) => (
+          {(isCanvas ? staticTopBeams : topBeams).map((beam: any) => (
             <Beam
-              key={`top-${index}`}
+              key={beam.id || `top-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={isCanvas ? 0 : beam.delay}
               duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={isCanvas}
                             staticY={isCanvas ? beam.y : undefined}
+                            onComplete={!isCanvas ? () => {
+                                setTopBeams(prev => [...prev.slice(1), spawnNewBeam()])
+                            } : undefined}
             />
           ))}
         </div>
@@ -366,16 +330,18 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-          {(isCanvas ? staticBottomBeams : bottomBeams).map((beam: any, index) => (
+          {(isCanvas ? staticBottomBeams : bottomBeams).map((beam: any) => (
             <Beam
-              key={`bottom-${index}`}
+              key={beam.id || `bottom-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={isCanvas ? 0 : beam.delay}
               duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={isCanvas}
                             staticY={isCanvas ? beam.y : undefined}
+                            onComplete={!isCanvas ? () => {
+                                setBottomBeams(prev => [...prev.slice(1), spawnNewBeam()])
+                            } : undefined}
             />
           ))}
         </div>
@@ -396,16 +362,18 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqh",
                     }}
                 >
-          {(isCanvas ? staticLeftBeams : leftBeams).map((beam: any, index) => (
+          {(isCanvas ? staticLeftBeams : leftBeams).map((beam: any) => (
             <Beam
-              key={`left-${index}`}
+              key={beam.id || `left-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={isCanvas ? 0 : beam.delay}
               duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={isCanvas}
                             staticY={isCanvas ? beam.y : undefined}
+                            onComplete={!isCanvas ? () => {
+                                setLeftBeams(prev => [...prev.slice(1), spawnNewBeam()])
+                            } : undefined}
             />
           ))}
         </div>
@@ -426,16 +394,18 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "rotate(-90deg) rotateX(-90deg)",
                     }}
                 >
-          {(isCanvas ? staticRightBeams : rightBeams).map((beam: any, index) => (
+          {(isCanvas ? staticRightBeams : rightBeams).map((beam: any) => (
             <Beam
-              key={`right-${index}`}
+              key={beam.id || `right-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={isCanvas ? 0 : beam.delay}
               duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={isCanvas}
                             staticY={isCanvas ? beam.y : undefined}
+                            onComplete={!isCanvas ? () => {
+                                setRightBeams(prev => [...prev.slice(1), spawnNewBeam()])
+                            } : undefined}
             />
           ))}
         </div>
@@ -456,16 +426,18 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "translate(-50%, -50%) rotateX(-90deg)",
                     }}
                 >
-          {(isCanvas ? staticCenterBeams : centerBeams).map((beam: any, index) => (
+          {(isCanvas ? staticCenterBeams : centerBeams).map((beam: any) => (
             <Beam
-              key={`center-${index}`}
+              key={beam.id || `center-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              delay={isCanvas ? 0 : beam.delay}
               duration={isCanvas ? 0 : beamDuration}
                             color={beam.color}
                             staticMode={isCanvas}
                             staticY={isCanvas ? beam.y : undefined}
+                            onComplete={!isCanvas ? () => {
+                                setCenterBeams(prev => [...prev.slice(1), spawnNewBeam()])
+                            } : undefined}
             />
           ))}
         </div>
