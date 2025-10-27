@@ -304,12 +304,48 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         [beamsPerSide, cellsPerSide, palette]
     )
 
-    // Grid background pattern using CSS gradients
-    const linePx = Math.max(0.5, Math.min(10, gridThickness))
-    const gridBackground = `
-        linear-gradient(${gridColor} 0 ${linePx}px, transparent ${linePx}px ${gridPercent}%) 0 0 / ${gridPercent}% ${gridPercent}%,
-        linear-gradient(90deg, ${gridColor} 0 ${linePx}px, transparent ${linePx}px ${gridPercent}%) 0 0 / ${gridPercent}% ${gridPercent}%
-    `
+    // Grid line thickness
+    const linePx = Math.max(1, Math.min(10, gridThickness))
+    
+    // Generate grid lines using divs - more reliable than gradients
+    const renderGridLines = () => {
+        const lines = []
+        // Vertical lines
+        for (let i = 0; i <= cellsPerSide; i++) {
+            lines.push(
+                <div
+                    key={`v-${i}`}
+                    style={{
+                        position: "absolute",
+                        left: `${i * gridPercent}%`,
+                        top: 0,
+                        width: `${linePx}px`,
+                        height: "100%",
+                        backgroundColor: gridColor,
+                        transform: "translateX(-50%)",
+                    }}
+                />
+            )
+        }
+        // Horizontal lines
+        for (let i = 0; i <= cellsPerSide; i++) {
+            lines.push(
+                <div
+                    key={`h-${i}`}
+                    style={{
+                        position: "absolute",
+                        top: `${i * gridPercent}%`,
+                        left: 0,
+                        height: `${linePx}px`,
+                        width: "100%",
+                        backgroundColor: gridColor,
+                        transform: "translateY(-50%)",
+                    }}
+                />
+            )
+        }
+        return lines
+    }
 
     return (
         <div
@@ -340,8 +376,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                     style={{
                         position: "absolute",
                         transformStyle: "preserve-3d",
-                        backgroundSize: `${gridPercent}% ${gridPercent}%`,
-                        background: gridBackground,
                         containerType: "inline-size",
                         height: "100cqmax",
                         transformOrigin: "50% 0%",
@@ -349,6 +383,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
+                    {!isCanvas && renderGridLines()}
           {(isCanvas ? staticTopBeams : topBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `top-${beam.x}-${beam.y}`}
@@ -374,8 +409,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         position: "absolute",
                         top: "100%",	
                         transformStyle: "preserve-3d",
-                        backgroundSize: `${gridPercent}% ${gridPercent}%`,
-                        background: gridBackground,
                         containerType: "inline-size",
                         height: "100cqmax",
                         transformOrigin: "50% 0%",
@@ -383,6 +416,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
+                    {!isCanvas && renderGridLines()}
           {(isCanvas ? staticBottomBeams : bottomBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `bottom-${beam.x}-${beam.y}`}
@@ -409,8 +443,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         left: 0,
                         top: 0,
                         transformStyle: "preserve-3d",
-                        backgroundSize: `${gridPercent}% ${gridPercent}%`,
-                        background: gridBackground,
                         containerType: "inline-size",
                         height: "100cqmax",
                         transformOrigin: "0% 0%",
@@ -418,6 +450,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqh",
                     }}
                 >
+                    {!isCanvas && renderGridLines()}
           {(isCanvas ? staticLeftBeams : leftBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `left-${beam.x}-${beam.y}`}
@@ -444,8 +477,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         right: 0,
                         top: 0,
                         transformStyle: "preserve-3d",
-                        backgroundSize: `${gridPercent}% ${gridPercent}%`,
-                        background: gridBackground,
                         containerType: "inline-size",
                         height: "100cqmax",
                         width: "100cqh",
@@ -453,6 +484,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "rotate(-90deg) rotateX(-90deg)",
                     }}
                 >
+                    {!isCanvas && renderGridLines()}
           {(isCanvas ? staticRightBeams : rightBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `right-${beam.x}-${beam.y}`}
@@ -479,8 +511,6 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         top: "50%",
                         left: "50%",
                         transformStyle: "preserve-3d",
-                        backgroundSize: `${gridPercent}% ${gridPercent}%`,
-                        background: gridBackground,
                         containerType: "inline-size",
                         height: "100cqmax",
                         width: "100cqi",
@@ -488,6 +518,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "translate(-50%, -50%) rotateX(-90deg)",
                     }}
                 >
+                    {!isCanvas && renderGridLines()}
           {(isCanvas ? staticCenterBeams : centerBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `center-${beam.x}-${beam.y}`}
@@ -520,7 +551,7 @@ addPropertyControls(WarpBackground, {
         type: ControlType.Number,
         title: "Perspective",
         min: 50,
-        max: 500,
+        max: 1000,
         step: 10,
         defaultValue: 100,
     },
