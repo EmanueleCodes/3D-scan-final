@@ -197,6 +197,30 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         return list
     }, [colors])
 
+    // Track if component is in view to pause animations when out of view
+    const containerRef = React.useRef<HTMLDivElement>(null)
+    const [isInView, setIsInView] = useState(true)
+    
+    // Intersection Observer to detect when component is out of view
+    useEffect(() => {
+        if (!containerRef.current) return
+        
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    setIsInView(entry.isIntersecting)
+                })
+            },
+            { threshold: 0.01 } // Trigger when 1% of the component is visible
+        )
+        
+        observer.observe(containerRef.current)
+        
+        return () => {
+            observer.disconnect()
+        }
+    }, [])
+    
     // Beam ID counter for unique keys
     const beamIdRef = React.useRef(0)
     
@@ -221,6 +245,9 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     // Helper function to create beam completion handlers for each side
     const createBeamCompleteHandler = (setter: React.Dispatch<React.SetStateAction<any[]>>) => {
         return (beamId: number) => {
+            // Only spawn new beams if component is in view
+            if (!isInView) return
+            
             setter(prev => {
                 // Find the finished beam to get its startTime
                 const finishedBeam = prev.find(b => b.id === beamId)
@@ -246,23 +273,34 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     const handleRightBeamComplete = createBeamCompleteHandler(setRightBeams)
     const handleCenterBeamComplete = createBeamCompleteHandler(setCenterBeams)
     
+    // Helper to initialize beams for a side
+    const initSide = React.useCallback((setter: React.Dispatch<React.SetStateAction<any[]>>) => {
+        const beams = []
+        for (let i = 0; i < beamsPerSide; i++) {
+            beams.push(createBeam(i * initialDelay))
+        }
+        setter(beams)
+    }, [beamsPerSide, initialDelay, palette, cellsPerSide])
+    
     // Initialize initial beams for all sides - all at once with different delays
     useEffect(() => {
-        // Helper to initialize beams for a side
-        const initSide = (setter: React.Dispatch<React.SetStateAction<any[]>>) => {
-            const beams = []
-            for (let i = 0; i < beamsPerSide; i++) {
-                beams.push(createBeam(i * initialDelay))
-            }
-            setter(beams)
-        }
-        
         initSide(setTopBeams)
         initSide(setBottomBeams)
         initSide(setLeftBeams)
         initSide(setRightBeams)
         initSide(setCenterBeams)
-    }, [])
+    }, [initSide])
+    
+    // Reset beams when coming back into view to avoid timing issues
+    useEffect(() => {
+        if (isInView) {
+            initSide(setTopBeams)
+            initSide(setBottomBeams)
+            initSide(setLeftBeams)
+            initSide(setRightBeams)
+            initSide(setCenterBeams)
+        }
+    }, [isInView, initSide])
 
     // Static preview beams (visible snapshot in canvas when Preview is Off)
     const generateStaticBeams = () => {
@@ -360,6 +398,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
 
     return (
         <div
+            ref={containerRef}
             style={{
                 position: "relative",
                 width: "100%",
@@ -400,14 +439,14 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               key={beam.id || `top-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              duration={isCanvas ? 0 : beamDuration}
+              duration={isCanvas || !isInView ? 0 : beamDuration}
                             color={beam.color}
                             hue={beam.hue}
                             aspectRatio={beam.aspectRatio}
-                            staticMode={isCanvas}
+                            staticMode={isCanvas || !isInView}
                             staticY={isCanvas ? beam.y : undefined}
                             delay={beam.delay ?? 0}
-                            onComplete={!isCanvas ? () => {
+                            onComplete={!isCanvas && isInView ? () => {
                                 handleTopBeamComplete(beam.id)
                             } : undefined}
             />
@@ -433,14 +472,14 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               key={beam.id || `bottom-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              duration={isCanvas ? 0 : beamDuration}
+              duration={isCanvas || !isInView ? 0 : beamDuration}
                             color={beam.color}
                             hue={beam.hue}
                             aspectRatio={beam.aspectRatio}
-                            staticMode={isCanvas}
+                            staticMode={isCanvas || !isInView}
                             staticY={isCanvas ? beam.y : undefined}
                             delay={beam.delay ?? 0}
-                            onComplete={!isCanvas ? () => {
+                            onComplete={!isCanvas && isInView ? () => {
                                 handleBottomBeamComplete(beam.id)
                             } : undefined}
             />
@@ -467,14 +506,14 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               key={beam.id || `left-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              duration={isCanvas ? 0 : beamDuration}
+              duration={isCanvas || !isInView ? 0 : beamDuration}
                             color={beam.color}
                             hue={beam.hue}
                             aspectRatio={beam.aspectRatio}
-                            staticMode={isCanvas}
+                            staticMode={isCanvas || !isInView}
                             staticY={isCanvas ? beam.y : undefined}
                             delay={beam.delay ?? 0}
-                            onComplete={!isCanvas ? () => {
+                            onComplete={!isCanvas && isInView ? () => {
                                 handleLeftBeamComplete(beam.id)
                             } : undefined}
             />
@@ -501,14 +540,14 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               key={beam.id || `right-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              duration={isCanvas ? 0 : beamDuration}
+              duration={isCanvas || !isInView ? 0 : beamDuration}
                             color={beam.color}
                             hue={beam.hue}
                             aspectRatio={beam.aspectRatio}
-                            staticMode={isCanvas}
+                            staticMode={isCanvas || !isInView}
                             staticY={isCanvas ? beam.y : undefined}
                             delay={beam.delay ?? 0}
-                            onComplete={!isCanvas ? () => {
+                            onComplete={!isCanvas && isInView ? () => {
                                 handleRightBeamComplete(beam.id)
                             } : undefined}
             />
@@ -535,14 +574,14 @@ export default function WarpBackground(props: WarpBackgroundProps) {
               key={beam.id || `center-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
                             x={`${beam.x * gridPercent}%`}
-              duration={isCanvas ? 0 : beamDuration}
+              duration={isCanvas || !isInView ? 0 : beamDuration}
                             color={beam.color}
                             hue={beam.hue}
                             aspectRatio={beam.aspectRatio}
-                            staticMode={isCanvas}
+                            staticMode={isCanvas || !isInView}
                             staticY={isCanvas ? beam.y : undefined}
                             delay={beam.delay ?? 0}
-                            onComplete={!isCanvas ? () => {
+                            onComplete={!isCanvas && isInView ? () => {
                                 handleCenterBeamComplete(beam.id)
                             } : undefined}
             />
