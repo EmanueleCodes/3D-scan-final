@@ -211,35 +211,57 @@ export default function WarpBackground(props: WarpBackgroundProps) {
         startTime: Date.now() + delay * 1000, // Track when this beam will start animating
     })
     
-    // State for active beams - RIGHT SIDE ONLY for now
+    // State for active beams on all sides
+    const [topBeams, setTopBeams] = useState<any[]>([])
+    const [bottomBeams, setBottomBeams] = useState<any[]>([])
+    const [leftBeams, setLeftBeams] = useState<any[]>([])
     const [rightBeams, setRightBeams] = useState<any[]>([])
+    const [centerBeams, setCenterBeams] = useState<any[]>([])
     
-    // Helper function to remove a finished beam and spawn a new one
-    const handleBeamComplete = (beamId: number) => {
-        setRightBeams(prev => {
-            // Find the finished beam to get its startTime
-            const finishedBeam = prev.find(b => b.id === beamId)
-            const newBeams = prev.filter(b => b.id !== beamId)
-            
-            // Calculate when the new beam should start (after beamDuration from when the finished one started)
-            const finishedStartTime = finishedBeam?.startTime || Date.now()
-            const newStartTime = finishedStartTime + beamDuration * 1000
-            const now = Date.now()
-            const newDelay = Math.max(0, (newStartTime - now) / 1000) // Convert to seconds
-            
-            // Add new beam with calculated delay
-            newBeams.push(createBeam(newDelay))
-            return newBeams
-        })
+    // Helper function to create beam completion handlers for each side
+    const createBeamCompleteHandler = (setter: React.Dispatch<React.SetStateAction<any[]>>) => {
+        return (beamId: number) => {
+            setter(prev => {
+                // Find the finished beam to get its startTime
+                const finishedBeam = prev.find(b => b.id === beamId)
+                const newBeams = prev.filter(b => b.id !== beamId)
+                
+                // Calculate when the new beam should start (after beamDuration from when the finished one started)
+                const finishedStartTime = finishedBeam?.startTime || Date.now()
+                const newStartTime = finishedStartTime + beamDuration * 1000
+                const now = Date.now()
+                const newDelay = Math.max(0, (newStartTime - now) / 1000) // Convert to seconds
+                
+                // Add new beam with calculated delay
+                newBeams.push(createBeam(newDelay))
+                return newBeams
+            })
+        }
     }
     
-    // Initialize initial beams for right side - all at once with different delays
+    // Create handlers for each side
+    const handleTopBeamComplete = createBeamCompleteHandler(setTopBeams)
+    const handleBottomBeamComplete = createBeamCompleteHandler(setBottomBeams)
+    const handleLeftBeamComplete = createBeamCompleteHandler(setLeftBeams)
+    const handleRightBeamComplete = createBeamCompleteHandler(setRightBeams)
+    const handleCenterBeamComplete = createBeamCompleteHandler(setCenterBeams)
+    
+    // Initialize initial beams for all sides - all at once with different delays
     useEffect(() => {
-        const beams = []
-        for (let i = 0; i < beamsPerSide; i++) {
-            beams.push(createBeam(i * initialDelay))
+        // Helper to initialize beams for a side
+        const initSide = (setter: React.Dispatch<React.SetStateAction<any[]>>) => {
+            const beams = []
+            for (let i = 0; i < beamsPerSide; i++) {
+                beams.push(createBeam(i * initialDelay))
+            }
+            setter(beams)
         }
-        setRightBeams(beams)
+        
+        initSide(setTopBeams)
+        initSide(setBottomBeams)
+        initSide(setLeftBeams)
+        initSide(setRightBeams)
+        initSide(setCenterBeams)
     }, [])
 
     // Static preview beams (visible snapshot in canvas when Preview is Off)
@@ -327,8 +349,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-          {/* COMMENTED OUT FOR TESTING - TOP SIDE */}
-          {/* {(isCanvas ? staticTopBeams : topBeams).map((beam: any, index: number) => (
+          {(isCanvas ? staticTopBeams : topBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `top-${beam.x}-${beam.y}`}
                             width={`${gridPercent}%`}
@@ -341,10 +362,10 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                             staticY={isCanvas ? beam.y : undefined}
                             delay={beam.delay ?? 0}
                             onComplete={!isCanvas ? () => {
-                                handleBeamComplete(setTopBeams, initialDelay)
+                                handleTopBeamComplete(beam.id)
                             } : undefined}
             />
-          ))} */}
+          ))}
         </div>
 
                 {/* Bottom side */}
@@ -362,7 +383,23 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-          {/* COMMENTED OUT FOR TESTING - BOTTOM SIDE */}
+          {(isCanvas ? staticBottomBeams : bottomBeams).map((beam: any, index: number) => (
+            <Beam
+              key={beam.id || `bottom-${beam.x}-${beam.y}`}
+                            width={`${gridPercent}%`}
+                            x={`${beam.x * gridPercent}%`}
+              duration={isCanvas ? 0 : beamDuration}
+                            color={beam.color}
+                            hue={beam.hue}
+                            aspectRatio={beam.aspectRatio}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
+                            delay={beam.delay ?? 0}
+                            onComplete={!isCanvas ? () => {
+                                handleBottomBeamComplete(beam.id)
+                            } : undefined}
+            />
+          ))}
         </div>
 
                 {/* Left side */}
@@ -381,7 +418,23 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqh",
                     }}
                 >
-          {/* COMMENTED OUT FOR TESTING - LEFT SIDE */}
+          {(isCanvas ? staticLeftBeams : leftBeams).map((beam: any, index: number) => (
+            <Beam
+              key={beam.id || `left-${beam.x}-${beam.y}`}
+                            width={`${gridPercent}%`}
+                            x={`${beam.x * gridPercent}%`}
+              duration={isCanvas ? 0 : beamDuration}
+                            color={beam.color}
+                            hue={beam.hue}
+                            aspectRatio={beam.aspectRatio}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
+                            delay={beam.delay ?? 0}
+                            onComplete={!isCanvas ? () => {
+                                handleLeftBeamComplete(beam.id)
+                            } : undefined}
+            />
+          ))}
         </div>
 
                 {/* Right side */}
@@ -413,7 +466,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                             staticY={isCanvas ? beam.y : undefined}
                             delay={beam.delay ?? 0}
                             onComplete={!isCanvas ? () => {
-                                handleBeamComplete(beam.id)
+                                handleRightBeamComplete(beam.id)
                             } : undefined}
             />
           ))}
@@ -435,7 +488,23 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "translate(-50%, -50%) rotateX(-90deg)",
                     }}
                 >
-          {/* COMMENTED OUT FOR TESTING - CENTER SIDE */}
+          {(isCanvas ? staticCenterBeams : centerBeams).map((beam: any, index: number) => (
+            <Beam
+              key={beam.id || `center-${beam.x}-${beam.y}`}
+                            width={`${gridPercent}%`}
+                            x={`${beam.x * gridPercent}%`}
+              duration={isCanvas ? 0 : beamDuration}
+                            color={beam.color}
+                            hue={beam.hue}
+                            aspectRatio={beam.aspectRatio}
+                            staticMode={isCanvas}
+                            staticY={isCanvas ? beam.y : undefined}
+                            delay={beam.delay ?? 0}
+                            onComplete={!isCanvas ? () => {
+                                handleCenterBeamComplete(beam.id)
+                            } : undefined}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -459,7 +528,7 @@ addPropertyControls(WarpBackground, {
         type: ControlType.Number,
         title: "Count",
         min: 1,
-        max: 10,
+        max: 20,
         step: 1,
         defaultValue: 6,
     },
