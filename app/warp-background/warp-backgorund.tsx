@@ -307,11 +307,21 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     // Grid line thickness
     const linePx = Math.max(1, Math.min(10, gridThickness))
     
+    // Calculate perspective correction for horizontal and vertical lines only
+    // Linear interpolation: specify thickness at perspective=50 and perspective=1000
+    const thicknessAt50 = 0.15  // Set this value (as a multiplier of grid.thickness)
+    const thicknessAt1000 = 1.2 // Set this value (as a multiplier of grid.thickness)
+    
+    // Linear interpolation formula: y = y1 + (y2 - y1) * (x - x1) / (x2 - x1)
+    const perspectiveCorrection = thicknessAt50 + (thicknessAt1000 - thicknessAt50) * 
+        (effectivePerspective - 50) / (1000 - 50)
+    
     // Generate grid lines using divs - more reliable than gradients
     const gridLines = useMemo(() => {
         const lines = []
-        // Vertical lines
+        // Vertical lines - apply correction to maintain consistent appearance
         for (let i = 0; i <= cellsPerSide; i++) {
+            const correctedWidth = linePx 
             lines.push(
                 <div
                     key={`v-${i}`}
@@ -319,7 +329,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         position: "absolute",
                         left: `${i * gridPercent}%`,
                         top: 0,
-                        width: `${linePx}px`,
+                        width: `${correctedWidth}px`,
                         height: "100%",
                         backgroundColor: gridColor,
                         transform: "translateX(-50%)",
@@ -327,8 +337,9 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                 />
             )
         }
-        // Horizontal lines
+        // Horizontal lines - apply correction to maintain consistent appearance
         for (let i = 0; i <= cellsPerSide; i++) {
+            const correctedHeight = linePx * perspectiveCorrection
             lines.push(
                 <div
                     key={`h-${i}`}
@@ -336,7 +347,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         position: "absolute",
                         top: `${i * gridPercent}%`,
                         left: 0,
-                        height: `${linePx}px`,
+                        height: `${correctedHeight}px`,
                         width: "100%",
                         backgroundColor: gridColor,
                         transform: "translateY(-50%)",
@@ -345,7 +356,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
             )
         }
         return lines
-    }, [cellsPerSide, gridPercent, linePx, gridColor])
+    }, [cellsPerSide, gridPercent, linePx, gridColor, perspectiveCorrection])
 
     return (
         <div
