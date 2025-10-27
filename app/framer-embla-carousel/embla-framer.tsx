@@ -1804,8 +1804,6 @@ export default function EmblaCarousel(props: PropType) {
                                         position: useProgress && isSel ? "relative" : undefined,
                                     }}
                                 >
-                                    <div style={{width:"100%", opacity: dotsUI.opacity, height:"100%", position:"absolute", inset:0, backgroundColor:dotsUI.fill}}/>
-
                                     {useProgress ? (
                                         <ProgressFill
                                             key={`pf-${index}`}
@@ -1819,9 +1817,15 @@ export default function EmblaCarousel(props: PropType) {
                                         />
                                     ) : null}
 
-                                    {!isSel && (
-                                        <div style={{width:"100%", opacity: targetOpacity, height:"100%", position:"absolute", inset:0, backgroundColor:dotsUI.fill}}/>
-                                    )}
+                                    <div style={{
+                                        width:"100%", 
+                                        opacity: targetOpacity, 
+                                        height:"100%", 
+                                        position:"absolute", 
+                                        inset:0, 
+                                        backgroundColor:dotsUI.fill,
+                                        transition: `opacity ${dotsTransitionDuration} ease-in-out`
+                                    }}/>
                                 </DotButton>
                             )
                         }) || []}
