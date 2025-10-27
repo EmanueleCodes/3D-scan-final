@@ -308,7 +308,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
     const linePx = Math.max(1, Math.min(10, gridThickness))
     
     // Generate grid lines using divs - more reliable than gradients
-    const renderGridLines = () => {
+    const gridLines = useMemo(() => {
         const lines = []
         // Vertical lines
         for (let i = 0; i <= cellsPerSide; i++) {
@@ -345,7 +345,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
             )
         }
         return lines
-    }
+    }, [cellsPerSide, gridPercent, linePx, gridColor])
 
     return (
         <div
@@ -383,7 +383,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-                    {!isCanvas && renderGridLines()}
+                    {gridLines}
           {(isCanvas ? staticTopBeams : topBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `top-${beam.x}-${beam.y}`}
@@ -416,7 +416,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqi",
                     }}
                 >
-                    {!isCanvas && renderGridLines()}
+                    {gridLines}
           {(isCanvas ? staticBottomBeams : bottomBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `bottom-${beam.x}-${beam.y}`}
@@ -450,7 +450,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         width: "100cqh",
                     }}
                 >
-                    {!isCanvas && renderGridLines()}
+                    {gridLines}
           {(isCanvas ? staticLeftBeams : leftBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `left-${beam.x}-${beam.y}`}
@@ -484,7 +484,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "rotate(-90deg) rotateX(-90deg)",
                     }}
                 >
-                    {!isCanvas && renderGridLines()}
+                    {gridLines}
           {(isCanvas ? staticRightBeams : rightBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `right-${beam.x}-${beam.y}`}
@@ -518,7 +518,7 @@ export default function WarpBackground(props: WarpBackgroundProps) {
                         transform: "translate(-50%, -50%) rotateX(-90deg)",
                     }}
                 >
-                    {!isCanvas && renderGridLines()}
+                    {gridLines}
           {(isCanvas ? staticCenterBeams : centerBeams).map((beam: any, index: number) => (
             <Beam
               key={beam.id || `center-${beam.x}-${beam.y}`}
