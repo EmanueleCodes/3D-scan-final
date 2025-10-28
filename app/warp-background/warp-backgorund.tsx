@@ -652,6 +652,7 @@ addPropertyControls(WarpBackground, {
     colors: {
         type: ControlType.Object,
         title: "Beams",
+        description:"More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             mode: {
                 type: ControlType.Enum,
