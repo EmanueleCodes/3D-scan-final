@@ -15,21 +15,30 @@ interface Particle {
     lifeMs: number
 }
 
+// Mapping helpers (see how-to-build-framer-components/mappingValues.md)
+function mapLinear(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
+    if (inMax === inMin) return outMin
+    const t = (value - inMin) / (inMax - inMin)
+    return outMin + t * (outMax - outMin)
+}
+
 interface ExplodingInputProps {
+    mode?: "bubbles" | "components"
     backgroundColor?: string
     upwardSpeed?: number
     upwardSpread?: number
     horizontalSpeed?: number
     horizontalSpread?: number
     gravity?: number
+    duration?: number
     style?: React.CSSProperties
 }
 
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
  * @framerSupportedLayoutHeight any-prefer-fixed
- * @framerIntrinsicWidth 400
- * @framerIntrinsicHeight 400
+ * @framerIntrinsicWidth 10
+ * @framerIntrinsicHeight 10
  * @framerDisableUnlink
  */
 
@@ -40,6 +49,7 @@ export default function ExplodingInput({
     horizontalSpeed = 80,
     horizontalSpread = 80,
     gravity = 900,
+    duration = 1200,
     style,
 }: ExplodingInputProps) {
     const [particles, setParticles] = useState<Particle[]>([])
@@ -102,9 +112,18 @@ export default function ExplodingInput({
             // Random size less than 48px
             const size = Math.random() * 40 + 8 // Between 8 and 48px
             
-            // Random initial velocities (pixels per second)
-            const vx = -(horizontalSpeed + Math.random() * horizontalSpread)
-            const vy = -(upwardSpeed + Math.random() * upwardSpread)
+            // Map user-friendly controls to internal velocities
+            // horizontalSpeed: -1..1 → -400..400 px/s
+            const clampedHX = Math.max(-1, Math.min(1, horizontalSpeed as number))
+            const baseVx = mapLinear(clampedHX, -1, 1, -400, 400)
+            const spreadVx = mapLinear(horizontalSpread ?? 0.5, 0, 1, 0, 250) // 0..1 → 0..250 px/s
+            const vx = baseVx + (Math.random() * 2 - 1) * spreadVx
+
+            // vertical speed: -1..1 → -400..400 px/s (negative = up, positive = down)
+            const clampedUY = Math.max(-1, Math.min(1, upwardSpeed as number))
+            const baseVy = mapLinear(clampedUY, -1, 1, -400, 400)
+            const spreadVy = mapLinear(upwardSpread ?? 0.5, 0, 1, 0, 300) // 0..1 → 0..300 px/s
+            const vy = baseVy + (Math.random() * 2 - 1) * spreadVy
             
             particleIdCounter.current += 1
             
@@ -116,9 +135,9 @@ export default function ExplodingInput({
                 baseY: y,
                 vx, // horizontal velocity
                 vy, // vertical velocity (negative = up)
-                gravity: gravity, // gravity acceleration
+                gravity: mapLinear(Math.max(-1, Math.min(1, gravity ?? 0.45)), -1, 1, -2000, 2000), // gravity acceleration
                 ageMs: 0,
-                lifeMs: 1200,
+                lifeMs: duration * 1000, // seconds → ms
             }
             
             setParticles((prev) => [...prev, newParticle])
@@ -126,7 +145,7 @@ export default function ExplodingInput({
             // Remove particle after animation
             setTimeout(() => {
                 setParticles((prev) => prev.filter(p => p.id !== newParticle.id))
-            }, 1200)
+            }, duration * 1000)
         }
 
         // Listen to input changes
@@ -172,7 +191,7 @@ export default function ExplodingInput({
             input.removeEventListener("input", handleInput)
             cancelAnimationFrame(rafId)
         }
-    }, [])
+    }, [upwardSpeed, upwardSpread, horizontalSpeed, horizontalSpread, gravity, duration, backgroundColor])
 
     return (
         <div
@@ -212,55 +231,82 @@ export default function ExplodingInput({
 }
 
 addPropertyControls(ExplodingInput, {
+    mode:{
+        type: ControlType.Enum,
+        title: "Mode",
+        options: ["bubbles", "components"],
+        optionTitles: ["Bubbles", "Components"],
+        defaultValue: "bubbles",
+        displaySegmentedControl: true,
+        segmentedControlDirection: "vertical",
+    },
     backgroundColor: {
         type: ControlType.Color,
         title: "Particle Color",
         defaultValue: "#6366f1",
+        hidden: (props) => props.mode !== "bubbles",
+    },
+    content: {
+        type: ControlType.Array,
+        title: "Content",
+        control: {
+            type: ControlType.ComponentInstance,
+        },
+        hidden: (props) => props.mode !== "components",
     },
     upwardSpeed: {
         type: ControlType.Number,
-        title: "↑ Upward Speed",
-        min: 50,
-        max: 400,
-        step: 10,
-        defaultValue: 180,
-        description: "Base upward velocity (px/s)",
+        title: "Speed Y",
+        min: -1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.45,
+        
     },
     upwardSpread: {
         type: ControlType.Number,
-        title: "↑ Upward Spread",
+        title: "Random Y",
         min: 0,
-        max: 200,
-        step: 10,
-        defaultValue: 120,
-        description: "Random variation in upward speed",
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+        
     },
     horizontalSpeed: {
         type: ControlType.Number,
-        title: "← Horizontal Speed",
-        min: 20,
-        max: 200,
-        step: 10,
-        defaultValue: 80,
-        description: "Base horizontal velocity (px/s)",
+        title: "Speed X",
+        min: -1,
+        max: 1,
+        step: 0.05,
+        defaultValue: -1,
+       
     },
     horizontalSpread: {
         type: ControlType.Number,
-        title: "← Horizontal Spread",
+        title: "Random X",
         min: 0,
-        max: 150,
-        step: 10,
-        defaultValue: 80,
-        description: "Random variation in horizontal speed",
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+        
+    },
+    duration:{
+        type: ControlType.Number,
+        title: "Duration",
+        min: 0.2,
+        max: 10,
+        step: 0.1,
+        defaultValue: 1.2,
+        
     },
     gravity: {
         type: ControlType.Number,
-        title: "↓ Gravity",
-        min: 200,
-        max: 2000,
-        step: 50,
-        defaultValue: 900,
-        description: "Gravity strength (px/s²). More components at [Framer University](https://frameruni.link/cc).",
+        title: "Gravity (-1..1)",
+        min: -1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.45,
+        description: "-1 = strong updraft, 1 = strong gravity",
     },
 })
 
