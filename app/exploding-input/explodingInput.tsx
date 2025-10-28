@@ -7,11 +7,21 @@ interface Particle {
     size: number
     x: number
     y: number
-    animationTarget: number
+    baseY: number
+    vx: number // velocity x
+    vy: number // velocity y
+    gravity: number
+    ageMs: number
+    lifeMs: number
 }
 
 interface ExplodingInputProps {
     backgroundColor?: string
+    upwardSpeed?: number
+    upwardSpread?: number
+    horizontalSpeed?: number
+    horizontalSpread?: number
+    gravity?: number
     style?: React.CSSProperties
 }
 
@@ -25,6 +35,11 @@ interface ExplodingInputProps {
 
 export default function ExplodingInput({
     backgroundColor = "#6366f1",
+    upwardSpeed = 180,
+    upwardSpread = 120,
+    horizontalSpeed = 80,
+    horizontalSpread = 80,
+    gravity = 900,
     style,
 }: ExplodingInputProps) {
     const [particles, setParticles] = useState<Particle[]>([])
@@ -87,8 +102,9 @@ export default function ExplodingInput({
             // Random size less than 48px
             const size = Math.random() * 40 + 8 // Between 8 and 48px
             
-            // Random animation target (move left by random amount)
-            const animationTarget = Math.random() * -48 - 48 // Between -48 and -96
+            // Random initial velocities (pixels per second)
+            const vx = -(horizontalSpeed + Math.random() * horizontalSpread)
+            const vy = -(upwardSpeed + Math.random() * upwardSpread)
             
             particleIdCounter.current += 1
             
@@ -96,8 +112,13 @@ export default function ExplodingInput({
                 id: particleIdCounter.current,
                 size,
                 x: x - size/4, // Center the particle on the character
-                y,
-                animationTarget, // Store target for animation
+                y: y, // absolute relative to container (vertical center of input)
+                baseY: y,
+                vx, // horizontal velocity
+                vy, // vertical velocity (negative = up)
+                gravity: gravity, // gravity acceleration
+                ageMs: 0,
+                lifeMs: 1200,
             }
             
             setParticles((prev) => [...prev, newParticle])
@@ -105,7 +126,7 @@ export default function ExplodingInput({
             // Remove particle after animation
             setTimeout(() => {
                 setParticles((prev) => prev.filter(p => p.id !== newParticle.id))
-            }, 4000)
+            }, 1200)
         }
 
         // Listen to input changes
@@ -115,8 +136,41 @@ export default function ExplodingInput({
 
         input.addEventListener("input", handleInput)
 
+        // Physics loop
+        let rafId = 0
+        let lastTs = performance.now()
+        const step = (ts: number) => {
+            const dtMs = Math.min(32, ts - lastTs) // clamp to avoid huge jumps
+            lastTs = ts
+
+            setParticles(prev => {
+                if (prev.length === 0) return prev
+                const next: Particle[] = []
+                for (const p of prev) {
+                    const ageMs = p.ageMs + dtMs
+                    const lifeMs = p.lifeMs
+                    const dt = dtMs / 1000 // seconds
+
+                    // Integrate motion: s = s + v*dt; v = v + a*dt
+                    const vx = p.vx
+                    const vy = p.vy + p.gravity * dt
+                    const x = p.x + vx * dt
+                    const y = p.y + vy * dt
+
+                    if (ageMs < lifeMs) {
+                        next.push({ ...p, x, y, vy, ageMs })
+                    }
+                }
+                return next
+            })
+
+            rafId = requestAnimationFrame(step)
+        }
+        rafId = requestAnimationFrame(step)
+
         return () => {
             input.removeEventListener("input", handleInput)
+            cancelAnimationFrame(rafId)
         }
     }, [])
 
@@ -136,12 +190,10 @@ export default function ExplodingInput({
                 {particles.map((particle) => (
                     <motion.div
                         key={particle.id}
-                        initial={{ opacity: 1, scale: 1, x: 0 }}
-                        animate={{ 
-                            x: particle.animationTarget 
-                        }}
-                        exit={{ opacity: 0, scale: 0.1 }}
-                        transition={{ duration: 0.8, ease: "linear" }}
+                        initial={{ opacity: 1, scale: 1 }}
+                        animate={{}}
+                        exit={{ opacity: 0, scale: 0.6 }}
+                        transition={{ duration: 0.2 }}
                         style={{
                             position: "absolute",
                             left: `${particle.x}px`,
@@ -164,7 +216,51 @@ addPropertyControls(ExplodingInput, {
         type: ControlType.Color,
         title: "Particle Color",
         defaultValue: "#6366f1",
-        description: "More components at [Framer University](https://frameruni.link/cc).",
+    },
+    upwardSpeed: {
+        type: ControlType.Number,
+        title: "↑ Upward Speed",
+        min: 50,
+        max: 400,
+        step: 10,
+        defaultValue: 180,
+        description: "Base upward velocity (px/s)",
+    },
+    upwardSpread: {
+        type: ControlType.Number,
+        title: "↑ Upward Spread",
+        min: 0,
+        max: 200,
+        step: 10,
+        defaultValue: 120,
+        description: "Random variation in upward speed",
+    },
+    horizontalSpeed: {
+        type: ControlType.Number,
+        title: "← Horizontal Speed",
+        min: 20,
+        max: 200,
+        step: 10,
+        defaultValue: 80,
+        description: "Base horizontal velocity (px/s)",
+    },
+    horizontalSpread: {
+        type: ControlType.Number,
+        title: "← Horizontal Spread",
+        min: 0,
+        max: 150,
+        step: 10,
+        defaultValue: 80,
+        description: "Random variation in horizontal speed",
+    },
+    gravity: {
+        type: ControlType.Number,
+        title: "↓ Gravity",
+        min: 200,
+        max: 2000,
+        step: 50,
+        defaultValue: 900,
+        description: "Gravity strength (px/s²). More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 
