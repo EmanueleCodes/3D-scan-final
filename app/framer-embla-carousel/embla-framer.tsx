@@ -921,11 +921,13 @@ export default function EmblaCarousel(props: PropType) {
     }, [])
 
     // Build options object from props
+    // Disable draggable when there's only 1 slide
+    const isDraggable = draggable && actualSlideCount > 1
     const options: EmblaOptionsType = {
         loop,
         align,
         dragFree: !dragFree, // Inverted: dragFree prop true = snapping on (Embla dragFree false)
-        watchDrag: draggable,
+        watchDrag: isDraggable,
         containScroll: false, // Always Auto - allows empty space at edges
         skipSnaps,
         duration,
@@ -961,7 +963,7 @@ export default function EmblaCarousel(props: PropType) {
             requestAnimationFrame(() => setIsReady(true))
         }
         return cancel
-    }, [queueReInit, emblaApi, gap, slideBasis, outerWidth, slidesPerView])
+    }, [queueReInit, emblaApi, gap, slideBasis, outerWidth, slidesPerView, isDraggable])
 
     // Autoplay interaction: call on actual press (pointer down) or while dragging
     const onNavButtonClick = useCallback((emblaApi: EmblaCarouselType) => {
@@ -980,7 +982,7 @@ export default function EmblaCarousel(props: PropType) {
     // Handle cursor changes for draggable state
     const [isDragging, setIsDragging] = useState(false)
     const onPointerDown = useCallback(() => {
-        if (draggable) setIsDragging(true)
+        if (isDraggable) setIsDragging(true)
         // Pause autoplay immediately on pointer down
         if (emblaApi && autoplay) {
             try {
@@ -988,9 +990,9 @@ export default function EmblaCarousel(props: PropType) {
                 ap?.stop?.()
             } catch (_) {}
         }
-    }, [draggable, emblaApi, autoplay])
+    }, [isDraggable, emblaApi, autoplay])
     const onPointerUp = useCallback(() => {
-        if (draggable) setIsDragging(false)
+        if (isDraggable) setIsDragging(false)
         if (emblaApi && autoplay) {
             try {
                 const ap = emblaApi.plugins()?.autoplay
@@ -998,7 +1000,7 @@ export default function EmblaCarousel(props: PropType) {
                 ap?.reset?.()
             } catch (_) {}
         }
-    }, [draggable, emblaApi, autoplay])
+    }, [isDraggable, emblaApi, autoplay])
 
     // Dots progress: key that changes on slide change to restart animation
     const [progressKey, setProgressKey] = useState(0)
@@ -1168,7 +1170,7 @@ export default function EmblaCarousel(props: PropType) {
 
     // Add pointer event listeners for cursor changes
     useEffect(() => {
-        if (!emblaApi || !draggable) return
+        if (!emblaApi || !isDraggable) return
 
         emblaApi.on("pointerDown", onPointerDown)
         emblaApi.on("pointerUp", onPointerUp)
@@ -1177,7 +1179,7 @@ export default function EmblaCarousel(props: PropType) {
             emblaApi.off("pointerDown", onPointerDown)
             emblaApi.off("pointerUp", onPointerUp)
         }
-    }, [emblaApi, draggable, onPointerDown, onPointerUp])
+    }, [emblaApi, isDraggable, onPointerDown, onPointerUp])
 
     // Add parallax scroll listener
     useEffect(() => {
@@ -1449,12 +1451,13 @@ export default function EmblaCarousel(props: PropType) {
                 <div
                     style={{
                         ...styles.viewport,
-                        cursor: draggable
+                        cursor: isDraggable
                             ? isDragging
                                 ? "grabbing"
                                 : "grab"
                             : "default",
                         overflow: "visible",
+                        pointerEvents: (mode === "images" && actualSlideCount <= 1) ? "none" : "auto",
                     }}
                     ref={emblaRef}
                 >
@@ -1636,7 +1639,7 @@ export default function EmblaCarousel(props: PropType) {
 
                 {/* Arrows & Dots are rendered relative to the OUTER container */}
             </section>
-            {isReady && arrowsUI?.enabled !== false && (
+            {isReady && arrowsUI?.enabled && actualSlideCount > 1 && (
                 <div style={getArrowsContainerStyle()}>
                     <div style={{ pointerEvents: "auto" }}>
                         {arrowsUI.arrowMode === "components" && prevArrow ? (
@@ -1650,6 +1653,7 @@ export default function EmblaCarousel(props: PropType) {
                                         ? (arrowsUI.opacity ?? 1)
                                         : (arrowsUI.activeOpacity ?? 1),
                                     transition: `all ${transitionDuration} ease-out`,
+                                    pointerEvents: prevBtnDisabled ? "none" : "auto",
                                 }}
                             >
                                 {prevArrow}
@@ -1686,6 +1690,7 @@ export default function EmblaCarousel(props: PropType) {
                                     opacity: prevBtnDisabled
                                         ? (arrowsUI.opacity ?? 1)
                                         : (arrowsUI.activeOpacity ?? 1),
+                                    pointerEvents: prevBtnDisabled ? "none" : "auto",
                                 }}
                             />
                         )}
@@ -1702,6 +1707,7 @@ export default function EmblaCarousel(props: PropType) {
                                         ? (arrowsUI.opacity ?? 1)
                                         : (arrowsUI.activeOpacity ?? 1),
                                     transition: `all ${transitionDuration} ease-out`,
+                                    pointerEvents: nextBtnDisabled ? "none" : "auto",
                                 }}
                             >
                                 {nextArrow}
@@ -1738,6 +1744,7 @@ export default function EmblaCarousel(props: PropType) {
                                     opacity: nextBtnDisabled
                                         ? (arrowsUI.opacity ?? 1)
                                         : (arrowsUI.activeOpacity ?? 1),
+                                    pointerEvents: nextBtnDisabled ? "none" : "auto",
                                 }}
                             />
                         )}
@@ -1745,7 +1752,7 @@ export default function EmblaCarousel(props: PropType) {
                 </div>
             )}
 
-            {isReady && dotsUI?.enabled !== false && (
+            {isReady && dotsUI?.enabled && actualSlideCount > 1 && (
                 <div style={getDotsContainerStyle()}>
                     <div
                         style={{
