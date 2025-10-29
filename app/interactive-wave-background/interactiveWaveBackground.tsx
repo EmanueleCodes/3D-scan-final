@@ -239,17 +239,13 @@ export default function InteractiveWaveBackground({
                 lastSizeRef.current = { width, height, zoom: safeZoom }
                 setSize()
                 setLines()
-                // Always draw at least one frame so lines aren't empty
-                // Use time 0 for static preview, current time for animation
+                // When preview is off or component not visible, initialize static wave positions immediately
+                // When preview is on and visible, let the animation loop handle rendering (no interruption)
                 const shouldAnimate = (!isCanvasRef.current || preview) && isVisibleRef.current
-                if (shouldAnimate) {
-                    // Animation is running, compute one frame with current time
-                    movePoints(performance.now())
-                } else {
-                    // Static mode, compute with time 0
+                if (!shouldAnimate) {
                     movePoints(0)
+                    drawLines()
                 }
-                drawLines()
             }
 
             rafId = requestAnimationFrame(checkSize)
@@ -309,17 +305,37 @@ export default function InteractiveWaveBackground({
             rafRef.current = null
         }
 
+        // Check if animation should run
+        // In canvas mode: respect preview toggle
+        // In production: always animate (ignore preview)
+        const shouldAnimate = 
+            (!isCanvasRef.current || preview) && isVisibleRef.current
+
+        // If animation is disabled (preview off in canvas), don't start the loop
+        // Only render when props/size change, not every frame
+        if (!shouldAnimate) {
+            return
+        }
+
         // Start new animation loop with updated props
         const tick = (time: number) => {
-            // Check if animation should run
-            // In canvas mode: respect preview toggle
-            // In production: always animate (ignore preview)
-            const shouldAnimate = 
+            // Check again in case visibility/preview changed
+            const stillShouldAnimate = 
                 (!isCanvasRef.current || preview) && isVisibleRef.current
 
-            // If animation is disabled, draw once without animating
-            if (!shouldAnimate) {
-                drawLines()
+            // If animation should stop, cancel the loop
+            if (!stillShouldAnimate) {
+                rafRef.current = null
+                return
+            }
+
+            // Always schedule next frame to keep animation loop alive
+            rafRef.current = requestAnimationFrame(tick)
+
+            // Check if paths/lines have been recreated (e.g., during zoom)
+            // If so, ensure we have valid data before animating
+            if (!pathsRef.current || pathsRef.current.length === 0 || 
+                !linesRef.current || linesRef.current.length === 0) {
                 return
             }
 
@@ -347,8 +363,6 @@ export default function InteractiveWaveBackground({
 
             movePoints(time)
             drawLines()
-
-            rafRef.current = requestAnimationFrame(tick)
         }
 
         // Start animation loop
@@ -477,14 +491,13 @@ export default function InteractiveWaveBackground({
         lastSizeRef.current = { width, height, zoom: safeZoom }
         setSize()
         setLines()
-        // Always draw at least one frame so lines aren't empty
+        // When preview is off or component not visible, initialize static wave positions immediately
+        // When preview is on and visible, let the animation loop handle rendering (no interruption)
         const shouldAnimate = (!isCanvasRef.current || preview) && isVisibleRef.current
-        if (shouldAnimate) {
-            movePoints(performance.now())
-        } else {
+        if (!shouldAnimate) {
             movePoints(0)
+            drawLines()
         }
-        drawLines()
     }
 
     // Mouse handler
