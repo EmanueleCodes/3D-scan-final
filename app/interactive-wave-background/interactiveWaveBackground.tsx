@@ -165,10 +165,14 @@ export default function InteractiveWaveBackground({
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lastSizeRef = useRef({ width: 0, height: 0, zoom: 1 })
     const isVisibleRef = useRef(true)
+    const isCanvasRef = useRef(RenderTarget.current() === RenderTarget.canvas)
 
     // Initialization
     useEffect(() => {
         if (!containerRef.current || !svgRef.current) return
+
+        // Store canvas state
+        isCanvasRef.current = RenderTarget.current() === RenderTarget.canvas
 
         // Initialize noise generator
         noiseRef.current = createNoise2D(seed)
@@ -176,9 +180,11 @@ export default function InteractiveWaveBackground({
         // Initialize size and lines
         setSize()
         setLines()
+        // Always compute initial wave shape (use time 0 for initial state)
+        movePoints(0)
+        drawLines()
 
-        // Bind events
-        window.addEventListener("resize", onResize)
+        // Bind events (resize is bound in a separate effect to always use latest props)
         window.addEventListener("mousemove", onMouseMove)
         containerRef.current.addEventListener("touchmove", onTouchMove, {
             passive: false,
@@ -196,7 +202,6 @@ export default function InteractiveWaveBackground({
         observer.observe(containerRef.current)
 
         return () => {
-            window.removeEventListener("resize", onResize)
             window.removeEventListener("mousemove", onMouseMove)
             containerRef.current?.removeEventListener("touchmove", onTouchMove)
             observer.disconnect()
@@ -216,20 +221,35 @@ export default function InteractiveWaveBackground({
             const probe = zoomProbeRef.current
             if (!container || !probe) return
 
-            const width = container.clientWidth || container.offsetWidth || 1
-            const height = container.clientHeight || container.offsetHeight || 1
+            const rawWidth = container.clientWidth || container.offsetWidth || 1
+            const rawHeight = container.clientHeight || container.offsetHeight || 1
             const zoom = probe.getBoundingClientRect().width / 20
+            const safeZoom = Math.max(zoom, 0.0001)
+
+            // Normalize sizes by zoom so editor zoom doesn't count as a resize
+            const width = rawWidth / safeZoom
+            const height = rawHeight / safeZoom
 
             const lastSize = lastSizeRef.current
             const sizeChanged =
                 Math.abs(width - lastSize.width) > EPSILON ||
-                Math.abs(height - lastSize.height) > EPSILON ||
-                Math.abs(zoom - lastSize.zoom) > 0.01
+                Math.abs(height - lastSize.height) > EPSILON
 
             if (sizeChanged) {
-                lastSizeRef.current = { width, height, zoom }
+                lastSizeRef.current = { width, height, zoom: safeZoom }
                 setSize()
                 setLines()
+                // Always draw at least one frame so lines aren't empty
+                // Use time 0 for static preview, current time for animation
+                const shouldAnimate = (!isCanvasRef.current || preview) && isVisibleRef.current
+                if (shouldAnimate) {
+                    // Animation is running, compute one frame with current time
+                    movePoints(performance.now())
+                } else {
+                    // Static mode, compute with time 0
+                    movePoints(0)
+                }
+                drawLines()
             }
 
             rafId = requestAnimationFrame(checkSize)
@@ -240,32 +260,45 @@ export default function InteractiveWaveBackground({
         return () => {
             if (rafId) cancelAnimationFrame(rafId)
         }
-    }, [strokeColor, resolution])
+    }, [resolution, preview, lineSpacing, seed, waveSpeed, waveAmplitude, mouseInfluence])
 
-    // Re-render when property controls change
+    // Keep window resize listener in sync with latest props/closures
+    useEffect(() => {
+        window.addEventListener("resize", onResize)
+        return () => window.removeEventListener("resize", onResize)
+    }, [lineSpacing, seed, resolution, preview, waveSpeed, waveAmplitude, mouseInfluence])
+
+    // Stroke color change should not rebuild geometry; only update stroke
+    useEffect(() => {
+        pathsRef.current.forEach((path) => {
+            path.setAttribute("stroke", strokeColor)
+        })
+        drawLines()
+    }, [strokeColor])
+
+    // Geometry-affecting controls: rebuild and redraw
     useEffect(() => {
         setLines()
-    }, [strokeColor, lineSpacing, seed, resolution])
-
-    // Force immediate visual update when any prop changes in canvas mode
-    useEffect(() => {
-        if (RenderTarget.current() === RenderTarget.canvas) {
-            // Start a temporary animation loop for a few frames to show changes
-            let frameCount = 0
-            const maxFrames = 10
-
-            const animate = (time: number) => {
-                movePoints(time)
-                drawLines()
-                frameCount++
-
-                if (frameCount < maxFrames) {
-                    requestAnimationFrame(animate)
-                }
-            }
-
-            requestAnimationFrame(animate)
+        // Always draw at least one frame so lines aren't empty
+        const shouldAnimate = (!isCanvasRef.current || preview) && isVisibleRef.current
+        if (shouldAnimate) {
+            movePoints(performance.now())
+        } else {
+            movePoints(0)
         }
+        drawLines()
+    }, [lineSpacing, seed, resolution, preview])
+
+    // Shape-affecting controls: recompute wave positions
+    useEffect(() => {
+        // Recompute wave shape
+        const shouldAnimate = (!isCanvasRef.current || preview) && isVisibleRef.current
+        if (shouldAnimate) {
+            movePoints(performance.now())
+        } else {
+            movePoints(0)
+        }
+        drawLines()
     }, [waveSpeed, waveAmplitude, mouseInfluence])
 
     // Restart animation loop when props change to ensure new values are used
@@ -279,11 +312,14 @@ export default function InteractiveWaveBackground({
         // Start new animation loop with updated props
         const tick = (time: number) => {
             // Check if animation should run
-            const shouldAnimate = preview && isVisibleRef.current
+            // In canvas mode: respect preview toggle
+            // In production: always animate (ignore preview)
+            const shouldAnimate = 
+                (!isCanvasRef.current || preview) && isVisibleRef.current
 
-            // If preview is off or component is not visible, skip animation
+            // If animation is disabled, draw once without animating
             if (!shouldAnimate) {
-                rafRef.current = requestAnimationFrame(tick)
+                drawLines()
                 return
             }
 
@@ -306,14 +342,8 @@ export default function InteractiveWaveBackground({
             mouse.lx = mouse.x
             mouse.ly = mouse.y
 
-            // Mouse angle
+            // Mouse angle (not currently used but kept for potential future use)
             mouse.a = Math.atan2(dy, dx)
-
-            // Animation
-            if (containerRef.current) {
-                containerRef.current.style.setProperty("--x", `${mouse.sx}px`)
-                containerRef.current.style.setProperty("--y", `${mouse.sy}px`)
-            }
 
             movePoints(time)
             drawLines()
@@ -330,7 +360,7 @@ export default function InteractiveWaveBackground({
                 rafRef.current = null
             }
         }
-    }, [waveSpeed, waveAmplitude, mouseInfluence, seed, strokeColor, preview])
+    }, [waveSpeed, waveAmplitude, mouseInfluence, seed, preview])
 
     // Set SVG size using clientWidth/clientHeight for proper Framer canvas sizing
     const setSize = () => {
@@ -425,8 +455,36 @@ export default function InteractiveWaveBackground({
 
     // Resize handler
     const onResize = () => {
+        const container = containerRef.current
+        const probe = zoomProbeRef.current
+        if (!container || !probe) return
+
+        const rawWidth = container.clientWidth || container.offsetWidth || 1
+        const rawHeight = container.clientHeight || container.offsetHeight || 1
+        const zoom = probe.getBoundingClientRect().width / 20
+        const safeZoom = Math.max(zoom, 0.0001)
+        const width = rawWidth / safeZoom
+        const height = rawHeight / safeZoom
+        const EPSILON = 1
+
+        const lastSize = lastSizeRef.current
+        const sizeChanged =
+            Math.abs(width - lastSize.width) > EPSILON ||
+            Math.abs(height - lastSize.height) > EPSILON
+
+        if (!sizeChanged) return
+
+        lastSizeRef.current = { width, height, zoom: safeZoom }
         setSize()
         setLines()
+        // Always draw at least one frame so lines aren't empty
+        const shouldAnimate = (!isCanvasRef.current || preview) && isVisibleRef.current
+        if (shouldAnimate) {
+            movePoints(performance.now())
+        } else {
+            movePoints(0)
+        }
+        drawLines()
     }
 
     // Mouse handler
@@ -458,15 +516,9 @@ export default function InteractiveWaveBackground({
 
             mouse.set = true
         }
-
-        // Update CSS variables
-        if (containerRef.current) {
-            containerRef.current.style.setProperty("--x", `${mouse.sx}px`)
-            containerRef.current.style.setProperty("--y", `${mouse.sy}px`)
-        }
     }
 
-    // Move points - smoother wave motion
+    // Move points - smoother wave motion (optimized)
     const movePoints = (time: number) => {
         const { current: lines } = linesRef
         const { current: mouse } = mouseRef
@@ -474,65 +526,58 @@ export default function InteractiveWaveBackground({
 
         if (!noise) return
 
-        lines.forEach((points) => {
-            points.forEach((p: Point) => {
-                // Wave movement - speed only affects animation timing, not shape
-                const speedMultiplier = waveSpeed * 0.002 // Much slower: 0-0.002 range
-                const baseMove =
-                    noise(
-                        p.x * 0.003, // Remove time from noise sampling - shape is controlled by seed
-                        p.y * 0.002 // Remove time from noise sampling - shape is controlled by seed
-                    ) * 8
+        // Cache common calculations
+        const speedMultiplier = waveSpeed * 0.002
+        const amplitudeMultiplier = waveAmplitude * 2
+        const influenceMultiplier = mouseInfluence * 0.0007
+        const mouseSx = mouse.sx
+        const mouseSy = mouse.sy
+        const mouseVs = mouse.vs
+        const l = Math.max(175, mouseVs)
 
-                // Only add time-based movement if speed > 0
-                const move =
-                    waveSpeed > 0 ? baseMove + time * speedMultiplier : baseMove
-
-                const amplitudeMultiplier = waveAmplitude * 2 // Range: 0-2
+        for (let i = 0; i < lines.length; i++) {
+            const points = lines[i]
+            for (let j = 0; j < points.length; j++) {
+                const p = points[j]
+                
+                // Wave movement
+                const baseMove = noise(p.x * 0.003, p.y * 0.002) * 8
+                const move = waveSpeed > 0 ? baseMove + time * speedMultiplier : baseMove
+                
                 p.wave.x = Math.cos(move) * 12 * amplitudeMultiplier
                 p.wave.y = Math.sin(move) * 6 * amplitudeMultiplier
 
-                // Mouse effect - use direction from point to mouse for consistent behavior
-                const dx = p.x - mouse.sx
-                const dy = p.y - mouse.sy
+                // Mouse effect - use direction from point to mouse
+                const dx = p.x - mouseSx
+                const dy = p.y - mouseSy
                 const d = Math.hypot(dx, dy)
-                const l = Math.max(175, mouse.vs)
 
                 if (d < l) {
                     const s = 1 - d / l
-                    const f = Math.cos(d * 0.001) * s
-                    const influenceMultiplier = mouseInfluence * 0.0007 // Range: 0-0.0007
-                    
-                    // Calculate angle from mouse to point (repel direction)
+                    const f = Math.cos(d * 0.001) * s * l * mouseVs * influenceMultiplier
                     const angleToPoint = Math.atan2(dy, dx)
 
-                    p.cursor.vx +=
-                        Math.cos(angleToPoint) *
-                        f *
-                        l *
-                        mouse.vs *
-                        influenceMultiplier
-                    p.cursor.vy +=
-                        Math.sin(angleToPoint) *
-                        f *
-                        l *
-                        mouse.vs *
-                        influenceMultiplier
+                    p.cursor.vx += Math.cos(angleToPoint) * f
+                    p.cursor.vy += Math.sin(angleToPoint) * f
                 }
 
-                p.cursor.vx += (0 - p.cursor.x) * 0.01 // Increased restoration force
-                p.cursor.vy += (0 - p.cursor.y) * 0.01 // Increased restoration force
+                // Spring restoration
+                p.cursor.vx += -p.cursor.x * 0.01
+                p.cursor.vy += -p.cursor.y * 0.01
 
-                p.cursor.vx *= 0.95 // Increased smoothness
-                p.cursor.vy *= 0.95 // Increased smoothness
+                // Damping
+                p.cursor.vx *= 0.95
+                p.cursor.vy *= 0.95
 
+                // Update position
                 p.cursor.x += p.cursor.vx
                 p.cursor.y += p.cursor.vy
 
-                p.cursor.x = Math.min(50, Math.max(-50, p.cursor.x)) // Limited deformation range
-                p.cursor.y = Math.min(50, Math.max(-50, p.cursor.y)) // Limited deformation range
-            })
-        })
+                // Clamp
+                p.cursor.x = Math.min(50, Math.max(-50, p.cursor.x))
+                p.cursor.y = Math.min(50, Math.max(-50, p.cursor.y))
+            }
+        }
     }
 
     // Get moved point coordinates
@@ -545,82 +590,46 @@ export default function InteractiveWaveBackground({
         return coords
     }
 
-    // Draw lines - using line segments
+    // Draw lines - using line segments (optimized with array join)
     const drawLines = () => {
         const { current: lines } = linesRef
         const { current: paths } = pathsRef
 
-        lines.forEach((points, lIndex) => {
-            if (points.length < 2 || !paths[lIndex]) return
+        for (let lIndex = 0; lIndex < lines.length; lIndex++) {
+            const points = lines[lIndex]
+            const path = paths[lIndex]
+            if (!points || points.length < 2 || !path) continue
 
+            // Build path string with array (faster than string concatenation)
+            const pathParts: string[] = []
+            
             // First point
             const firstPoint = moved(points[0], false)
-            let d = `M ${firstPoint.x} ${firstPoint.y}`
+            pathParts.push(`M ${firstPoint.x} ${firstPoint.y}`)
 
             // Connect points with lines
             for (let i = 1; i < points.length; i++) {
                 const current = moved(points[i])
-                d += `L ${current.x} ${current.y}`
+                pathParts.push(`L ${current.x} ${current.y}`)
             }
 
-            paths[lIndex].setAttribute("d", d)
-        })
-    }
-
-    // Animation logic
-    const tick = (time: number) => {
-        const { current: mouse } = mouseRef
-
-        // Smooth mouse movement
-        mouse.sx += (mouse.x - mouse.sx) * 0.1
-        mouse.sy += (mouse.y - mouse.sy) * 0.1
-
-        // Mouse velocity
-        const dx = mouse.x - mouse.lx
-        const dy = mouse.y - mouse.ly
-        const d = Math.hypot(dx, dy)
-
-        mouse.v = d
-        mouse.vs += (d - mouse.vs) * 0.1
-        mouse.vs = Math.min(100, mouse.vs)
-
-        // Previous mouse position
-        mouse.lx = mouse.x
-        mouse.ly = mouse.y
-
-        // Mouse angle
-        mouse.a = Math.atan2(dy, dx)
-
-        // Animation
-        if (containerRef.current) {
-            containerRef.current.style.setProperty("--x", `${mouse.sx}px`)
-            containerRef.current.style.setProperty("--y", `${mouse.sy}px`)
+            path.setAttribute("d", pathParts.join(""))
         }
-
-        movePoints(time)
-        drawLines()
-
-        rafRef.current = requestAnimationFrame(tick)
     }
+
 
     return (
         <div
             ref={containerRef}
-            style={
-                {
-                    backgroundColor: backgroundColor
-                        ? backgroundColor
-                        : "transparent",
-                    position: "relative",
-                    margin: 0,
-                    padding: 0,
-                    width: "100%",
-                    height: "100%",
-                    overflow: "hidden",
-                    "--x": "-0.5rem",
-                    "--y": "50%",
-                } as React.CSSProperties
-            }
+            style={{
+                backgroundColor: backgroundColor || "transparent",
+                position: "relative",
+                margin: 0,
+                padding: 0,
+                width: "100%",
+                height: "100%",
+                overflow: "hidden",
+            }}
         >
             <svg
                 ref={svgRef}
