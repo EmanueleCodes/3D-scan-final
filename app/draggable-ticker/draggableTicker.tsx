@@ -65,6 +65,7 @@ export default function Ticker(props) {
         style,
         draggable = false,
         dragFactor = 1,
+        throwAware = false,
     } = props
 
     const { fadeContent, overflow, fadeWidth, fadeInset, fadeAlpha } =
@@ -93,6 +94,18 @@ export default function Ticker(props) {
     const isHorizontal =
         resolvedDirection === "left" || resolvedDirection === "right"
     const transformer = directionTransformers[resolvedDirection]
+    // Multiplier for base motion direction; can change after a throw
+    const directionSignRef = useRef(
+        resolvedDirection === "left" || resolvedDirection === "top" ? -1 : 1
+    )
+    useEffect(() => {
+        if (!throwAware) {
+            directionSignRef.current =
+                resolvedDirection === "left" || resolvedDirection === "top"
+                    ? -1
+                    : 1
+        }
+    }, [resolvedDirection, throwAware])
     
     // Combine animation offset with drag offset
     const combinedOffset = useMotionValue(0)
@@ -310,6 +323,7 @@ export default function Ticker(props) {
     const currentVelocity = useRef(0)
     const hasUserDragged = useRef(false)
     const lastPointerTs = useRef<number | null>(null)
+    const rawCursorVelocity = useRef(0)
 
     /**
      * Setup animations
@@ -437,6 +451,8 @@ export default function Ticker(props) {
         const dt = lastPointerTs.current ? now - lastPointerTs.current : 0
         if (dt > 0) {
             currentVelocity.current = delta / dt
+            const rawDelta = isHorizontal ? deltaX : deltaY
+            rawCursorVelocity.current = rawDelta / dt
         }
         lastPointerTs.current = now
         
@@ -449,6 +465,10 @@ export default function Ticker(props) {
         handleGlobalPointerUp()
         // Clear timestamp so next drag recalculates properly
         lastPointerTs.current = null
+        // If throw aware, set the base motion direction to the thrown direction
+        if (throwAware) {
+            directionSignRef.current = rawCursorVelocity.current >= 0 ? 1 : -1
+        }
     }, [draggable, handleGlobalPointerUp])
 
     // Animation frame for draggable mode
@@ -463,8 +483,8 @@ export default function Ticker(props) {
             return
         }
 
-        // Base velocity from configured speed (px/ms) with direction
-        const baseVelocity = (speed / 1000) * ((resolvedDirection === "left" || resolvedDirection === "top") ? -1 : 1)
+        // Base velocity from configured speed (px/ms) using current direction sign
+        const baseVelocity = (speed / 1000) * directionSignRef.current
 
         // On first render (no user drag yet), run at base speed exactly
         if (!hasUserDragged.current && !isDragging.current) {
@@ -637,6 +657,7 @@ Ticker.defaultProps = {
     direction: true,
     draggable: false,
     dragFactor: 1,
+    throwAware: false,
 }
 
 /* Property Controls */
@@ -805,6 +826,16 @@ addPropertyControls(Ticker, {
             return props.draggable === false
         },
         description: "Scales momentum after releasing the drag.",
+    },
+    throwAware: {
+        type: ControlType.Boolean,
+        title: "Throw aware",
+        defaultValue: false,
+        hidden(props) {
+            return props.draggable === false
+        },
+        description:
+            "After release, continue in the direction you threw.",
     },
 })
 
