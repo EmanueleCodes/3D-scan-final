@@ -492,10 +492,14 @@ export default function Ticker(props) {
         }
         
         // Blend current velocity toward base velocity at a rate controlled by dragFactor
-        // Effective per-frame decay scales with dragFactor; base 0.92 kept for compatibility
+        // Normalize drag factor to 0.1..1 for predictable UX, then remap to a
+        // stronger decay range so low values don't coast for too long
         const frameScale = delta / (1000 / 60)
-        const minFactor = 0.1 // prevent stalling when dragFactor = 0
-        const decay = Math.pow(0.92, Math.max(minFactor, dragFactor) * frameScale)
+        const normalizedDrag = Math.max(0.1, Math.min(1, dragFactor ?? 1))
+        // Map 0.1..1 -> 0.6..1.4 (higher = faster convergence)
+        const decayScale = mapLinear(normalizedDrag, 0.1, 1, 0.4, 2.5)
+        // Use a slightly stronger base decay than before to reduce overall coast time
+        const decay = Math.pow(0.88, decayScale * frameScale)
         currentVelocity.current = baseVelocity + (currentVelocity.current - baseVelocity) * decay
 
         // Integrate position with the blended velocity
@@ -724,6 +728,42 @@ addPropertyControls(Ticker, {
         valueLabels: ["T", "R", "B", "L"],
         min: 0,
     },
+    
+    hoverFactor: {
+        type: ControlType.Number,
+        title: "Hover",
+        min: 0,
+        max: 1,
+        unit: "x",
+        defaultValue: 1,
+        step: 0.1,
+        displayStepper: true,
+        description: "Slows down the speed while you are hovering.",
+        hidden:(props)=>props.draggable
+    },
+    draggable: {
+        type: ControlType.Boolean,
+        title: "Draggable",
+        defaultValue: true,
+    },
+    dragFactor: {
+        type: ControlType.Number,
+        title: "Drag Factor",
+        min: 0.1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.3,
+        hidden:(props)=> !props.draggable
+    },
+    throwAware: {
+        type: ControlType.Boolean,
+        title: "On Throw",
+        defaultValue: true,
+        hidden:(props)=> !props.draggable,
+        enabledTitle:"Follow",
+        disabledTitle:"No follow",
+    },
+
     sizingOptions: {
         type: ControlType.Object,
         title: "Sizing",
@@ -747,6 +787,7 @@ addPropertyControls(Ticker, {
     fadeOptions: {
         type: ControlType.Object,
         title: "Clipping",
+        description:"More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             fadeContent: {
                 type: ControlType.Boolean,
@@ -797,45 +838,6 @@ addPropertyControls(Ticker, {
                 },
             },
         },
-    },
-    hoverFactor: {
-        type: ControlType.Number,
-        title: "Hover",
-        min: 0,
-        max: 1,
-        unit: "x",
-        defaultValue: 1,
-        step: 0.1,
-        displayStepper: true,
-        description: "Slows down the speed while you are hovering.",
-    },
-    draggable: {
-        type: ControlType.Boolean,
-        title: "Draggable",
-        defaultValue: false,
-        description: "Allow users to drag and control the ticker movement.",
-    },
-    dragFactor: {
-        type: ControlType.Number,
-        title: "Drag factor",
-        min: 0,
-        max: 5,
-        step: 0.1,
-        defaultValue: 1,
-        hidden(props) {
-            return props.draggable === false
-        },
-        description: "Scales momentum after releasing the drag.",
-    },
-    throwAware: {
-        type: ControlType.Boolean,
-        title: "Throw aware",
-        defaultValue: false,
-        hidden(props) {
-            return props.draggable === false
-        },
-        description:
-            "After release, continue in the direction you threw.",
     },
 })
 
@@ -893,6 +895,13 @@ const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
 
 const isValidNumber = (value) => typeof value === "number" && !isNaN(value)
 
+// Linear mapping helper (see mappingValues.md)
+function mapLinear(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
+    if (inMax === inMin) return outMin
+    const t = (value - inMin) / (inMax - inMin)
+    return outMin + t * (outMax - outMin)
+}
+
 function useWritingDirection() {
     if (!window || !window.document || !window.document.documentElement)
         return "ltr"
@@ -909,3 +918,5 @@ function getTickerResolvedDirection(
 
     return direction
 }
+
+Ticker.displayName = "Draggable Ticker"
