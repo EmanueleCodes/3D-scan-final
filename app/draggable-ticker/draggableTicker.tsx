@@ -95,23 +95,18 @@ export default function Ticker(props) {
         resolvedDirection === "left" || resolvedDirection === "right"
     const transformer = directionTransformers[resolvedDirection]
     // Multiplier for base motion direction; can change after a throw
-    const directionSignRef = useRef(
-        resolvedDirection === "left" || resolvedDirection === "top" ? -1 : 1
-    )
+    // Always advance time forward; transformer encodes visual direction.
+    const directionSignRef = useRef(1)
     useEffect(() => {
         if (!throwAware) {
-            directionSignRef.current =
-                resolvedDirection === "left" || resolvedDirection === "top"
-                    ? -1
-                    : 1
+            directionSignRef.current = 1
         }
     }, [resolvedDirection, throwAware])
-    
+
     // Combine animation offset with drag offset
     const combinedOffset = useMotionValue(0)
-    const transform = useTransform(
-        combinedOffset,
-        (value) => transformer(value)
+    const transform = useTransform(combinedOffset, (value) =>
+        transformer(value)
     )
 
     /* Refs and State */
@@ -338,7 +333,10 @@ export default function Ticker(props) {
             if (!draggable) {
                 animationRef.current = listRef.current.animate(
                     {
-                        transform: [transformer(0), transformer(animateToValue)],
+                        transform: [
+                            transformer(0),
+                            transformer(animateToValue),
+                        ],
                     },
                     {
                         duration: (Math.abs(animateToValue) / speed) * 1000,
@@ -385,95 +383,111 @@ export default function Ticker(props) {
     // Drag handlers
     const handleGlobalPointerUp = useCallback(() => {
         if (!isDragging.current) return
-        
+
         isDragging.current = false
-        
+
         // Resume animation if using Web Animations API
         if (animationRef.current && !draggable) {
             animationRef.current.play()
         }
-        
+
         // Update cursor
         if (listRef.current) {
             listRef.current.style.cursor = "grab"
         }
-        
+
         // Remove global listeners
         window.removeEventListener("pointerup", handleGlobalPointerUp)
         window.removeEventListener("pointercancel", handleGlobalPointerUp)
         window.removeEventListener("blur", handleGlobalPointerUp)
     }, [draggable])
 
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        if (!draggable) return
-        
-        e.currentTarget.setPointerCapture(e.pointerId)
-        if (listRef.current) {
-            listRef.current.style.cursor = "grabbing"
-        }
-        
-        isDragging.current = true
-        lastPointerPosition.current = { x: e.clientX, y: e.clientY }
-        dragVelocity.current = 0
-        
-        // Pause animation if using Web Animations API
-        if (animationRef.current) {
-            animationRef.current.pause()
-        }
-        
-        // Add global listeners
-        window.addEventListener("pointerup", handleGlobalPointerUp)
-        window.addEventListener("pointercancel", handleGlobalPointerUp)
-        window.addEventListener("blur", handleGlobalPointerUp)
-        hasUserDragged.current = true
-    }, [draggable, handleGlobalPointerUp])
+    const handlePointerDown = useCallback(
+        (e: React.PointerEvent) => {
+            if (!draggable) return
 
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
-        if (!draggable || !isDragging.current) return
-        
-        const currentPosition = { x: e.clientX, y: e.clientY }
-        const deltaX = currentPosition.x - lastPointerPosition.current.x
-        const deltaY = currentPosition.y - lastPointerPosition.current.y
-        
-        // Calculate movement based on direction
-        let delta = 0
-        if (isHorizontal) {
-            delta = resolvedDirection === "left" ? -deltaX : deltaX
-        } else {
-            delta = resolvedDirection === "top" ? -deltaY : deltaY
-        }
-        
-        // Update drag offset
-        dragOffset.set(dragOffset.get() + delta)
-        
-        // Track instantaneous cursor velocity (px/ms) for seamless release
-        const now = performance.now()
-        const dt = lastPointerTs.current ? now - lastPointerTs.current : 0
-        if (dt > 0) {
-            currentVelocity.current = delta / dt
-            const rawDelta = isHorizontal ? deltaX : deltaY
-            rawCursorVelocity.current = rawDelta / dt
-        }
-        lastPointerTs.current = now
-        
-        lastPointerPosition.current = currentPosition
-    }, [draggable, isHorizontal, resolvedDirection, dragOffset, dragFactor])
+            e.currentTarget.setPointerCapture(e.pointerId)
+            if (listRef.current) {
+                listRef.current.style.cursor = "grabbing"
+            }
 
-    const handlePointerUp = useCallback((e: React.PointerEvent) => {
-        if (!draggable) return
-        e.currentTarget.releasePointerCapture(e.pointerId)
-        handleGlobalPointerUp()
-        // Clear timestamp so next drag recalculates properly
-        lastPointerTs.current = null
-        // If throw aware, set the base motion direction to the thrown direction
-        if (throwAware) {
-            directionSignRef.current = rawCursorVelocity.current >= 0 ? 1 : -1
-        }
-    }, [draggable, handleGlobalPointerUp])
+            isDragging.current = true
+            lastPointerPosition.current = { x: e.clientX, y: e.clientY }
+            dragVelocity.current = 0
+
+            // Pause animation if using Web Animations API
+            if (animationRef.current) {
+                animationRef.current.pause()
+            }
+
+            // Add global listeners
+            window.addEventListener("pointerup", handleGlobalPointerUp)
+            window.addEventListener("pointercancel", handleGlobalPointerUp)
+            window.addEventListener("blur", handleGlobalPointerUp)
+            hasUserDragged.current = true
+        },
+        [draggable, handleGlobalPointerUp]
+    )
+
+    const handlePointerMove = useCallback(
+        (e: React.PointerEvent) => {
+            if (!draggable || !isDragging.current) return
+
+            const currentPosition = { x: e.clientX, y: e.clientY }
+            const deltaX = currentPosition.x - lastPointerPosition.current.x
+            const deltaY = currentPosition.y - lastPointerPosition.current.y
+
+            // Calculate movement based on direction
+            let delta = 0
+            if (isHorizontal) {
+                delta = resolvedDirection === "left" ? -deltaX : deltaX
+            } else {
+                delta = resolvedDirection === "top" ? -deltaY : deltaY
+            }
+
+            // Update drag offset
+            dragOffset.set(dragOffset.get() + delta)
+
+            // Track instantaneous cursor velocity (px/ms) for seamless release
+            const now = performance.now()
+            const dt = lastPointerTs.current ? now - lastPointerTs.current : 0
+            if (dt > 0) {
+                currentVelocity.current = delta / dt
+                const rawDelta = isHorizontal ? deltaX : deltaY
+                rawCursorVelocity.current = rawDelta / dt
+            }
+            lastPointerTs.current = now
+
+            lastPointerPosition.current = currentPosition
+        },
+        [draggable, isHorizontal, resolvedDirection, dragOffset, dragFactor]
+    )
+
+    const handlePointerUp = useCallback(
+        (e: React.PointerEvent) => {
+            if (!draggable) return
+            e.currentTarget.releasePointerCapture(e.pointerId)
+            handleGlobalPointerUp()
+            // Clear timestamp so next drag recalculates properly
+            lastPointerTs.current = null
+            // If throw aware, set the base motion direction to the thrown direction
+            if (throwAware) {
+                directionSignRef.current =
+                    rawCursorVelocity.current >= 0 ? 1 : -1
+            }
+        },
+        [draggable, handleGlobalPointerUp]
+    )
 
     // Animation frame for draggable mode
     useAnimationFrame((_, delta) => {
-        if (isCanvas || !draggable || isReducedMotion || !animateToValue || !speed) {
+        if (
+            isCanvas ||
+            !draggable ||
+            isReducedMotion ||
+            !animateToValue ||
+            !speed
+        ) {
             return
         }
 
@@ -490,7 +504,7 @@ export default function Ticker(props) {
         if (!hasUserDragged.current && !isDragging.current) {
             currentVelocity.current = baseVelocity
         }
-        
+
         // Blend current velocity toward base velocity at a rate controlled by dragFactor
         // Normalize drag factor to 0.1..1 for predictable UX, then remap to a
         // stronger decay range so low values don't coast for too long
@@ -500,17 +514,19 @@ export default function Ticker(props) {
         const decayScale = mapLinear(normalizedDrag, 0.1, 1, 0.4, 2.5)
         // Use a slightly stronger base decay than before to reduce overall coast time
         const decay = Math.pow(0.88, decayScale * frameScale)
-        currentVelocity.current = baseVelocity + (currentVelocity.current - baseVelocity) * decay
+        currentVelocity.current =
+            baseVelocity + (currentVelocity.current - baseVelocity) * decay
 
         // Integrate position with the blended velocity
         animationBaseOffset.current += currentVelocity.current * delta
 
         // Calculate the total offset before wrapping
         const totalOffset = animationBaseOffset.current + dragOffset.get()
-        
+
         // Seamless wrapping in both directions using modulo
-        const wrappedOffset = ((totalOffset % animateToValue) + animateToValue) % animateToValue
-        
+        const wrappedOffset =
+            ((totalOffset % animateToValue) + animateToValue) % animateToValue
+
         // Update both offsets to maintain the wrap without visible jumps
         animationBaseOffset.current = wrappedOffset
         dragOffset.set(0)
@@ -728,7 +744,7 @@ addPropertyControls(Ticker, {
         valueLabels: ["T", "R", "B", "L"],
         min: 0,
     },
-    
+
     hoverFactor: {
         type: ControlType.Number,
         title: "Hover",
@@ -739,7 +755,7 @@ addPropertyControls(Ticker, {
         step: 0.1,
         displayStepper: true,
         description: "Slows down the speed while you are hovering.",
-        hidden:(props)=>props.draggable
+        hidden: (props) => props.draggable,
     },
     draggable: {
         type: ControlType.Boolean,
@@ -753,15 +769,15 @@ addPropertyControls(Ticker, {
         max: 1,
         step: 0.05,
         defaultValue: 0.3,
-        hidden:(props)=> !props.draggable
+        hidden: (props) => !props.draggable,
     },
     throwAware: {
         type: ControlType.Boolean,
         title: "On Throw",
         defaultValue: true,
-        hidden:(props)=> !props.draggable,
-        enabledTitle:"Follow",
-        disabledTitle:"No follow",
+        hidden: (props) => !props.draggable,
+        enabledTitle: "Follow",
+        disabledTitle: "No follow",
     },
 
     sizingOptions: {
@@ -787,7 +803,8 @@ addPropertyControls(Ticker, {
     fadeOptions: {
         type: ControlType.Object,
         title: "Clipping",
-        description:"More components at [Framer University](https://frameruni.link/cc).",
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             fadeContent: {
                 type: ControlType.Boolean,
@@ -896,7 +913,13 @@ const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
 const isValidNumber = (value) => typeof value === "number" && !isNaN(value)
 
 // Linear mapping helper (see mappingValues.md)
-function mapLinear(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
+function mapLinear(
+    value: number,
+    inMin: number,
+    inMax: number,
+    outMin: number,
+    outMax: number
+): number {
     if (inMax === inMin) return outMin
     const t = (value - inMin) / (inMax - inMin)
     return outMin + t * (outMax - outMin)
