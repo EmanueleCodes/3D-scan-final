@@ -847,6 +847,7 @@ export default function EmblaCarousel(props: PropType) {
     const outerRef = React.useRef<HTMLDivElement>(null)
     const [outerWidth, setOuterWidth] = useState(0)
     const [isReady, setIsReady] = useState(false)
+    const [sideInset, setSideInset] = useState(0)
     useEffect(() => {
         const el = outerRef.current
         if (!el) return
@@ -876,6 +877,28 @@ export default function EmblaCarousel(props: PropType) {
             window.removeEventListener("resize", update)
         }
     }, [])
+
+    // Compute side inset so non-center alignments use the OUTER wrapper edges, not 100vw
+    useEffect(() => {
+        const updateInset = () => {
+            try {
+                const vw =
+                    (typeof window !== "undefined" && window.innerWidth) ||
+                    (typeof document !== "undefined" &&
+                        document.documentElement?.clientWidth) ||
+                    0
+                if (vw > 0 && outerWidth > 0) {
+                    const inset = Math.max(0, (vw - outerWidth) / 2)
+                    setSideInset(inset)
+                } else {
+                    setSideInset(0)
+                }
+            } catch (_) {}
+        }
+        updateInset()
+        window.addEventListener("resize", updateInset)
+        return () => window.removeEventListener("resize", updateInset)
+    }, [outerWidth])
 
     // Canvas sizing can lag; poll for a few frames until width stabilizes
     React.useLayoutEffect(() => {
@@ -923,9 +946,11 @@ export default function EmblaCarousel(props: PropType) {
     // Build options object from props
     // Disable draggable when there's only 1 slide
     const isDraggable = draggable && actualSlideCount > 1
+    // In infinite mode force center alignment
+    const effectiveAlign: "start" | "center" | "end" = loop ? "center" : align
     const options: EmblaOptionsType = {
         loop,
-        align,
+        align: effectiveAlign,
         dragFree: !dragFree, // Inverted: dragFree prop true = snapping on (Embla dragFree false)
         watchDrag: isDraggable,
         containScroll: false, // Always Auto - allows empty space at edges
@@ -963,7 +988,7 @@ export default function EmblaCarousel(props: PropType) {
             requestAnimationFrame(() => setIsReady(true))
         }
         return cancel
-    }, [queueReInit, emblaApi, gap, slideBasis, outerWidth, slidesPerView, isDraggable])
+    }, [queueReInit, emblaApi, gap, slideBasis, outerWidth, slidesPerView, isDraggable, sideInset, effectiveAlign])
 
     // Autoplay interaction: call on actual press (pointer down) or while dragging
     const onNavButtonClick = useCallback((emblaApi: EmblaCarouselType) => {
@@ -1338,16 +1363,14 @@ export default function EmblaCarousel(props: PropType) {
         }
 
         // Horizontal positioning based on mode
-        if (mode === "space-between") {
-            // Always add quarter of slide gap to horizontal offset so arrows hug the slide edges at 0 offset
-            const halfSlideGapPx = (gap ?? 0) / 4
+        if (mode === "space-between") {            
             const offsetToken =
                 insetUnit === "%" ? `${offsetX}%` : `${offsetX}px`
 
             if (insetRef === "central-slide" && currentSlidePx) {
                 // Relative to the central slide edges based on the OUTER WRAPPER width
-                baseStyle.left = `calc(50% - ${currentSlidePx / 2}px + ${offsetToken} + ${halfSlideGapPx}px)`
-                baseStyle.right = `calc(50% - ${currentSlidePx / 2}px + ${offsetToken} + ${halfSlideGapPx}px)`
+                baseStyle.left = `calc(50% - ${currentSlidePx / 2}px + ${offsetToken})`
+                baseStyle.right = `calc(50% - ${currentSlidePx / 2}px + ${offsetToken})`
             } else {
                 // Relative to container: do NOT include slide gap adjustment
                 baseStyle.left = `${offsetToken}`
@@ -1458,6 +1481,8 @@ export default function EmblaCarousel(props: PropType) {
                             : "default",
                         overflow: "visible",
                         pointerEvents: (mode === "images" && actualSlideCount <= 1) ? "none" : "auto",
+                        paddingLeft: effectiveAlign === "start" ? sideInset : 0,
+                        paddingRight: effectiveAlign === "end" ? sideInset : 0,
                     }}
                     ref={emblaRef}
                 >
@@ -1998,6 +2023,7 @@ addPropertyControls(EmblaCarousel, {
         defaultValue: "center",
         displaySegmentedControl: true,
         segmentedControlDirection: "horizontal",
+        hidden: (props) => props.loop === true,
     },
     trackpad: {
         type: ControlType.Enum,
