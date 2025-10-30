@@ -63,7 +63,7 @@ export default function Ticker(props) {
         sizingOptions,
         fadeOptions,
         style,
-        draggable,
+        draggable = false,
     } = props
 
     const { fadeContent, overflow, fadeWidth, fadeInset, fadeAlpha } =
@@ -85,8 +85,6 @@ export default function Ticker(props) {
     const hasChildren = numChildren > 0
 
     const offset = useMotionValue(0)
-    const dragX = useMotionValue(0)
-    const dragY = useMotionValue(0)
     const resolvedDirection = getTickerResolvedDirection(
         direction === true ? "left" : direction,
         writingDirection
@@ -94,13 +92,13 @@ export default function Ticker(props) {
     const isHorizontal =
         resolvedDirection === "left" || resolvedDirection === "right"
     const transformer = directionTransformers[resolvedDirection]
-    const transform = useTransform(offset, transformer)
     
-    // Drag state tracking
-    const isDragging = useRef(false)
-    const dragOffset = useRef(0)
-    const animationStartTime = useRef(0)
-    const animationStartOffset = useRef(0)
+    // Combine animation offset with drag offset
+    const combinedOffset = useMotionValue(0)
+    const transform = useTransform(
+        combinedOffset,
+        (value) => transformer(value)
+    )
 
     /* Refs and State */
     const parentRef = useRef(null)
@@ -133,7 +131,10 @@ export default function Ticker(props) {
     }
 
     if (!isCanvas && hasChildren && size.parent) {
-        duplicateBy = Math.round((size.parent / size.children) * 2) + 1
+        // When draggable, we need more duplicates to handle bidirectional dragging
+        // Use 4x multiplier for draggable (covers both directions), 2x for regular
+        const multiplier = draggable ? 4 : 2
+        duplicateBy = Math.round((size.parent / size.children) * multiplier) + 1
         duplicateBy = Math.min(duplicateBy, MAX_DUPLICATED_ITEMS)
         opacity = 1
     }
@@ -298,6 +299,13 @@ export default function Ticker(props) {
     const listRef = useRef<HTMLUListElement>(null)
     const animationRef = useRef<Animation>(null)
 
+    // Drag state and refs
+    const isDragging = useRef(false)
+    const dragOffset = useMotionValue(0)
+    const dragVelocity = useRef(0)
+    const lastPointerPosition = useRef({ x: 0, y: 0 })
+    const animationBaseOffset = useRef(0)
+
     /**
      * Setup animations
      */
@@ -307,30 +315,28 @@ export default function Ticker(props) {
                 return
             }
 
-            animationRef.current = listRef.current.animate(
-                {
-                    transform: [transformer(0), transformer(animateToValue)],
-                },
-                {
-                    duration: (Math.abs(animateToValue) / speed) * 1000,
-                    iterations: Infinity,
-                    iterationStart: writingDirection === "rtl" ? 1 : 0,
-                    easing: "linear",
-                }
-            )
+            // If draggable, we'll use animation frame instead of Web Animations API
+            if (!draggable) {
+                animationRef.current = listRef.current.animate(
+                    {
+                        transform: [transformer(0), transformer(animateToValue)],
+                    },
+                    {
+                        duration: (Math.abs(animateToValue) / speed) * 1000,
+                        iterations: Infinity,
+                        iterationStart: writingDirection === "rtl" ? 1 : 0,
+                        easing: "linear",
+                    }
+                )
 
-            return () => {
-                if (animationRef.current) {
-                    animationRef.current.cancel()
-                }
+                return () => animationRef.current.cancel()
             }
-        }, [hoverFactor, animateToValue, speed, writingDirection])
+        }, [hoverFactor, animateToValue, speed, writingDirection, draggable])
 
         const playOrPause = useCallback(() => {
-            if (!animationRef.current || isDragging.current) return
+            if (!animationRef.current) return
 
             const hidden = document.hidden
-            // Only control animation if not currently dragging
             if (
                 isInView &&
                 !hidden &&
@@ -356,6 +362,135 @@ export default function Ticker(props) {
             }
         }, [playOrPause])
     }
+
+    // Drag handlers
+    const handleGlobalPointerUp = useCallback(() => {
+        if (!isDragging.current) return
+        
+        isDragging.current = false
+        
+        // Resume animation if using Web Animations API
+        if (animationRef.current && !draggable) {
+            animationRef.current.play()
+        }
+        
+        // Update cursor
+        if (listRef.current) {
+            listRef.current.style.cursor = "grab"
+        }
+        
+        // Remove global listeners
+        window.removeEventListener("pointerup", handleGlobalPointerUp)
+        window.removeEventListener("pointercancel", handleGlobalPointerUp)
+        window.removeEventListener("blur", handleGlobalPointerUp)
+    }, [draggable])
+
+    const handlePointerDown = useCallback((e: React.PointerEvent) => {
+        if (!draggable) return
+        
+        e.currentTarget.setPointerCapture(e.pointerId)
+        if (listRef.current) {
+            listRef.current.style.cursor = "grabbing"
+        }
+        
+        isDragging.current = true
+        lastPointerPosition.current = { x: e.clientX, y: e.clientY }
+        dragVelocity.current = 0
+        
+        // Pause animation if using Web Animations API
+        if (animationRef.current) {
+            animationRef.current.pause()
+        }
+        
+        // Add global listeners
+        window.addEventListener("pointerup", handleGlobalPointerUp)
+        window.addEventListener("pointercancel", handleGlobalPointerUp)
+        window.addEventListener("blur", handleGlobalPointerUp)
+    }, [draggable, handleGlobalPointerUp])
+
+    const handlePointerMove = useCallback((e: React.PointerEvent) => {
+        if (!draggable || !isDragging.current) return
+        
+        const currentPosition = { x: e.clientX, y: e.clientY }
+        const deltaX = currentPosition.x - lastPointerPosition.current.x
+        const deltaY = currentPosition.y - lastPointerPosition.current.y
+        
+        // Calculate movement based on direction
+        let delta = 0
+        if (isHorizontal) {
+            delta = resolvedDirection === "left" ? -deltaX : deltaX
+        } else {
+            delta = resolvedDirection === "top" ? -deltaY : deltaY
+        }
+        
+        // Update drag offset
+        dragOffset.set(dragOffset.get() + delta)
+        
+        // Update velocity for momentum
+        dragVelocity.current = delta * 2
+        
+        lastPointerPosition.current = currentPosition
+    }, [draggable, isHorizontal, resolvedDirection, dragOffset])
+
+    const handlePointerUp = useCallback((e: React.PointerEvent) => {
+        if (!draggable) return
+        e.currentTarget.releasePointerCapture(e.pointerId)
+        handleGlobalPointerUp()
+    }, [draggable, handleGlobalPointerUp])
+
+    // Animation frame for draggable mode
+    useAnimationFrame((_, delta) => {
+        if (isCanvas || !draggable || isReducedMotion || !animateToValue || !speed) {
+            return
+        }
+
+        if (isDragging.current) {
+            // During drag, only apply drag offset, don't animate
+            combinedOffset.set(animationBaseOffset.current + dragOffset.get())
+            return
+        }
+
+        // Normal animation with momentum decay
+        // Speed represents pixels per second (based on original: duration = (distance / speed) * 1000)
+        // Convert to pixels per millisecond: speed / 1000
+        const pixelsPerMillisecond = speed / 1000
+        const movementInPixels = pixelsPerMillisecond * delta
+        
+        const directionMultiplier = (resolvedDirection === "left" || resolvedDirection === "top") ? -1 : 1
+        const movement = movementInPixels * directionMultiplier
+
+        animationBaseOffset.current += movement
+        
+        // Apply momentum decay if there's drag velocity
+        if (Math.abs(dragVelocity.current) > 0.01) {
+            dragVelocity.current *= 0.92 // Decay factor
+            animationBaseOffset.current += dragVelocity.current
+        } else {
+            dragVelocity.current = 0
+        }
+
+        // Calculate the total offset before wrapping
+        const totalOffset = animationBaseOffset.current + dragOffset.get()
+        
+        // Seamless wrapping in both directions using modulo
+        const wrappedOffset = ((totalOffset % animateToValue) + animateToValue) % animateToValue
+        
+        // Update both offsets to maintain the wrap without visible jumps
+        animationBaseOffset.current = wrappedOffset
+        dragOffset.set(0)
+
+        // Combine animation offset with drag offset
+        combinedOffset.set(animationBaseOffset.current + dragOffset.get())
+    })
+
+    // Clean up event listeners on unmount
+    useEffect(() => {
+        return () => {
+            window.removeEventListener("pointerup", handleGlobalPointerUp)
+            window.removeEventListener("pointercancel", handleGlobalPointerUp)
+            window.removeEventListener("blur", handleGlobalPointerUp)
+        }
+    }, [handleGlobalPointerUp])
 
     /* Fades */
     const fadeDirection = isHorizontal ? "to right" : "to bottom"
@@ -410,104 +545,27 @@ export default function Ticker(props) {
                     flexDirection: isHorizontal ? "row" : "column",
                     ...style,
                     willChange: isCanvas || !isInView ? "auto" : "transform",
-                    // Only use drag x/y when actively dragging, otherwise animation handles transform
-                    x: isDragging.current && isHorizontal ? dragX : undefined,
-                    y: isDragging.current && !isHorizontal ? dragY : undefined,
-                }}
-                drag={draggable ? (isHorizontal ? "x" : "y") : false}
-                dragElastic={draggable ? 0 : undefined}
-                onDragStart={() => {
-                    if (!draggable) return
-                    isDragging.current = true
-                    
-                    // Pause animation when drag starts (if it exists and is running)
-                    if (animationRef.current && animationRef.current.playState === "running") {
-                        animationRef.current.pause()
-                        // Capture current animation position as starting point
-                        const effect = animationRef.current.effect
-                        const duration = effect && effect.getTiming ? effect.getTiming().duration : 1
-                        const currentTime = animationRef.current.currentTime || 0
-                        const currentProgress = duration > 0 ? (currentTime / duration) % 1 : 0
-                        animationStartOffset.current = currentProgress * (isValidNumber(animateToValue) ? animateToValue : 0)
-                    } else {
-                        // If no animation, use current offset or 0
-                        animationStartOffset.current = offset.get() || 0
-                    }
-                    
-                    // Set initial drag position to 0
-                    dragX.set(0)
-                    dragY.set(0)
-                }}
-                onDrag={(event, info) => {
-                    if (!draggable) return
-                    // Calculate new offset from drag position
-                    const dragDelta = isHorizontal ? info.offset.x : info.offset.y
-                    // Direction multiplier: right/bottom move in positive direction, left/top move negative
-                    const directionMultiplier = resolvedDirection === "right" || resolvedDirection === "bottom" ? -1 : 1
-                    const newOffset = animationStartOffset.current + (dragDelta * directionMultiplier)
-                    offset.set(newOffset)
-                }}
-                onDragEnd={(event, info) => {
-                    if (!draggable) return
-                    isDragging.current = false
-                    
-                    // Get final drag position
-                    const finalDragDelta = isHorizontal ? info.offset.x : info.offset.y
-                    const directionMultiplier = resolvedDirection === "right" || resolvedDirection === "bottom" ? -1 : 1
-                    const finalOffset = animationStartOffset.current + (finalDragDelta * directionMultiplier)
-                    
-                    // Reset drag motion values to clear framer-motion transform
-                    dragX.set(0)
-                    dragY.set(0)
-                    
-                    // When drag ends, restart animation from current offset position (if animation exists)
-                    if (animationRef.current && !isReducedMotion && isValidNumber(animateToValue) && speed && listRef.current) {
-                        // Normalize offset to be within animation range (0 to animateToValue)
-                        const normalizedOffset = ((finalOffset % animateToValue) + animateToValue) % animateToValue
-                        
-                        // Cancel current animation and apply transform immediately to avoid jump
-                        animationRef.current.cancel()
-                        listRef.current.style.transform = transformer(normalizedOffset)
-                        
-                        // Create new animation starting from current position
-                        animationRef.current = listRef.current.animate(
-                            {
-                                transform: [transformer(normalizedOffset), transformer(normalizedOffset + animateToValue)],
-                            },
-                            {
-                                duration: (Math.abs(animateToValue) / speed) * 1000,
-                                iterations: Infinity,
-                                easing: "linear",
-                            }
-                        )
-                        
-                        // Sync offset with normalized position
-                        offset.set(normalizedOffset)
-                        
-                        // Resume animation if conditions are met
-                        playOrPause()
-                    } else if (listRef.current && isValidNumber(finalOffset)) {
-                        // If no animation, apply transform to keep dragged position
-                        listRef.current.style.transform = transformer(finalOffset)
-                        offset.set(finalOffset)
-                    }
+                    transform: draggable ? transform : undefined,
+                    cursor: draggable ? "grab" : undefined,
                 }}
                 onMouseEnter={() => {
-                    if (draggable) return
                     isHover.current = true
-                    if (animationRef.current) {
+                    if (animationRef.current && !draggable) {
                         // TODO Replace with updatePlaybackRate when Chrome bugs sorted
                         animationRef.current.playbackRate = hoverFactor
                     }
                 }}
                 onMouseLeave={() => {
-                    if (draggable) return
                     isHover.current = false
-                    if (animationRef.current) {
+                    if (animationRef.current && !draggable) {
                         // TODO Replace with updatePlaybackRate when Chrome bugs sorted
                         animationRef.current.playbackRate = 1
                     }
                 }}
+                onPointerDown={draggable ? handlePointerDown : undefined}
+                onPointerMove={draggable ? handlePointerMove : undefined}
+                onPointerUp={draggable ? handlePointerUp : undefined}
+                onPointerCancel={draggable ? handlePointerUp : undefined}
             >
                 {clonedChildren}
                 {dupedChildren}
@@ -721,7 +779,7 @@ addPropertyControls(Ticker, {
         type: ControlType.Boolean,
         title: "Draggable",
         defaultValue: false,
-        description: "Allow users to drag the ticker to control its position.",
+        description: "Allow users to drag and control the ticker movement.",
     },
 })
 
