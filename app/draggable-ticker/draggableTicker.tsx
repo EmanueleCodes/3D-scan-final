@@ -64,6 +64,7 @@ export default function Ticker(props) {
         fadeOptions,
         style,
         draggable = false,
+        dragFactor = 1,
     } = props
 
     const { fadeContent, overflow, fadeWidth, fadeInset, fadeAlpha } =
@@ -302,9 +303,13 @@ export default function Ticker(props) {
     // Drag state and refs
     const isDragging = useRef(false)
     const dragOffset = useMotionValue(0)
-    const dragVelocity = useRef(0)
+    const dragVelocity = useRef(0) // kept for compatibility but not used in blending
     const lastPointerPosition = useRef({ x: 0, y: 0 })
     const animationBaseOffset = useRef(0)
+    // Velocity in px/ms used for seamless post-release motion
+    const currentVelocity = useRef(0)
+    const hasUserDragged = useRef(false)
+    const lastPointerTs = useRef<number | null>(null)
 
     /**
      * Setup animations
@@ -406,6 +411,7 @@ export default function Ticker(props) {
         window.addEventListener("pointerup", handleGlobalPointerUp)
         window.addEventListener("pointercancel", handleGlobalPointerUp)
         window.addEventListener("blur", handleGlobalPointerUp)
+        hasUserDragged.current = true
     }, [draggable, handleGlobalPointerUp])
 
     const handlePointerMove = useCallback((e: React.PointerEvent) => {
@@ -426,16 +432,23 @@ export default function Ticker(props) {
         // Update drag offset
         dragOffset.set(dragOffset.get() + delta)
         
-        // Update velocity for momentum
-        dragVelocity.current = delta * 2
+        // Track instantaneous cursor velocity (px/ms) for seamless release
+        const now = performance.now()
+        const dt = lastPointerTs.current ? now - lastPointerTs.current : 0
+        if (dt > 0) {
+            currentVelocity.current = delta / dt
+        }
+        lastPointerTs.current = now
         
         lastPointerPosition.current = currentPosition
-    }, [draggable, isHorizontal, resolvedDirection, dragOffset])
+    }, [draggable, isHorizontal, resolvedDirection, dragOffset, dragFactor])
 
     const handlePointerUp = useCallback((e: React.PointerEvent) => {
         if (!draggable) return
         e.currentTarget.releasePointerCapture(e.pointerId)
         handleGlobalPointerUp()
+        // Clear timestamp so next drag recalculates properly
+        lastPointerTs.current = null
     }, [draggable, handleGlobalPointerUp])
 
     // Animation frame for draggable mode
@@ -450,24 +463,23 @@ export default function Ticker(props) {
             return
         }
 
-        // Normal animation with momentum decay
-        // Speed represents pixels per second (based on original: duration = (distance / speed) * 1000)
-        // Convert to pixels per millisecond: speed / 1000
-        const pixelsPerMillisecond = speed / 1000
-        const movementInPixels = pixelsPerMillisecond * delta
-        
-        const directionMultiplier = (resolvedDirection === "left" || resolvedDirection === "top") ? -1 : 1
-        const movement = movementInPixels * directionMultiplier
+        // Base velocity from configured speed (px/ms) with direction
+        const baseVelocity = (speed / 1000) * ((resolvedDirection === "left" || resolvedDirection === "top") ? -1 : 1)
 
-        animationBaseOffset.current += movement
-        
-        // Apply momentum decay if there's drag velocity
-        if (Math.abs(dragVelocity.current) > 0.01) {
-            dragVelocity.current *= 0.92 // Decay factor
-            animationBaseOffset.current += dragVelocity.current
-        } else {
-            dragVelocity.current = 0
+        // On first render (no user drag yet), run at base speed exactly
+        if (!hasUserDragged.current && !isDragging.current) {
+            currentVelocity.current = baseVelocity
         }
+        
+        // Blend current velocity toward base velocity at a rate controlled by dragFactor
+        // Effective per-frame decay scales with dragFactor; base 0.92 kept for compatibility
+        const frameScale = delta / (1000 / 60)
+        const minFactor = 0.1 // prevent stalling when dragFactor = 0
+        const decay = Math.pow(0.92, Math.max(minFactor, dragFactor) * frameScale)
+        currentVelocity.current = baseVelocity + (currentVelocity.current - baseVelocity) * decay
+
+        // Integrate position with the blended velocity
+        animationBaseOffset.current += currentVelocity.current * delta
 
         // Calculate the total offset before wrapping
         const totalOffset = animationBaseOffset.current + dragOffset.get()
@@ -624,6 +636,7 @@ Ticker.defaultProps = {
     },
     direction: true,
     draggable: false,
+    dragFactor: 1,
 }
 
 /* Property Controls */
@@ -780,6 +793,18 @@ addPropertyControls(Ticker, {
         title: "Draggable",
         defaultValue: false,
         description: "Allow users to drag and control the ticker movement.",
+    },
+    dragFactor: {
+        type: ControlType.Number,
+        title: "Drag factor",
+        min: 0,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1,
+        hidden(props) {
+            return props.draggable === false
+        },
+        description: "Scales momentum after releasing the drag.",
     },
 })
 
