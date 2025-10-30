@@ -579,8 +579,28 @@ export default function Ticker(props) {
                 maskImage: fadeContent ? fadeMask : undefined,
                 overflow: overflow ? "visible" : "hidden",
                 padding: paddingValue,
+                // Force pointer events from children up to the section (so gaps work)
+                pointerEvents: "auto",
+                cursor: draggable ? "grab" : undefined,
             }}
             ref={parentRef}
+            // Drag & hover listeners moved here for full parent-area support
+            onMouseEnter={() => {
+                isHover.current = true
+                if (animationRef.current && !draggable) {
+                    animationRef.current.playbackRate = hoverFactor
+                }
+            }}
+            onMouseLeave={() => {
+                isHover.current = false
+                if (animationRef.current && !draggable) {
+                    animationRef.current.playbackRate = 1
+                }
+            }}
+            onPointerDown={draggable ? handlePointerDown : undefined}
+            onPointerMove={draggable ? handlePointerMove : undefined}
+            onPointerUp={draggable ? handlePointerUp : undefined}
+            onPointerCancel={draggable ? handlePointerUp : undefined}
         >
             <motion.ul
                 ref={listRef}
@@ -602,26 +622,9 @@ export default function Ticker(props) {
                     ...style,
                     willChange: isCanvas || !isInView ? "auto" : "transform",
                     transform: draggable ? transform : undefined,
-                    cursor: draggable ? "grab" : undefined,
+                    // Prevent ul (and its background/gaps) from intercepting pointer events
+                    pointerEvents: "none",
                 }}
-                onMouseEnter={() => {
-                    isHover.current = true
-                    if (animationRef.current && !draggable) {
-                        // TODO Replace with updatePlaybackRate when Chrome bugs sorted
-                        animationRef.current.playbackRate = hoverFactor
-                    }
-                }}
-                onMouseLeave={() => {
-                    isHover.current = false
-                    if (animationRef.current && !draggable) {
-                        // TODO Replace with updatePlaybackRate when Chrome bugs sorted
-                        animationRef.current.playbackRate = 1
-                    }
-                }}
-                onPointerDown={draggable ? handlePointerDown : undefined}
-                onPointerMove={draggable ? handlePointerMove : undefined}
-                onPointerUp={draggable ? handlePointerUp : undefined}
-                onPointerCancel={draggable ? handlePointerUp : undefined}
             >
                 {clonedChildren}
                 {dupedChildren}
