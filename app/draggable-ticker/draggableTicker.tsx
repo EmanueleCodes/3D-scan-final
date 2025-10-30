@@ -28,11 +28,11 @@ import { resize } from "@motionone/dom"
 
 const MAX_DUPLICATED_ITEMS = 100
 
-const directionTransformers = {
-    left: (offset: number) => `translateX(-${offset}px)`,
-    right: (offset: number) => `translateX(${offset}px)`,
-    top: (offset: number) => `translateY(-${offset}px)`,
-    bottom: (offset: number) => `translateY(${offset}px)`,
+// Accept both 'top'/'up' and 'bottom'/'down' and normalize to 'top' and 'bottom'
+const normalizeDirection = (dir) => {
+    if (dir === 'up') return 'top'
+    if (dir === 'down') return 'bottom'
+    return dir
 }
 
 /**
@@ -88,7 +88,7 @@ export default function Ticker(props) {
 
     const offset = useMotionValue(0)
     const resolvedDirection = getTickerResolvedDirection(
-        direction === true ? "left" : direction,
+        direction === true ? 'left' : normalizeDirection(direction),
         writingDirection
     )
     const isHorizontal =
@@ -935,15 +935,28 @@ function useWritingDirection() {
     return window.document.documentElement.dir === "rtl" ? "rtl" : "ltr"
 }
 
-function getTickerResolvedDirection(
-    direction: "left" | "right" | "up" | "down",
-    writingDirection: "ltr" | "rtl"
-) {
-    if (writingDirection !== "rtl") return direction
-    if (direction === "left") return "right"
-    if (direction === "right") return "left"
+// Add support for 'up'/'down' to directionTransformers, map to 'top'/'bottom'
+const directionTransformers = {
+    left: (offset: number) => `translateX(-${offset}px)`,
+    right: (offset: number) => `translateX(${offset}px)`,
+    top: (offset: number) => `translateY(-${offset}px)`,
+    up: (offset: number) => `translateY(-${offset}px)`, // synonym
+    bottom: (offset: number) => `translateY(${offset}px)`,
+    down: (offset: number) => `translateY(${offset}px)`, // synonym
+}
 
-    return direction
+// getTickerResolvedDirection supports both ('up' -> 'top', 'down' -> 'bottom')
+function getTickerResolvedDirection(
+    direction: 'left' | 'right' | 'top' | 'bottom' | 'up' | 'down',
+    writingDirection: 'ltr' | 'rtl'
+) {
+    // Always normalize synonyms
+    const dir = normalizeDirection(direction)
+    if (writingDirection !== 'rtl') return dir
+    if (dir === 'left') return 'right'
+    if (dir === 'right') return 'left'
+    // top/bottom are the same regardless of RTL/LTR
+    return dir
 }
 
 Ticker.displayName = "Draggable Ticker"
