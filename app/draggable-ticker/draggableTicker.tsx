@@ -395,6 +395,9 @@ export default function Ticker(props) {
         if (listRef.current) {
             listRef.current.style.cursor = "grab"
         }
+        if (parentRef.current) {
+            parentRef.current.style.cursor = "grab"
+        }
 
         // Remove global listeners
         window.removeEventListener("pointerup", handleGlobalPointerUp)
@@ -409,6 +412,9 @@ export default function Ticker(props) {
             e.currentTarget.setPointerCapture(e.pointerId)
             if (listRef.current) {
                 listRef.current.style.cursor = "grabbing"
+            }
+            if (parentRef.current) {
+                parentRef.current.style.cursor = "grabbing"
             }
 
             isDragging.current = true
@@ -621,9 +627,8 @@ export default function Ticker(props) {
                     flexDirection: isHorizontal ? "row" : "column",
                     ...style,
                     willChange: isCanvas || !isInView ? "auto" : "transform",
-                    transform: draggable ? transform : undefined,
-                    // Prevent ul (and its background/gaps) from intercepting pointer events
-                    pointerEvents: "none",
+                    transform: draggable ? transform : undefined
+                    // pointerEvents line removed so children are interactive
                 }}
             >
                 {clonedChildren}

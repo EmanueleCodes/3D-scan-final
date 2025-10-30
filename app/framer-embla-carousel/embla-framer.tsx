@@ -2393,7 +2393,7 @@ addPropertyControls(EmblaCarousel, {
                 displaySegmentedControl: true,
                 segmentedControlDirection: "vertical",
                 hidden: (props) =>
-                    !props.enabled || props.arrowMode === "components",
+                    !props.enabled 
             },
             horizontalAlign: {
                 type: ControlType.Enum,
@@ -2405,8 +2405,8 @@ addPropertyControls(EmblaCarousel, {
                 segmentedControlDirection: "horizontal",
                 hidden: (props) =>
                     props.mode === "space-between" ||
-                    !props.enabled ||
-                    props.arrowMode === "components",
+                    !props.enabled 
+                   
             },
             gap: {
                 type: ControlType.Number,
@@ -2417,8 +2417,8 @@ addPropertyControls(EmblaCarousel, {
                 defaultValue: 10,
                 hidden: (props) =>
                     props.mode === "space-between" ||
-                    !props.enabled ||
-                    props.arrowMode === "components",
+                    !props.enabled
+                    
             },
             insetXReference: {
                 type: ControlType.Enum,
@@ -2430,7 +2430,6 @@ addPropertyControls(EmblaCarousel, {
                 segmentedControlDirection: "vertical",
                 hidden: (props) =>
                     !props.enabled ||
-                    props.arrowMode === "components" ||
                     props.mode !== "space-between",
             },
             insetXUnit: {
@@ -2443,7 +2442,6 @@ addPropertyControls(EmblaCarousel, {
                 segmentedControlDirection: "horizontal",
                 hidden: (props) =>
                     !props.enabled ||
-                    props.arrowMode === "components" ||
                     props.mode !== "space-between",
             },
             offsetX: {
@@ -2454,7 +2452,7 @@ addPropertyControls(EmblaCarousel, {
                 step: 5,
                 defaultValue: 20,
                 hidden: (props) =>
-                    !props.enabled || props.arrowMode === "components",
+                    !props.enabled 
             },
             offsetY: {
                 type: ControlType.Number,
@@ -2464,7 +2462,7 @@ addPropertyControls(EmblaCarousel, {
                 step: 5,
                 defaultValue: 0,
                 hidden: (props) =>
-                    !props.enabled || props.arrowMode === "components",
+                    !props.enabled 
             },
 
             borderColor: {
