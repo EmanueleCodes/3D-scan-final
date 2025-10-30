@@ -470,13 +470,17 @@ export default function Ticker(props) {
             handleGlobalPointerUp()
             // Clear timestamp so next drag recalculates properly
             lastPointerTs.current = null
-            // If throw aware, set the base motion direction to the thrown direction
+            // If throw aware, set the base motion direction to match throw and direction.
             if (throwAware) {
-                directionSignRef.current =
-                    rawCursorVelocity.current >= 0 ? 1 : -1
+                // If direction is 'left' or 'top', sign logic must be inverted
+                // so that a rightward (positive) throw continues leftward scroll as expected
+                const needsFlip = resolvedDirection === "left" || resolvedDirection === "top"
+                directionSignRef.current = needsFlip
+                    ? rawCursorVelocity.current >= 0 ? -1 : 1
+                    : rawCursorVelocity.current >= 0 ? 1 : -1
             }
         },
-        [draggable, handleGlobalPointerUp]
+        [draggable, handleGlobalPointerUp, throwAware, resolvedDirection]
     )
 
     // Animation frame for draggable mode
