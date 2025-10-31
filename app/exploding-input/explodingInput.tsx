@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { AnimatePresence, motion } from "framer-motion"
+import { AnimatePresence, motion, motionValue, useAnimationFrame, MotionValue } from "framer-motion"
 
 interface Particle {
     id: number
-    x: number
-    y: number
+    x: MotionValue<number>
+    y: MotionValue<number>
     baseY: number
     vx: number // velocity x
-    vy: number // velocity y
+    vy: number // velocity y (mutable ref)
     gravity: number
-    ageMs: number
+    birthTime: number
     lifeMs: number
     contentIdx: number
     scaleStart: number
@@ -87,6 +87,7 @@ export default function ExplodingInput({
     const [particles, setParticles] = useState<Particle[]>([])
     const particleIdCounter = useRef(0)
     const containerRef = useRef<HTMLDivElement>(null)
+    const particlesRef = useRef<Particle[]>([]) // Keep a ref for animation frame access
 
     // Find input element and listen to changes
     useEffect(() => {
@@ -199,10 +200,14 @@ export default function ExplodingInput({
                       )
                     : 0
 
+                // Create motion values for smooth, performant updates
+                const motionX = motionValue(x)
+                const motionY = motionValue(y)
+
                 const newParticle: Particle = {
                     id: particleIdCounter.current,
-                    x: x,
-                    y: y,
+                    x: motionX,
+                    y: motionY,
                     baseY: y,
                     vx,
                     vy,
@@ -213,7 +218,7 @@ export default function ExplodingInput({
                         -2000,
                         2000
                     ),
-                    ageMs: 0,
+                    birthTime: performance.now(),
                     lifeMs: duration * 1000,
                     contentIdx:
                         content.length > 0
@@ -226,9 +231,14 @@ export default function ExplodingInput({
                 }
 
                 setParticles((prev) => [...prev, newParticle])
+                particlesRef.current = [...particlesRef.current, newParticle]
+                
                 setTimeout(() => {
                     setParticles((prev) =>
                         prev.filter((p) => p.id !== newParticle.id)
+                    )
+                    particlesRef.current = particlesRef.current.filter(
+                        (p) => p.id !== newParticle.id
                     )
                 }, duration * 1000)
             }
@@ -244,41 +254,8 @@ export default function ExplodingInput({
 
         input.addEventListener("input", handleInput)
 
-        // Physics loop
-        let rafId = 0
-        let lastTs = performance.now()
-        const step = (ts: number) => {
-            const dtMs = Math.min(32, ts - lastTs) // clamp to avoid huge jumps
-            lastTs = ts
-
-            setParticles((prev) => {
-                if (prev.length === 0) return prev
-                const next: Particle[] = []
-                for (const p of prev) {
-                    const ageMs = p.ageMs + dtMs
-                    const lifeMs = p.lifeMs
-                    const dt = dtMs / 1000 // seconds
-
-                    // Integrate motion: s = s + v*dt; v = v + a*dt
-                    const vx = p.vx
-                    const vy = p.vy + p.gravity * dt
-                    const x = p.x + vx * dt
-                    const y = p.y + vy * dt
-
-                    if (ageMs < lifeMs) {
-                        next.push({ ...p, x, y, vy, ageMs })
-                    }
-                }
-                return next
-            })
-
-            rafId = requestAnimationFrame(step)
-        }
-        rafId = requestAnimationFrame(step)
-
         return () => {
             input.removeEventListener("input", handleInput)
-            cancelAnimationFrame(rafId)
         }
     }, [
         upwardSpeed,
@@ -290,6 +267,30 @@ export default function ExplodingInput({
         content,
         count,
     ])
+
+    // Physics loop using Framer Motion's useAnimationFrame for smooth, conflict-free updates
+    useAnimationFrame((time, delta) => {
+        const dtMs = Math.min(32, delta) // clamp delta to avoid huge jumps
+        const dt = dtMs / 1000 // convert to seconds
+
+        // Update all particles using their motion values (no React re-renders!)
+        particlesRef.current.forEach((p) => {
+            const age = time - p.birthTime
+            
+            // Only update if particle is still alive
+            if (age < p.lifeMs) {
+                // Integrate motion: v = v + a*dt; s = s + v*dt
+                p.vy = p.vy + p.gravity * dt
+                
+                const newX = p.x.get() + p.vx * dt
+                const newY = p.y.get() + p.vy * dt
+                
+                // Update motion values directly (bypasses React)
+                p.x.set(newX)
+                p.y.set(newY)
+            }
+        })
+    })
 
     return (
         <div
@@ -320,8 +321,10 @@ export default function ExplodingInput({
                         transition={{ duration: duration }}
                         style={{
                             position: "absolute",
-                            left: `${particle.x}px`,
-                            top: `${particle.y}px`,
+                            left: 0,
+                            top: 0,
+                            x: particle.x,
+                            y: particle.y,
                             transformOrigin: "center",
                             pointerEvents: "none",
                             translateX: "-50%",
