@@ -64,8 +64,8 @@ export default function Ticker(props) {
         fadeOptions,
         style,
         draggable = false,
-        dragFactor = 1,
-        throwAware = false,
+        dragFactor = 0.3,
+        throwAware = "followOriginal",
     } = props
 
     const { fadeContent, overflow, fadeWidth, fadeInset, fadeAlpha } =
@@ -98,7 +98,7 @@ export default function Ticker(props) {
     // Always advance time forward; transformer encodes visual direction.
     const directionSignRef = useRef(1)
     useEffect(() => {
-        if (!throwAware) {
+        if (throwAware === "followOriginal") {
             directionSignRef.current = 1
         }
     }, [resolvedDirection, throwAware])
@@ -477,7 +477,7 @@ export default function Ticker(props) {
             // Clear timestamp so next drag recalculates properly
             lastPointerTs.current = null
             // If throw aware, set the base motion direction to match throw and direction.
-            if (throwAware) {
+            if (throwAware === "followDrag") {
                 // If direction is 'left' or 'top', sign logic must be inverted
                 // so that a rightward (positive) throw continues leftward scroll as expected
                 const needsFlip = resolvedDirection === "left" || resolvedDirection === "top"
@@ -516,11 +516,13 @@ export default function Ticker(props) {
         }
 
         // Blend current velocity toward base velocity at a rate controlled by dragFactor
+        // Invert dragFactor so higher momentum = longer coast (lower internal drag)
+        const invertedDragFactor = 1.1 - (dragFactor ?? 1)
         // Normalize drag factor to 0.1..1 for predictable UX, then remap to a
         // stronger decay range so low values don't coast for too long
         const frameScale = delta / (1000 / 60)
-        const normalizedDrag = Math.max(0.1, Math.min(1, dragFactor ?? 1))
-        // Map 0.1..1 -> 0.6..1.4 (higher = faster convergence)
+        const normalizedDrag = Math.max(0.1, Math.min(1, invertedDragFactor))
+        // Map 0.1..1 -> 0.4..2.5 (higher = faster convergence)
         const decayScale = mapLinear(normalizedDrag, 0.1, 1, 0.4, 2.5)
         // Use a slightly stronger base decay than before to reduce overall coast time
         const decay = Math.pow(0.88, decayScale * frameScale)
@@ -688,8 +690,8 @@ Ticker.defaultProps = {
     },
     direction: true,
     draggable: false,
-    dragFactor: 1,
-    throwAware: false,
+    dragFactor: 0.3,
+    throwAware: "followOriginal",
 }
 
 /* Property Controls */
@@ -776,7 +778,7 @@ addPropertyControls(Ticker, {
     },
     dragFactor: {
         type: ControlType.Number,
-        title: "Drag Factor",
+        title: "Momentum",
         min: 0.1,
         max: 1,
         step: 0.05,
@@ -784,12 +786,14 @@ addPropertyControls(Ticker, {
         hidden: (props) => !props.draggable,
     },
     throwAware: {
-        type: ControlType.Boolean,
+        type: ControlType.Enum,
         title: "On Throw",
-        defaultValue: true,
+        options:["followDrag","followOriginal"],
+        optionTitles:["Follow Drag",'Follow "Direction"'],
+        defaultValue: "followOriginal",
         hidden: (props) => !props.draggable,
-        enabledTitle: "Follow",
-        disabledTitle: "No follow",
+        displaySegmentedControl:true,
+        segmentedControlDirection:"vertical"
     },
 
     sizingOptions: {
