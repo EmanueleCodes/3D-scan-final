@@ -50,8 +50,25 @@ function createPRNG(seed: number) {
 }
 
 interface ExplodingInputProps {
-    // array of component instances used as particles
+    mode?: "components" | "images"
+    // Component mode props
     content?: any[]
+    // Image mode props
+    itemCount?: number
+    image1?: any
+    image2?: any
+    image3?: any
+    image4?: any
+    image5?: any
+    image6?: any
+    image7?: any
+    image8?: any
+    image9?: any
+    image10?: any
+    itemWidth?: number
+    itemHeight?: number
+    borderRadius?: number
+    // Common props
     count?: number
     upwardSpeed?: number
     upwardSpread?: number
@@ -81,7 +98,22 @@ interface ExplodingInputProps {
  */
 
 export default function ExplodingInput({
+    mode = "components",
     content = [],
+    itemCount = 4,
+    image1,
+    image2,
+    image3,
+    image4,
+    image5,
+    image6,
+    image7,
+    image8,
+    image9,
+    image10,
+    itemWidth = 40,
+    itemHeight = 40,
+    borderRadius = 6,
     count = 1,
     upwardSpeed = 180,
     upwardSpread = 120,
@@ -106,6 +138,24 @@ export default function ExplodingInput({
     const particleContainerRef = useRef<HTMLDivElement>(null)
     const particlesRef = useRef<Particle[]>([])
     const randRef = useRef<() => number>(() => Math.random())
+
+    // Get images array for images mode
+    const images = [
+        image1,
+        image2,
+        image3,
+        image4,
+        image5,
+        image6,
+        image7,
+        image8,
+        image9,
+        image10,
+    ]
+
+    // Determine actual content to use based on mode
+    const actualContent = mode === "images" ? images.slice(0, itemCount) : content
+    const actualCount = mode === "images" ? itemCount : content.length
 
     // Global preview-safe cleanup (handles Framer preview reloads across canvases)
     useEffect(() => {
@@ -204,14 +254,14 @@ export default function ExplodingInput({
                     -1,
                     Math.min(1, horizontalSpeed as number)
                 )
-                const baseVx = mapLinear(clampedHX, -1, 1, -400, 400)
+                const baseVx = mapLinear(clampedHX, -1, 1, -800, 800)
                 const spreadVx = mapLinear(
                     horizontalSpread ?? 0.5,
                     0,
                     1,
                     0,
-                    250
-                ) // 0..1 → 0..250 px/s
+                    300
+                ) // 0..1 → 0..300 px/s
                 const vx = baseVx + (randRef.current() * 2 - 1) * spreadVx
 
                 // vertical speed: -1..1 → -400..400 px/s (negative = up, positive = down)
@@ -219,7 +269,7 @@ export default function ExplodingInput({
                     -1,
                     Math.min(1, upwardSpeed as number)
                 )
-                const baseVy = mapLinear(clampedUY, -1, 1, -400, 400)
+                const baseVy = mapLinear(clampedUY, -1, 1, -800, 800)
                 const spreadVy = mapLinear(upwardSpread ?? 0.5, 0, 1, 0, 300) // 0..1 → 0..300 px/s
                 const vy = baseVy + (randRef.current() * 2 - 1) * spreadVy
 
@@ -261,48 +311,59 @@ export default function ExplodingInput({
                 el.style.position = 'absolute'
                 el.style.left = '0'
                 el.style.top = '0'
-                el.style.width = '32px'
-                el.style.height = '32px'
+                el.style.width = mode === "images" ? `${itemWidth}px` : '32px'
+                el.style.height = mode === "images" ? `${itemHeight}px` : '32px'
                 el.style.display = 'flex'
                 el.style.alignItems = 'center'
                 el.style.justifyContent = 'center'
                 el.style.pointerEvents = 'none'
                 el.style.willChange = 'transform, opacity'
                 el.style.transformOrigin = '50% 50%'
-                const clampedScale = Math.max(0.1, Math.min(3, initScale))
                 el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${safeInitScale}) rotate(${initRot}deg)`
                 el.style.opacity = '1'
 
-                // Render content inside via a temporary React root
-                if (content && content.length > 0) {
-                    const contentIdx = (particleIdCounter.current - 1) % content.length
-                    const contentElement = content[contentIdx]
+                // Render content inside
+                if (actualContent && actualContent.length > 0) {
+                    const contentIdx = (particleIdCounter.current - 1) % actualContent.length
+                    const contentElement = actualContent[contentIdx]
                     if (contentElement) {
-                        const tempDiv = document.createElement('div')
-                        tempDiv.style.width = '100%'
-                        tempDiv.style.height = '100%'
-                        el.appendChild(tempDiv)
-                        import('react-dom/client').then(({ createRoot }) => {
-                            const root = createRoot(tempDiv)
-                            ;(window as any).__EXPLODING_ROOTS__.push(root)
-                            root.render(
-                                React.cloneElement(contentElement, {
-                                    style: {
-                                        ...(contentElement as any)?.props?.style,
-                                        transform: 'none',
-                                        scale: 'none',
-                                        rotate: 'none',
-                                        translate: 'none',
-                                        maxWidth: '100%',
-                                        maxHeight: '100%',
-                                        width: '100%',
-                                        height: '100%',
-                                    },
-                                })
-                            )
-                            // Attach root reference after render completes
-                            newParticle.reactRoot = root
-                        })
+                        if (mode === "images" && contentElement.src) {
+                            // For images mode, use native img element
+                            const img = document.createElement('img')
+                            img.src = contentElement.src
+                            img.style.width = '100%'
+                            img.style.height = '100%'
+                            img.style.objectFit = 'cover'
+                            img.style.borderRadius = `${borderRadius}px`
+                            el.appendChild(img)
+                        } else {
+                            // For components mode, use React root
+                            const tempDiv = document.createElement('div')
+                            tempDiv.style.width = '100%'
+                            tempDiv.style.height = '100%'
+                            el.appendChild(tempDiv)
+                            import('react-dom/client').then(({ createRoot }) => {
+                                const root = createRoot(tempDiv)
+                                ;(window as any).__EXPLODING_ROOTS__.push(root)
+                                root.render(
+                                    React.cloneElement(contentElement, {
+                                        style: {
+                                            ...(contentElement as any)?.props?.style,
+                                            transform: 'none',
+                                            scale: 'none',
+                                            rotate: 'none',
+                                            translate: 'none',
+                                            maxWidth: '100%',
+                                            maxHeight: '100%',
+                                            width: '100%',
+                                            height: '100%',
+                                        },
+                                    })
+                                )
+                                // Attach root reference after render completes
+                                newParticle.reactRoot = root
+                            })
+                        }
                     }
                 } else {
                     const fallback = document.createElement('div')
@@ -338,8 +399,8 @@ export default function ExplodingInput({
                     birthTime: performance.now(),
                     lifeMs: duration * 1000,
                     contentIdx:
-                        content.length > 0
-                            ? (particleIdCounter.current - 1) % content.length
+                        actualContent.length > 0
+                            ? (particleIdCounter.current - 1) % actualContent.length
                             : -1,
                     scaleStart: safeInitScale,
                     scaleEnd: safeEndScale,
@@ -454,10 +515,10 @@ export default function ExplodingInput({
             style={{
                 ...style,
                 position: "relative",
-                width: "100%",
-                height: "100%",
+                width: "0px",
+                height: "0px",
                 overflow: "visible",
-                backgroundColor: "#f0f0f0",
+                backgroundColor: "transparent",
                 transform: "translateZ(0)",
                 transformStyle: "flat",
             }}
@@ -478,16 +539,124 @@ export default function ExplodingInput({
 }
 
 addPropertyControls(ExplodingInput, {
+    mode: {
+        type: ControlType.Enum,
+        title: "Mode",
+        options: ["components", "images"],
+        optionTitles: ["Components", "Images"],
+        defaultValue: "components",
+        displaySegmentedControl: true,
+        segmentedControlDirection:"vertical"
+    },
     content: {
         type: ControlType.Array,
         title: "Content",
         control: {
             type: ControlType.ComponentInstance,
         },
+        hidden: (props) => props.mode === "images",
+    },
+    itemCount: {
+        type: ControlType.Number,
+        title: "Count",
+        min: 1,
+        max: 10,
+        step: 1,
+        defaultValue: 4,
+        hidden: (props) => props.mode === "components",
+    },
+    image1: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 1",
+        hidden: (props) => props.mode !== "images",
+    },
+    image2: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 2",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 2,
+    },
+    image3: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 3",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 3,
+    },
+    image4: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 4",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 4,
+    },
+    image5: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 5",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 5,
+    },
+    image6: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 6",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 6,
+    },
+    image7: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 7",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 7,
+    },
+    image8: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 8",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 8,
+    },
+    image9: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 9",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 9,
+    },
+    image10: {
+        type: ControlType.ResponsiveImage,
+        title: "Image 10",
+        hidden: (props) =>
+            props.mode !== "images" || (props?.itemCount ?? 4) < 10,
+    },
+    itemWidth: {
+        type: ControlType.Number,
+        title: "Width",
+        min: 20,
+        max: 200,
+        step: 5,
+        defaultValue: 40,
+        unit: "px",
+        hidden: (props) => props.mode !== "images",
+    },
+    itemHeight: {
+        type: ControlType.Number,
+        title: "Height",
+        min: 20,
+        max: 200,
+        step: 5,
+        defaultValue: 40,
+        unit: "px",
+        hidden: (props) => props.mode !== "images",
+    },
+    borderRadius: {
+        type: ControlType.Number,
+        title: "Radius",
+        min: 0,
+        max: 100,
+        step: 1,
+        defaultValue: 6,
+        unit: "px",
+        hidden: (props) => props.mode !== "images",
     },
     count: {
         type: ControlType.Number,
-        title: "Count",
+        title: "Particles per Input",
         min: 1,
         max: 5,
         step: 1,
@@ -499,7 +668,7 @@ addPropertyControls(ExplodingInput, {
         min: -1,
         max: 1,
         step: 0.05,
-        defaultValue: 0.45,
+        defaultValue: -0.7,
     },
     upwardSpread: {
         type: ControlType.Number,
@@ -507,7 +676,7 @@ addPropertyControls(ExplodingInput, {
         min: 0,
         max: 1,
         step: 0.1,
-        defaultValue: 0.5,
+        defaultValue: 0.3,
     },
     horizontalSpeed: {
         type: ControlType.Number,
@@ -515,7 +684,7 @@ addPropertyControls(ExplodingInput, {
         min: -1,
         max: 1,
         step: 0.05,
-        defaultValue: -1,
+        defaultValue: -0.6,
     },
     horizontalSpread: {
         type: ControlType.Number,
@@ -523,7 +692,7 @@ addPropertyControls(ExplodingInput, {
         min: 0,
         max: 1,
         step: 0.1,
-        defaultValue: 0.5,
+        defaultValue: 0.2,
     },
     duration: {
         type: ControlType.Number,
@@ -531,7 +700,7 @@ addPropertyControls(ExplodingInput, {
         min: 0.2,
         max: 10,
         step: 0.1,
-        defaultValue: 1.2,
+        defaultValue: 3,
     },
     gravity: {
         type: ControlType.Number,
@@ -539,7 +708,7 @@ addPropertyControls(ExplodingInput, {
         min: -1,
         max: 1,
         step: 0.05,
-        defaultValue: 0.45,
+        defaultValue: 0.9,
     },
     scale: {
         type: ControlType.Object,
