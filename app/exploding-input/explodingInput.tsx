@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { addPropertyControls, ControlType } from "framer"
-import { AnimatePresence, motion, motionValue, useAnimationFrame, MotionValue } from "framer-motion"
+import { useAnimationFrame } from "framer-motion"
 
 interface Particle {
     id: number
-    x: MotionValue<number>
-    y: MotionValue<number>
-    baseY: number
+    x: number
+    y: number
+    scale: number
+    rotate: number
+    opacity: number
     vx: number // velocity x
-    vy: number // velocity y (mutable ref)
+    vy: number // velocity y
     gravity: number
     birthTime: number
     lifeMs: number
@@ -17,6 +19,9 @@ interface Particle {
     scaleEnd: number
     rotateStart: number // degrees
     rotateEnd: number // degrees
+    element: HTMLDivElement // Direct DOM element reference
+    isDead: boolean
+    reactRoot?: ReturnType<typeof import('react-dom/client').createRoot>
 }
 
 // Mapping helpers (see how-to-build-framer-components/mappingValues.md)
@@ -84,10 +89,38 @@ export default function ExplodingInput({
     },
     style,
 }: ExplodingInputProps) {
-    const [particles, setParticles] = useState<Particle[]>([])
     const particleIdCounter = useRef(0)
     const containerRef = useRef<HTMLDivElement>(null)
-    const particlesRef = useRef<Particle[]>([]) // Keep a ref for animation frame access
+    const particleContainerRef = useRef<HTMLDivElement>(null)
+    const particlesRef = useRef<Particle[]>([])
+
+    // Global preview-safe cleanup (handles Framer preview reloads across canvases)
+    useEffect(() => {
+        const w = window as any
+        if (!w.__EXPLODING_ROOTS__) w.__EXPLODING_ROOTS__ = []
+        // Unmount any stray roots from previous previews
+        try {
+            for (const root of w.__EXPLODING_ROOTS__) {
+                try { root.unmount?.() } catch {}
+            }
+        } finally {
+            w.__EXPLODING_ROOTS__ = []
+        }
+        // Remove any stray particle DOM nodes
+        document.querySelectorAll('[data-exploding-particle="true"]').forEach((el) => {
+            el.parentNode?.removeChild(el)
+        })
+        return () => {
+            // Best-effort cleanup of particles created by this instance
+            particlesRef.current.forEach(p => {
+                try { p.reactRoot?.unmount() } catch {}
+                if (p.element && p.element.parentNode) {
+                    p.element.parentNode.removeChild(p.element)
+                }
+            })
+            particlesRef.current = []
+        }
+    }, [])
 
     // Find input element and listen to changes
     useEffect(() => {
@@ -200,15 +233,76 @@ export default function ExplodingInput({
                       )
                     : 0
 
-                // Create motion values for smooth, performant updates
-                const motionX = motionValue(x)
-                const motionY = motionValue(y)
+                // Create DOM element for particle (imperative; avoids React remount jitter)
+                const el = document.createElement('div')
+                el.setAttribute('data-exploding-particle', 'true')
+                el.style.position = 'absolute'
+                el.style.left = '0'
+                el.style.top = '0'
+                el.style.width = '32px'
+                el.style.height = '32px'
+                el.style.display = 'flex'
+                el.style.alignItems = 'center'
+                el.style.justifyContent = 'center'
+                el.style.pointerEvents = 'none'
+                el.style.willChange = 'transform, opacity'
+                const clampedScale = Math.max(0.1, Math.min(3, initScale))
+                el.style.transform = `translate(${x}px, ${y}px) scale(${clampedScale}) rotate(${initRot}deg) translate(-50%, -50%)`
+                el.style.opacity = '1'
 
+                // Render content inside via a temporary React root
+                if (content && content.length > 0) {
+                    const contentIdx = (particleIdCounter.current - 1) % content.length
+                    const contentElement = content[contentIdx]
+                    if (contentElement) {
+                        const tempDiv = document.createElement('div')
+                        tempDiv.style.width = '100%'
+                        tempDiv.style.height = '100%'
+                        el.appendChild(tempDiv)
+                        import('react-dom/client').then(({ createRoot }) => {
+                            const root = createRoot(tempDiv)
+                            ;(window as any).__EXPLODING_ROOTS__.push(root)
+                            root.render(
+                                React.cloneElement(contentElement, {
+                                    style: {
+                                        ...(contentElement as any)?.props?.style,
+                                        transform: 'none',
+                                        scale: 'none',
+                                        rotate: 'none',
+                                        translate: 'none',
+                                        maxWidth: '100%',
+                                        maxHeight: '100%',
+                                        width: '100%',
+                                        height: '100%',
+                                    },
+                                })
+                            )
+                            // Attach root reference after render completes
+                            newParticle.reactRoot = root
+                        })
+                    }
+                } else {
+                    const fallback = document.createElement('div')
+                    fallback.style.width = '16px'
+                    fallback.style.height = '16px'
+                    fallback.style.borderRadius = '6px'
+                    fallback.style.backgroundColor = '#6366f1'
+                    el.appendChild(fallback)
+                }
+
+                // Append to container
+                if (particleContainerRef.current) {
+                    particleContainerRef.current.appendChild(el)
+                }
+
+                // Create particle object
                 const newParticle: Particle = {
                     id: particleIdCounter.current,
-                    x: motionX,
-                    y: motionY,
-                    baseY: y,
+                    x: x,
+                    y: y,
+                    scale: initScale,
+                    rotate: initRot,
+                    opacity: 1,
                     vx,
                     vy,
                     gravity: mapLinear(
@@ -228,18 +322,25 @@ export default function ExplodingInput({
                     scaleEnd: endScale,
                     rotateStart: initRot,
                     rotateEnd: endRot,
+                    element: el,
+                    isDead: false,
+                    reactRoot: undefined,
                 }
 
-                setParticles((prev) => [...prev, newParticle])
-                particlesRef.current = [...particlesRef.current, newParticle]
-                
+                particlesRef.current.push(newParticle)
+
+                // Remove after lifetime
                 setTimeout(() => {
-                    setParticles((prev) =>
-                        prev.filter((p) => p.id !== newParticle.id)
-                    )
-                    particlesRef.current = particlesRef.current.filter(
-                        (p) => p.id !== newParticle.id
-                    )
+                    newParticle.isDead = true
+                    try { newParticle.reactRoot?.unmount() } catch {}
+                    const w = window as any
+                    if (w.__EXPLODING_ROOTS__) {
+                        w.__EXPLODING_ROOTS__ = w.__EXPLODING_ROOTS__.filter((r: any) => r !== newParticle.reactRoot)
+                    }
+                    if (newParticle.element && newParticle.element.parentNode) {
+                        newParticle.element.parentNode.removeChild(newParticle.element)
+                    }
+                    particlesRef.current = particlesRef.current.filter(p => p.id !== newParticle.id)
                 }, duration * 1000)
             }
 
@@ -268,27 +369,55 @@ export default function ExplodingInput({
         count,
     ])
 
-    // Physics loop using Framer Motion's useAnimationFrame for smooth, conflict-free updates
+    // Physics loop using direct DOM manipulation for maximum performance
     useAnimationFrame((time, delta) => {
         const dtMs = Math.min(32, delta) // clamp delta to avoid huge jumps
         const dt = dtMs / 1000 // convert to seconds
 
-        // Update all particles using their motion values (no React re-renders!)
+        // Update all particles via direct DOM manipulation (imperative updates, no React re-renders)
         particlesRef.current.forEach((p) => {
+            // Skip dead particles
+            if (p.isDead) return
+            
             const age = time - p.birthTime
             
-            // Only update if particle is still alive
-            if (age < p.lifeMs) {
-                // Integrate motion: v = v + a*dt; s = s + v*dt
-                p.vy = p.vy + p.gravity * dt
-                
-                const newX = p.x.get() + p.vx * dt
-                const newY = p.y.get() + p.vy * dt
-                
-                // Update motion values directly (bypasses React)
-                p.x.set(newX)
-                p.y.set(newY)
+            // Check if element exists
+            if (!p.element) {
+                return
             }
+            
+            // Check if particle exceeded lifetime
+            if (age >= p.lifeMs) {
+                return
+            }
+            
+            // Calculate progress (0 to 1) for interpolation
+            const progress = age / p.lifeMs
+            
+            // Integrate motion: v = v + a*dt; s = s + v*dt
+            p.vy = p.vy + p.gravity * dt
+            p.x = p.x + p.vx * dt
+            p.y = p.y + p.vy * dt
+            
+            // Interpolate scale, rotate, and opacity based on lifetime progress
+            p.scale = mapLinear(progress, 0, 1, p.scaleStart, p.scaleEnd)
+            p.rotate = mapLinear(progress, 0, 1, p.rotateStart, p.rotateEnd)
+            
+            // Fade out in last 30% of lifetime
+            const fadeStart = 0.7
+            p.opacity = progress > fadeStart 
+                ? mapLinear(progress, fadeStart, 1, 1, 0)
+                : 1
+            
+            // Check for invalid values
+            if (isNaN(p.x) || isNaN(p.y) || isNaN(p.scale)) {
+                return
+            }
+            
+            // Direct DOM update - fastest possible method, GPU accelerated
+            const transformValue = `translate(${p.x}px, ${p.y}px) scale(${p.scale}) rotate(${p.rotate}deg) translate(-50%, -50%)`
+            p.element.style.transform = transformValue
+            p.element.style.opacity = String(p.opacity)
         })
     })
 
@@ -302,53 +431,21 @@ export default function ExplodingInput({
                 height: "100%",
                 overflow: "visible",
                 backgroundColor: "#f0f0f0",
+                transform: "translateZ(0)",
+                transformStyle: "flat",
             }}
         >
-            <AnimatePresence>
-                {particles.map((particle) => (
-                    <motion.div
-                        key={particle.id}
-                        initial={{
-                            opacity: 1,
-                            scale: particle.scaleStart,
-                            rotate: particle.rotateStart,
-                        }}
-                        animate={{
-                            scale: particle.scaleEnd,
-                            rotate: particle.rotateEnd,
-                        }}
-                        exit={{ opacity: 0, scale: 0.6 }}
-                        transition={{ duration: duration }}
-                        style={{
-                            position: "absolute",
-                            left: 0,
-                            top: 0,
-                            x: particle.x,
-                            y: particle.y,
-                            transformOrigin: "center",
-                            pointerEvents: "none",
-                            translateX: "-50%",
-                            translateY: "-50%",
-                        }}
-                    >
-                        {content &&
-                        content.length > 0 &&
-                        particle.contentIdx >= 0 ? (
-                            // Render chosen component instance cloned with enforced sizing
-                            React.cloneElement(content[particle.contentIdx])
-                        ) : (
-                            <div
-                                style={{
-                                    width: 16,
-                                    height: 16,
-                                    borderRadius: "6px",
-                                    backgroundColor: "#6366f1",
-                                }}
-                            />
-                        )}
-                    </motion.div>
-                ))}
-            </AnimatePresence>
+            <div
+                ref={particleContainerRef}
+                style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: "100%",
+                    height: "100%",
+                    pointerEvents: "none",
+                }}
+            />
         </div>
     )
 }
@@ -537,3 +634,4 @@ addPropertyControls(ExplodingInput, {
 })
 
 ExplodingInput.displayName = "Exploding Input"
+
