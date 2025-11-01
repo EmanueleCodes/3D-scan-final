@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react"
+import React, { useEffect, useRef } from "react"
 import { addPropertyControls, ControlType } from "framer"
 import { useAnimationFrame } from "framer-motion"
 
@@ -35,6 +35,18 @@ function mapLinear(
     if (inMax === inMin) return outMin
     const t = (value - inMin) / (inMax - inMin)
     return outMin + t * (outMax - outMin)
+}
+
+// Deterministic PRNG per mount to avoid preview cross-run bias of Math.random
+function createPRNG(seed: number) {
+    // Mulberry32
+    return function () {
+        seed |= 0
+        seed = (seed + 0x6D2B79F5) | 0
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
 }
 
 interface ExplodingInputProps {
@@ -93,9 +105,16 @@ export default function ExplodingInput({
     const containerRef = useRef<HTMLDivElement>(null)
     const particleContainerRef = useRef<HTMLDivElement>(null)
     const particlesRef = useRef<Particle[]>([])
+    const randRef = useRef<() => number>(() => Math.random())
 
     // Global preview-safe cleanup (handles Framer preview reloads across canvases)
     useEffect(() => {
+        // Fresh seed per mount (time + random; no crypto types needed)
+        const timeBits = (Date.now() & 0xffffffff) >>> 0
+        const extra = Math.floor(Math.random() * 0xffffffff) >>> 0
+        const seed = (timeBits ^ extra) >>> 0
+        randRef.current = createPRNG(seed)
+
         const w = window as any
         if (!w.__EXPLODING_ROOTS__) w.__EXPLODING_ROOTS__ = []
         // Unmount any stray roots from previous previews
@@ -193,7 +212,7 @@ export default function ExplodingInput({
                     0,
                     250
                 ) // 0..1 → 0..250 px/s
-                const vx = baseVx + (Math.random() * 2 - 1) * spreadVx
+                const vx = baseVx + (randRef.current() * 2 - 1) * spreadVx
 
                 // vertical speed: -1..1 → -400..400 px/s (negative = up, positive = down)
                 const clampedUY = Math.max(
@@ -202,12 +221,12 @@ export default function ExplodingInput({
                 )
                 const baseVy = mapLinear(clampedUY, -1, 1, -400, 400)
                 const spreadVy = mapLinear(upwardSpread ?? 0.5, 0, 1, 0, 300) // 0..1 → 0..300 px/s
-                const vy = baseVy + (Math.random() * 2 - 1) * spreadVy
+                const vy = baseVy + (randRef.current() * 2 - 1) * spreadVy
 
                 particleIdCounter.current += 1
 
                 const randBetween = (min: number, max: number) =>
-                    min + Math.random() * (max - min)
+                    min + randRef.current() * (max - min)
                 const initScale = scale.enabled
                     ? randBetween(
                           scale.initial?.minScale ?? 1,
@@ -220,6 +239,9 @@ export default function ExplodingInput({
                           scale.final?.maxScale ?? 1
                       )
                     : 1
+                // Ensure both scales are within safe bounds
+                const safeInitScale = Math.max(0.1, Math.min(3, initScale))
+                const safeEndScale = Math.max(0.1, Math.min(3, endScale))
                 const initRot = rotation.enabled
                     ? randBetween(
                           rotation.initial?.minDeg ?? 0,
@@ -246,8 +268,9 @@ export default function ExplodingInput({
                 el.style.justifyContent = 'center'
                 el.style.pointerEvents = 'none'
                 el.style.willChange = 'transform, opacity'
+                el.style.transformOrigin = '50% 50%'
                 const clampedScale = Math.max(0.1, Math.min(3, initScale))
-                el.style.transform = `translate(${x}px, ${y}px) scale(${clampedScale}) rotate(${initRot}deg) translate(-50%, -50%)`
+                el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${safeInitScale}) rotate(${initRot}deg)`
                 el.style.opacity = '1'
 
                 // Render content inside via a temporary React root
@@ -318,8 +341,8 @@ export default function ExplodingInput({
                         content.length > 0
                             ? (particleIdCounter.current - 1) % content.length
                             : -1,
-                    scaleStart: initScale,
-                    scaleEnd: endScale,
+                    scaleStart: safeInitScale,
+                    scaleEnd: safeEndScale,
                     rotateStart: initRot,
                     rotateEnd: endRot,
                     element: el,
@@ -373,13 +396,16 @@ export default function ExplodingInput({
     useAnimationFrame((time, delta) => {
         const dtMs = Math.min(32, delta) // clamp delta to avoid huge jumps
         const dt = dtMs / 1000 // convert to seconds
+        
+        // Use performance.now() consistently with birthTime (Framer's `time` param uses different base)
+        const now = performance.now()
 
         // Update all particles via direct DOM manipulation (imperative updates, no React re-renders)
         particlesRef.current.forEach((p) => {
             // Skip dead particles
             if (p.isDead) return
             
-            const age = time - p.birthTime
+            const age = now - p.birthTime
             
             // Check if element exists
             if (!p.element) {
@@ -414,8 +440,9 @@ export default function ExplodingInput({
                 return
             }
             
-            // Direct DOM update - fastest possible method, GPU accelerated
-            const transformValue = `translate(${p.x}px, ${p.y}px) scale(${p.scale}) rotate(${p.rotate}deg) translate(-50%, -50%)`
+            // Clamp scale and update transform in correct order: rotate -> scale -> center -> position
+            const clampedScale = Math.max(0.1, Math.min(3, p.scale))
+            const transformValue = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) scale(${clampedScale}) rotate(${p.rotate}deg)`
             p.element.style.transform = transformValue
             p.element.style.opacity = String(p.opacity)
         })
@@ -520,17 +547,17 @@ addPropertyControls(ExplodingInput, {
         controls: {
             enabled: {
                 type: ControlType.Boolean,
-                title: "Enabled",
+                title: "Animate",
                 defaultValue: false,
             },
             initial: {
                 hidden: (props) => !props.enabled,
                 type: ControlType.Object,
-                title: "Initial",
+                title: "Spawn",
                 controls: {
                     minScale: {
                         type: ControlType.Number,
-                        title: "Min",
+                        title: "Between",
                         min: 0,
                         max: 4,
                         step: 0.05,
@@ -538,7 +565,7 @@ addPropertyControls(ExplodingInput, {
                     },
                     maxScale: {
                         type: ControlType.Number,
-                        title: "Max",
+                        title: "And",
                         min: 0,
                         max: 4,
                         step: 0.05,
@@ -553,7 +580,7 @@ addPropertyControls(ExplodingInput, {
                 controls: {
                     minScale: {
                         type: ControlType.Number,
-                        title: "Min",
+                        title: "Between",
                         min: 0,
                         max: 4,
                         step: 0.05,
@@ -561,7 +588,7 @@ addPropertyControls(ExplodingInput, {
                     },
                     maxScale: {
                         type: ControlType.Number,
-                        title: "Max",
+                        title: "And",
                         min: 0,
                         max: 4,
                         step: 0.05,
