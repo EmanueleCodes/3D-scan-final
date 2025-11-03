@@ -76,9 +76,9 @@ interface ExplodingInputProps {
     gravity?: number
     duration?: number
     scale?: {
-        enabled?: boolean
-        initial?: { minScale?: number; maxScale?: number }
-        final?: { minScale?: number; maxScale?: number }
+        value?: number
+        randomize?: boolean
+        randomVariation?: number // 0-100 percentage
     }
     rotation?: {
         enabled?: boolean
@@ -120,9 +120,9 @@ export default function ExplodingInput({
     gravity = 900,
     duration = 1200,
     scale = {
-        enabled: false,
-        initial: { minScale: 1, maxScale: 1 },
-        final: { minScale: 1, maxScale: 1 },
+        value: 1,
+        randomize: false,
+        randomVariation: 0,
     },
     rotation = {
         enabled: false,
@@ -267,21 +267,21 @@ export default function ExplodingInput({
 
                 const randBetween = (min: number, max: number) =>
                     min + randRef.current() * (max - min)
-                const initScale = scale.enabled
-                    ? randBetween(
-                          scale.initial?.minScale ?? 1,
-                          scale.initial?.maxScale ?? 1
-                      )
-                    : 1
-                const endScale = scale.enabled
-                    ? randBetween(
-                          scale.final?.minScale ?? 1,
-                          scale.final?.maxScale ?? 1
-                      )
-                    : 1
-                // Ensure both scales are within safe bounds
-                const safeInitScale = Math.max(0.1, Math.min(3, initScale))
-                const safeEndScale = Math.max(0.1, Math.min(3, endScale))
+                
+                // Calculate fixed scale with optional randomization
+                const baseScale = scale.value ?? 1
+                let particleScale = baseScale
+                
+                if (scale.randomize && scale.randomVariation !== undefined && scale.randomVariation > 0) {
+                    // Convert percentage to decimal (e.g., 10% = 0.1)
+                    const variation = (scale.randomVariation / 100) * baseScale
+                    const minScale = baseScale - variation
+                    const maxScale = baseScale + variation
+                    particleScale = randBetween(minScale, maxScale)
+                }
+                
+                // Ensure scale is within safe bounds
+                const safeScale = Math.max(0.1, Math.min(4, particleScale))
                 const initRot = rotation.enabled
                     ? randBetween(
                           rotation.initial?.minDeg ?? 0,
@@ -309,7 +309,7 @@ export default function ExplodingInput({
                 el.style.pointerEvents = 'none'
                 el.style.willChange = 'transform, opacity'
                 el.style.transformOrigin = '50% 50%'
-                el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${safeInitScale}) rotate(${initRot}deg)`
+                el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${safeScale}) rotate(${initRot}deg)`
                 el.style.opacity = '1'
 
                 // Render content inside
@@ -373,7 +373,7 @@ export default function ExplodingInput({
                     id: particleIdCounter.current,
                     x: x,
                     y: y,
-                    scale: initScale,
+                    scale: safeScale,
                     rotate: initRot,
                     opacity: 1,
                     vx,
@@ -391,8 +391,8 @@ export default function ExplodingInput({
                         actualContent.length > 0
                             ? (particleIdCounter.current - 1) % actualContent.length
                             : -1,
-                    scaleStart: safeInitScale,
-                    scaleEnd: safeEndScale,
+                    scaleStart: safeScale,
+                    scaleEnd: safeScale, // Same as start - no scale animation
                     rotateStart: initRot,
                     rotateEnd: endRot,
                     element: el,
@@ -681,56 +681,28 @@ addPropertyControls(ExplodingInput, {
         type: ControlType.Object,
         title: "Scale",
         controls: {
-            enabled: {
+            value: {
+                type: ControlType.Number,
+                title: "Scale",
+                min: 0.5,
+                max: 4,
+                step: 0.05,
+                defaultValue: 1,
+            },
+            randomize: {
                 type: ControlType.Boolean,
-                title: "Animate",
+                title: "Randomize",
                 defaultValue: false,
             },
-            initial: {
-                hidden: (props) => !props.enabled,
-                type: ControlType.Object,
-                title: "Spawn",
-                controls: {
-                    minScale: {
-                        type: ControlType.Number,
-                        title: "Between",
-                        min: 0,
-                        max: 4,
-                        step: 0.05,
-                        defaultValue: 0.5,
-                    },
-                    maxScale: {
-                        type: ControlType.Number,
-                        title: "And",
-                        min: 0,
-                        max: 4,
-                        step: 0.05,
-                        defaultValue: 0.5,
-                    },
-                },
-            },
-            final: {
-                type: ControlType.Object,
-                title: "Final",
-                hidden: (props) => !props.enabled,
-                controls: {
-                    minScale: {
-                        type: ControlType.Number,
-                        title: "Between",
-                        min: 0,
-                        max: 4,
-                        step: 0.05,
-                        defaultValue: 1,
-                    },
-                    maxScale: {
-                        type: ControlType.Number,
-                        title: "And",
-                        min: 0,
-                        max: 4,
-                        step: 0.05,
-                        defaultValue: 1,
-                    },
-                },
+            randomVariation: {
+                type: ControlType.Number,
+                title: "Variation",
+                min: 0,
+                max: 100,
+                step: 1,
+                defaultValue: 0,
+                unit: "%",
+                hidden: (props) => !props.randomize,
             },
         },
     },
