@@ -70,9 +70,7 @@ interface ExplodingInputProps {
     // Common props
     count?: number
     upwardSpeed?: number
-    upwardSpread?: number
     horizontalSpeed?: number
-    horizontalSpread?: number
     gravity?: number
     duration?: number
     scale?: {
@@ -114,9 +112,7 @@ export default function ExplodingInput({
     itemHeight = 40,
     count = 1,
     upwardSpeed = 180,
-    upwardSpread = 120,
     horizontalSpeed = 80,
-    horizontalSpread = 80,
     gravity = 900,
     duration = 1200,
     scale = {
@@ -254,12 +250,12 @@ export default function ExplodingInput({
                 )
                 const baseVx = mapLinear(clampedHX, -1, 1, -800, 800)
                 const spreadVx = mapLinear(
-                    horizontalSpread ?? 0.5,
+                    1,
                     0,
                     1,
                     0,
                     300
-                ) // 0..1 → 0..300 px/s
+                ) // Hard-coded to 1 (maximum spread)
                 const vx = baseVx + (randRef.current() * 2 - 1) * spreadVx
 
                 // vertical speed: -1..1 → -400..400 px/s (negative = up, positive = down)
@@ -268,7 +264,7 @@ export default function ExplodingInput({
                     Math.min(1, upwardSpeed as number)
                 )
                 const baseVy = mapLinear(clampedUY, -1, 1, -800, 800)
-                const spreadVy = mapLinear(upwardSpread ?? 0.5, 0, 1, 0, 300) // 0..1 → 0..300 px/s
+                const spreadVy = mapLinear(1, 0, 1, 0, 300) // Hard-coded to 1 (maximum spread)
                 const vy = baseVy + (randRef.current() * 2 - 1) * spreadVy
 
                 particleIdCounter.current += 1
@@ -441,9 +437,7 @@ export default function ExplodingInput({
         }
     }, [
         upwardSpeed,
-        upwardSpread,
         horizontalSpeed,
-        horizontalSpread,
         gravity,
         duration,
         content,
@@ -657,14 +651,6 @@ addPropertyControls(ExplodingInput, {
         step: 0.05,
         defaultValue: -0.7,
     },
-    upwardSpread: {
-        type: ControlType.Number,
-        title: "Random Y",
-        min: 0,
-        max: 1,
-        step: 0.1,
-        defaultValue: 0.3,
-    },
     horizontalSpeed: {
         type: ControlType.Number,
         title: "Speed X",
@@ -672,14 +658,6 @@ addPropertyControls(ExplodingInput, {
         max: 1,
         step: 0.05,
         defaultValue: -0.6,
-    },
-    horizontalSpread: {
-        type: ControlType.Number,
-        title: "Random X",
-        min: 0,
-        max: 1,
-        step: 0.1,
-        defaultValue: 0.2,
     },
     duration: {
         type: ControlType.Number,
