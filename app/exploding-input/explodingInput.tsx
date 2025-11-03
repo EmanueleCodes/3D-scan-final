@@ -138,7 +138,7 @@ export default function ExplodingInput({
     const randRef = useRef<() => number>(() => Math.random())
     const previewRef = useRef(preview)
     const inputRef = useRef<HTMLInputElement | null>(null)
-    
+
     // Keep preview ref updated
     useEffect(() => {
         previewRef.current = preview
@@ -204,7 +204,9 @@ export default function ExplodingInput({
     }, [])
 
     // Helper function to calculate spawn position from an input element
-    const getInputSpawnPosition = (input: HTMLInputElement | null): { x: number; y: number } | null => {
+    const getInputSpawnPosition = (
+        input: HTMLInputElement | null
+    ): { x: number; y: number } | null => {
         const container = containerRef.current
         if (!container || !input) return null
 
@@ -345,32 +347,28 @@ export default function ExplodingInput({
                         tempDiv.style.width = "100%"
                         tempDiv.style.height = "100%"
                         el.appendChild(tempDiv)
-                        import("react-dom/client").then(
-                            ({ createRoot }) => {
-                                const root = createRoot(tempDiv)
-                                ;(window as any).__EXPLODING_ROOTS__.push(
-                                    root
-                                )
-                                root.render(
-                                    React.cloneElement(contentElement, {
-                                        style: {
-                                            ...(contentElement as any)
-                                                ?.props?.style,
-                                            transform: "none",
-                                            scale: "none",
-                                            rotate: "none",
-                                            translate: "none",
-                                            maxWidth: "100%",
-                                            maxHeight: "100%",
-                                            width: "100%",
-                                            height: "100%",
-                                        },
-                                    })
-                                )
-                                // Attach root reference after render completes
-                                newParticle.reactRoot = root
-                            }
-                        )
+                        import("react-dom/client").then(({ createRoot }) => {
+                            const root = createRoot(tempDiv)
+                            ;(window as any).__EXPLODING_ROOTS__.push(root)
+                            root.render(
+                                React.cloneElement(contentElement, {
+                                    style: {
+                                        ...(contentElement as any)?.props
+                                            ?.style,
+                                        transform: "none",
+                                        scale: "none",
+                                        rotate: "none",
+                                        translate: "none",
+                                        maxWidth: "100%",
+                                        maxHeight: "100%",
+                                        width: "100%",
+                                        height: "100%",
+                                    },
+                                })
+                            )
+                            // Attach root reference after render completes
+                            newParticle.reactRoot = root
+                        })
                     }
                 }
             } else {
@@ -408,8 +406,7 @@ export default function ExplodingInput({
                 lifeMs: duration * 1000,
                 contentIdx:
                     actualContent.length > 0
-                        ? (particleIdCounter.current - 1) %
-                          actualContent.length
+                        ? (particleIdCounter.current - 1) % actualContent.length
                         : -1,
                 scaleStart: safeScale,
                 scaleEnd: safeScale, // Same as start - no scale animation
@@ -479,7 +476,18 @@ export default function ExplodingInput({
             input.removeEventListener("input", handleInput)
             inputRef.current = null
         }
-    }, [direction, gravity, duration, content, count, scale, rotation, mode, itemWidth, itemHeight])
+    }, [
+        direction,
+        gravity,
+        duration,
+        content,
+        count,
+        scale,
+        rotation,
+        mode,
+        itemWidth,
+        itemHeight,
+    ])
 
     // Preview mode: automatically spawn particles in canvas mode
     useEffect(() => {
@@ -492,13 +500,13 @@ export default function ExplodingInput({
 
             // Try to find input element
             let input = inputRef.current
-            
+
             // If no ref, try to find input nearby
             if (!input) {
                 // Try finding in parent label
                 const label = container.closest("label")
                 input = label?.querySelector("input") as HTMLInputElement | null
-                
+
                 // If still not found, search in parent elements
                 if (!input) {
                     let parent = container.parentElement
@@ -511,32 +519,46 @@ export default function ExplodingInput({
                         parent = parent.parentElement
                     }
                 }
-                
+
                 // If still not found, search document for closest input
                 if (!input) {
-                    const allInputs = document.querySelectorAll("input[type='text'], input[type='email'], input[type='search'], input:not([type])")
+                    const allInputs = document.querySelectorAll(
+                        "input[type='text'], input[type='email'], input[type='search'], input:not([type])"
+                    )
                     if (allInputs.length > 0) {
                         const containerRect = container.getBoundingClientRect()
                         let closestInput: HTMLInputElement | null = null
                         let closestDistance = Infinity
-                        
+
                         allInputs.forEach((inp) => {
                             const inpRect = inp.getBoundingClientRect()
                             const distance = Math.sqrt(
-                                Math.pow(inpRect.left + inpRect.width / 2 - (containerRect.left + containerRect.width / 2), 2) +
-                                Math.pow(inpRect.top + inpRect.height / 2 - (containerRect.top + containerRect.height / 2), 2)
+                                Math.pow(
+                                    inpRect.left +
+                                        inpRect.width / 2 -
+                                        (containerRect.left +
+                                            containerRect.width / 2),
+                                    2
+                                ) +
+                                    Math.pow(
+                                        inpRect.top +
+                                            inpRect.height / 2 -
+                                            (containerRect.top +
+                                                containerRect.height / 2),
+                                        2
+                                    )
                             )
                             if (distance < closestDistance && distance < 500) {
                                 closestDistance = distance
                                 closestInput = inp as HTMLInputElement
                             }
                         })
-                        
+
                         input = closestInput
                     }
                 }
             }
-            
+
             // Get spawn position from input or use center (0, 0)
             if (input) {
                 const pos = getInputSpawnPosition(input)
@@ -569,6 +591,30 @@ export default function ExplodingInput({
         content,
         actualContent,
     ])
+
+    // Cleanup: Remove all particles instantly when preview is turned off in canvas mode
+    useEffect(() => {
+        const isCanvas = RenderTarget.current() === RenderTarget.canvas
+        if (!isCanvas || preview) return
+
+        // Remove all particles immediately
+        particlesRef.current.forEach((p) => {
+            p.isDead = true
+            try {
+                p.reactRoot?.unmount()
+            } catch {}
+            const w = window as any
+            if (w.__EXPLODING_ROOTS__) {
+                w.__EXPLODING_ROOTS__ = w.__EXPLODING_ROOTS__.filter(
+                    (r: any) => r !== p.reactRoot
+                )
+            }
+            if (p.element && p.element.parentNode) {
+                p.element.parentNode.removeChild(p.element)
+            }
+        })
+        particlesRef.current = []
+    }, [preview])
 
     // Shared animation update function
     const updateParticles = (delta?: number) => {
@@ -639,16 +685,16 @@ export default function ExplodingInput({
 
         let rafId: number
         let lastTime = performance.now()
-        
+
         const animate = (currentTime: number) => {
             const delta = currentTime - lastTime
             lastTime = currentTime
             updateParticles(delta)
             rafId = requestAnimationFrame(animate)
         }
-        
+
         rafId = requestAnimationFrame(animate)
-        
+
         return () => {
             cancelAnimationFrame(rafId)
         }
@@ -684,6 +730,11 @@ export default function ExplodingInput({
 }
 
 addPropertyControls(ExplodingInput, {
+    preview: {
+        type: ControlType.Boolean,
+        title: "Preview",
+        defaultValue: false,
+    },
     mode: {
         type: ControlType.Enum,
         title: "Mode",
@@ -867,6 +918,8 @@ addPropertyControls(ExplodingInput, {
     rotation: {
         type: ControlType.Object,
         title: "Rotation",
+        description:
+        "More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             value: {
                 type: ControlType.Number,
@@ -883,13 +936,6 @@ addPropertyControls(ExplodingInput, {
                 defaultValue: false,
             },
         },
-    },
-    preview: {
-        type: ControlType.Boolean,
-        title: "Preview",
-        description:
-            "More components at [Framer University](https://frameruni.link/cc).",
-        defaultValue: false,
     },
 })
 
