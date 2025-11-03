@@ -69,8 +69,10 @@ interface ExplodingInputProps {
     itemHeight?: number
     // Common props
     count?: number
-    upwardSpeed?: number
-    horizontalSpeed?: number
+    direction?: {
+        horizontal?: "left" | "center" | "right"
+        vertical?: "top" | "center" | "bottom"
+    }
     gravity?: number
     duration?: number
     scale?: {
@@ -111,8 +113,10 @@ export default function ExplodingInput({
     itemWidth = 40,
     itemHeight = 40,
     count = 1,
-    upwardSpeed = 180,
-    horizontalSpeed = 80,
+    direction = {
+        horizontal: "center",
+        vertical: "top",
+    },
     gravity = 900,
     duration = 1200,
     scale = {
@@ -242,28 +246,20 @@ export default function ExplodingInput({
             const y = inputRect.top - containerRect.top + inputRect.height / 2
 
             const spawnOne = () => {
-                // Map user-friendly controls to internal velocities
-                // horizontalSpeed: -1..1 → -400..400 px/s
-                const clampedHX = Math.max(
-                    -1,
-                    Math.min(1, horizontalSpeed as number)
-                )
-                const baseVx = mapLinear(clampedHX, -1, 1, -800, 800)
-                const spreadVx = mapLinear(
-                    1,
-                    0,
-                    1,
-                    0,
-                    300
-                ) // Hard-coded to 1 (maximum spread)
+                // Map direction controls to velocity values
+                // Horizontal: left = -0.4, center = 0, right = +0.4
+                const horizontalValue = 
+                    direction.horizontal === "left" ? -0.4 :
+                    direction.horizontal === "right" ? 0.4 : 0
+                const baseVx = mapLinear(horizontalValue, -1, 1, -800, 800)
+                const spreadVx = mapLinear(1, 0, 1, 0, 300) // Hard-coded to 1 (maximum spread)
                 const vx = baseVx + (randRef.current() * 2 - 1) * spreadVx
 
-                // vertical speed: -1..1 → -400..400 px/s (negative = up, positive = down)
-                const clampedUY = Math.max(
-                    -1,
-                    Math.min(1, upwardSpeed as number)
-                )
-                const baseVy = mapLinear(clampedUY, -1, 1, -800, 800)
+                // Vertical: top = -0.7, center = 0, bottom = +0.7
+                const verticalValue = 
+                    direction.vertical === "top" ? -0.7 :
+                    direction.vertical === "bottom" ? 0.7 : 0
+                const baseVy = mapLinear(verticalValue, -1, 1, -800, 800)
                 const spreadVy = mapLinear(1, 0, 1, 0, 300) // Hard-coded to 1 (maximum spread)
                 const vy = baseVy + (randRef.current() * 2 - 1) * spreadVy
 
@@ -436,8 +432,7 @@ export default function ExplodingInput({
             input.removeEventListener("input", handleInput)
         }
     }, [
-        upwardSpeed,
-        horizontalSpeed,
+        direction,
         gravity,
         duration,
         content,
@@ -643,21 +638,28 @@ addPropertyControls(ExplodingInput, {
         step: 1,
         defaultValue: 1,
     },
-    upwardSpeed: {
-        type: ControlType.Number,
-        title: "Speed Y",
-        min: -1,
-        max: 1,
-        step: 0.05,
-        defaultValue: -0.7,
-    },
-    horizontalSpeed: {
-        type: ControlType.Number,
-        title: "Speed X",
-        min: -1,
-        max: 1,
-        step: 0.05,
-        defaultValue: -0.6,
+    direction: {
+        type: ControlType.Object,
+        title: "Direction",
+        controls: {
+            horizontal: {
+                type: ControlType.Enum,
+                title: "Horizontal",
+                options: ["left", "center", "right"],
+                optionTitles:["<-","•","->"],
+                defaultValue: "center",
+                displaySegmentedControl: true,
+            },
+            vertical: {
+                type: ControlType.Enum,
+                title: "Vertical",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["↑", "•", "↓"],
+                defaultValue: "top",
+                displaySegmentedControl: true,
+               
+            },
+        },
     },
     duration: {
         type: ControlType.Number,
