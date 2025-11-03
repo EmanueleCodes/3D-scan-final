@@ -67,7 +67,6 @@ interface ExplodingInputProps {
     image10?: any
     itemWidth?: number
     itemHeight?: number
-    borderRadius?: number
     // Common props
     count?: number
     upwardSpeed?: number
@@ -113,7 +112,6 @@ export default function ExplodingInput({
     image10,
     itemWidth = 40,
     itemHeight = 40,
-    borderRadius = 6,
     count = 1,
     upwardSpeed = 180,
     upwardSpread = 120,
@@ -334,7 +332,6 @@ export default function ExplodingInput({
                             img.style.width = '100%'
                             img.style.height = '100%'
                             img.style.objectFit = 'cover'
-                            img.style.borderRadius = `${borderRadius}px`
                             el.appendChild(img)
                         } else {
                             // For components mode, use React root
@@ -644,19 +641,9 @@ addPropertyControls(ExplodingInput, {
         unit: "px",
         hidden: (props) => props.mode !== "images",
     },
-    borderRadius: {
-        type: ControlType.Number,
-        title: "Radius",
-        min: 0,
-        max: 100,
-        step: 1,
-        defaultValue: 6,
-        unit: "px",
-        hidden: (props) => props.mode !== "images",
-    },
     count: {
         type: ControlType.Number,
-        title: "Particles per Input",
+        title: "Amount",
         min: 1,
         max: 5,
         step: 1,
