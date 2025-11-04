@@ -48,7 +48,8 @@ export default function CRTComponent(props: CRTComponentProps) {
     } = props
 
     const vfxInstanceRef = useRef<any>(null)
-    const observerRef = useRef<IntersectionObserver | null>(null)
+    const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const maskUpdateFrameRef = useRef<number>()
 
     // CRT shader (same as reference)
     const shader = `
@@ -130,7 +131,7 @@ void main() {
 }
 `
 
-    // Hybrid approach: Full-page postEffect when scroll section is visible
+    // Create VFX once and apply gradient mask based on viewport intersection
     useEffect(() => {
         if (!targetId) return
 
@@ -140,28 +141,109 @@ void main() {
             return
         }
 
-        // Function to create VFX instance
-        const createVFX = () => {
-            if (vfxInstanceRef.current) return // Already created
+        // Create VFX instance once (kept mounted)
+        const vfx = new VFX({
+            scrollPadding: false,
+            postEffect: { shader }
+        })
 
-            const vfx = new VFX({
-                scrollPadding: false,
-                postEffect: { shader }
+        // Also add elements inside target for distortion
+        const elementsToCapture = targetElement.querySelectorAll('*')
+        elementsToCapture.forEach((element) => {
+            vfx.add(element as HTMLElement, {
+                shader: shader,
             })
+        })
 
-            // Also add elements inside target for distortion
-            const elementsToCapture = targetElement.querySelectorAll('*')
-            elementsToCapture.forEach((element) => {
-                vfx.add(element as HTMLElement, {
-                    shader: shader,
-                })
-            })
+        vfxInstanceRef.current = vfx
 
-            vfxInstanceRef.current = vfx
+        // Find VFX canvas after it's created
+        const findAndSetupCanvas = () => {
+            const canvas = document.querySelector('canvas[data-engine="three.js"]') as HTMLCanvasElement
+            if (canvas) {
+                canvasRef.current = canvas
+                
+                // Function to update mask gradient based on viewport intersection
+                const updateMask = () => {
+                    if (!canvasRef.current || !targetElement) return
+
+                    const rect = targetElement.getBoundingClientRect()
+                    const viewportHeight = window.innerHeight
+                    
+                    // Element boundaries in viewport coordinates
+                    const elementTop = rect.top
+                    const elementBottom = rect.bottom
+                    
+                    // Calculate gradient stops based on viewport position (0% = top of viewport, 100% = bottom)
+                    let stop1 = 0, stop2 = 0, stop3 = 100, stop4 = 100
+                    
+                    // Convert element positions to viewport percentages
+                    const topPercent = (elementTop / viewportHeight) * 100
+                    const bottomPercent = (elementBottom / viewportHeight) * 100
+                    
+                    // Fade zone size (in viewport percentage)
+                    const fadeSize = 5 // 5% fade zone
+                    
+                    if (elementBottom <= 0) {
+                        // Element is completely above viewport - fully transparent
+                        stop1 = 0
+                        stop2 = 0
+                        stop3 = 0
+                        stop4 = 0
+                    } else if (elementTop >= viewportHeight) {
+                        // Element is completely below viewport - fully transparent
+                        stop1 = 0
+                        stop2 = 0
+                        stop3 = 0
+                        stop4 = 0
+                    } else {
+                        // Element intersects viewport
+                        // Calculate where opacity starts and ends
+                        const opacityStart = Math.max(0, topPercent)
+                        const opacityEnd = Math.min(100, bottomPercent)
+                        
+                        // Add fade zones
+                        stop1 = Math.max(0, opacityStart - fadeSize)
+                        stop2 = opacityStart
+                        stop3 = opacityEnd
+                        stop4 = Math.min(100, opacityEnd + fadeSize)
+                    }
+                    
+                    // Apply gradient mask (black = visible, transparent = hidden)
+                    const maskImage = `linear-gradient(to bottom, 
+                        transparent ${stop1}%, 
+                        black ${stop2}%, 
+                        black ${stop3}%, 
+                        transparent ${stop4}%
+                    )`
+                    
+                    canvasRef.current.style.maskImage = maskImage
+                    canvasRef.current.style.webkitMaskImage = maskImage
+                }
+                
+                // Update mask continuously
+                const animateMask = () => {
+                    updateMask()
+                    maskUpdateFrameRef.current = requestAnimationFrame(animateMask)
+                }
+                
+                animateMask()
+            } else {
+                // Retry if canvas not found yet
+                setTimeout(findAndSetupCanvas, 100)
+            }
         }
+        
+        // Wait a bit for VFX to create canvas
+        setTimeout(findAndSetupCanvas, 100)
 
-        // Function to destroy VFX instance
-        const destroyVFX = () => {
+        return () => {
+            // Cancel mask animation
+            if (maskUpdateFrameRef.current) {
+                cancelAnimationFrame(maskUpdateFrameRef.current)
+            }
+            
+            // Clean up VFX
             if (vfxInstanceRef.current) {
                 try {
                     vfxInstanceRef.current.dispose?.()
@@ -170,41 +252,8 @@ void main() {
                 }
                 vfxInstanceRef.current = null
             }
-        }
-
-        // Intersection Observer to detect when scroll section is visible
-        observerRef.current = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        // Section is visible - create VFX
-                        createVFX()
-                    } else {
-                        // Section is out of view - destroy VFX
-                        destroyVFX()
-                    }
-                })
-            },
-            {
-                threshold: 0.1, // Trigger when 10% of section is visible
-                rootMargin: '0px',
-            }
-        )
-
-        observerRef.current.observe(targetElement)
-
-        // Initial check
-        const rect = targetElement.getBoundingClientRect()
-        const isVisible = rect.top < window.innerHeight && rect.bottom > 0
-        if (isVisible) {
-            createVFX()
-        }
-
-        return () => {
-            if (observerRef.current) {
-                observerRef.current.disconnect()
-            }
-            destroyVFX()
+            
+            canvasRef.current = null
         }
     }, [targetId, shader])
 
