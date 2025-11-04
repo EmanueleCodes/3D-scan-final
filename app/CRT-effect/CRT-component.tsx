@@ -1,9 +1,5 @@
 import { useEffect, useRef } from "react"
 import { addPropertyControls, ControlType } from "framer"
-
-// Import VFX from bundled file
-// TODO: Update this URL once you push vfxjs-bundle to GitHub
-// Example: import { VFX } from "https://raw.githubusercontent.com/your-username/vfxjs-bundle/main/dist/bundle.js"
 import { VFX } from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/crt-bundle.js"
 
 type CRTComponentProps = {
@@ -52,9 +48,9 @@ export default function CRTComponent(props: CRTComponentProps) {
     } = props
 
     const vfxInstanceRef = useRef<any>(null)
-    const targetElementRef = useRef<HTMLElement | null>(null)
+    const observerRef = useRef<IntersectionObserver | null>(null)
 
-    // Build shader (same as reference file)
+    // CRT shader (same as reference)
     const shader = `
 precision highp float;
 uniform sampler2D src;
@@ -134,72 +130,93 @@ void main() {
 }
 `
 
-    // Initialize VFX and apply to target
+    // Hybrid approach: Full-page postEffect when scroll section is visible
     useEffect(() => {
-        let cleanup: (() => void) | undefined
+        if (!targetId) return
 
-        const initializeVFX = () => {
-            // Cleanup previous instance
-            if (cleanup) {
-                cleanup()
-            }
+        const targetElement = document.getElementById(targetId)
+        if (!targetElement) {
+            console.warn(`CRT Effect: Target element with ID "${targetId}" not found`)
+            return
+        }
 
-            if (!targetId) return
+        // Function to create VFX instance
+        const createVFX = () => {
+            if (vfxInstanceRef.current) return // Already created
 
-            // Find target element
-            const targetElement = document.getElementById(targetId)
-            if (!targetElement) {
-                console.warn(`CRT Effect: Target element with ID "${targetId}" not found`)
-                return
-            }
-
-            targetElementRef.current = targetElement
-
-            // Create VFX instance (like reference file)
             const vfx = new VFX({
                 scrollPadding: false,
+                postEffect: { shader }
             })
 
-            // Apply shader to target element (like reference: vfx.add(e, { shader, ... }))
-            vfx.add(targetElement, {
-                shader: shader,
+            // Also add elements inside target for distortion
+            const elementsToCapture = targetElement.querySelectorAll('*')
+            elementsToCapture.forEach((element) => {
+                vfx.add(element as HTMLElement, {
+                    shader: shader,
+                })
             })
 
             vfxInstanceRef.current = vfx
+        }
 
-            cleanup = () => {
-                if (vfxInstanceRef.current && targetElementRef.current) {
-                    try {
-                        vfxInstanceRef.current.remove?.(targetElementRef.current)
-                    } catch (e) {
-                        // Ignore cleanup errors
-                    }
+        // Function to destroy VFX instance
+        const destroyVFX = () => {
+            if (vfxInstanceRef.current) {
+                try {
+                    vfxInstanceRef.current.dispose?.()
+                } catch (e) {
+                    // Ignore cleanup errors
                 }
                 vfxInstanceRef.current = null
-                targetElementRef.current = null
             }
         }
 
-        // Small delay to ensure DOM is ready
-        setTimeout(initializeVFX, 100)
+        // Intersection Observer to detect when scroll section is visible
+        observerRef.current = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        // Section is visible - create VFX
+                        createVFX()
+                    } else {
+                        // Section is out of view - destroy VFX
+                        destroyVFX()
+                    }
+                })
+            },
+            {
+                threshold: 0.1, // Trigger when 10% of section is visible
+                rootMargin: '0px',
+            }
+        )
+
+        observerRef.current.observe(targetElement)
+
+        // Initial check
+        const rect = targetElement.getBoundingClientRect()
+        const isVisible = rect.top < window.innerHeight && rect.bottom > 0
+        if (isVisible) {
+            createVFX()
+        }
 
         return () => {
-            if (cleanup) {
-                cleanup()
+            if (observerRef.current) {
+                observerRef.current.disconnect()
             }
+            destroyVFX()
         }
-    }, [targetId])
+    }, [targetId, shader])
 
-    // Return a minimal placeholder for Framer canvas
-    // The actual effect is applied to the target element via VFX
+    // Return invisible placeholder - effect is managed by VFX
     return (
         <div
             style={{
-                width: "100%",
-                height: "100%",
-                position: "relative",
-                pointerEvents: "none",
+                position: "absolute",
+                width: 1,
+                height: 1,
                 opacity: 0,
+                pointerEvents: "none",
             }}
         />
     )
