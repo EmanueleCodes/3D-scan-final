@@ -272,11 +272,14 @@ export default function CRTComponent(props: CRTComponentProps) {
         speed = 0.5,
     } = props
 
-    const vfxInstanceRef = useRef<{ dispose?: () => void } | null>(null)
+    const vfxInstanceRef = useRef<{ dispose?: () => void; pause?: () => void; resume?: () => void } | null>(null)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const maskUpdateFrameRef = useRef<number | undefined>(undefined)
     const findCanvasTimeoutRef = useRef<number | null>(null)
     const isMountedRef = useRef(true)
+    const intersectionObserverRef = useRef<IntersectionObserver | null>(null)
+    const isVisibleRef = useRef(true)
+    const updateMaskRef = useRef<(() => void) | null>(null)
 
     // Create VFX and apply gradient mask based on viewport intersection
     // Recreate when props change to update shader
@@ -360,6 +363,81 @@ export default function CRTComponent(props: CRTComponentProps) {
 
         vfxInstanceRef.current = vfx
 
+        // Set up Intersection Observer to pause animations when element is out of view
+        if (typeof IntersectionObserver !== 'undefined') {
+            // Clean up previous observer
+            if (intersectionObserverRef.current) {
+                intersectionObserverRef.current.disconnect()
+                intersectionObserverRef.current = null
+            }
+
+            intersectionObserverRef.current = new IntersectionObserver(
+                (entries) => {
+                    const entry = entries[0]
+                    const isVisible = entry.isIntersecting
+                    isVisibleRef.current = isVisible
+
+                    if (!isMountedRef.current || !vfxInstanceRef.current) return
+
+                    // Pause/resume VFX animations
+                    try {
+                        if (isVisible) {
+                            // Resume animations when in view
+                            if (typeof (vfxInstanceRef.current as { resume?: () => void }).resume === 'function') {
+                                (vfxInstanceRef.current as { resume: () => void }).resume()
+                            }
+                            // Show canvas
+                            if (canvasRef.current) {
+                                canvasRef.current.style.display = ''
+                                canvasRef.current.style.visibility = ''
+                            }
+                            // Restart mask animation if it was stopped
+                            if (!maskUpdateFrameRef.current && canvasRef.current && updateMaskRef.current) {
+                                const animateMask = () => {
+                                    if (!isMountedRef.current || !vfxInstanceRef.current || !isVisibleRef.current) {
+                                        maskUpdateFrameRef.current = undefined
+                                        return
+                                    }
+                                    if (updateMaskRef.current) {
+                                        updateMaskRef.current()
+                                    }
+                                    maskUpdateFrameRef.current = requestAnimationFrame(animateMask)
+                                }
+                                animateMask()
+                            }
+                        } else {
+                            // Pause animations when out of view
+                            if (typeof (vfxInstanceRef.current as { pause?: () => void }).pause === 'function') {
+                                (vfxInstanceRef.current as { pause: () => void }).pause()
+                            }
+                            // Hide canvas to stop rendering
+                            if (canvasRef.current) {
+                                canvasRef.current.style.display = 'none'
+                                canvasRef.current.style.visibility = 'hidden'
+                            }
+                            // Cancel mask animation when out of view
+                            if (maskUpdateFrameRef.current) {
+                                cancelAnimationFrame(maskUpdateFrameRef.current)
+                                maskUpdateFrameRef.current = undefined
+                            }
+                        }
+                    } catch (e) {
+                        // Fallback: hide/show canvas if pause/resume methods don't exist
+                        if (canvasRef.current) {
+                            canvasRef.current.style.display = isVisible ? '' : 'none'
+                            canvasRef.current.style.visibility = isVisible ? '' : 'hidden'
+                        }
+                    }
+                },
+                {
+                    threshold: 0, // Trigger when any part of element is visible
+                    rootMargin: '0px', // No margin
+                }
+            )
+
+            intersectionObserverRef.current.observe(targetElement)
+        }
+
         // Find VFX canvas after it's created
         const findAndSetupCanvas = () => {
             // Check if component is still mounted
@@ -436,16 +514,27 @@ export default function CRTComponent(props: CRTComponentProps) {
                     canvasRef.current.style.webkitMaskImage = maskImage
                 }
                 
-                // Update mask continuously
+                // Store updateMask function in ref for access from Intersection Observer
+                updateMaskRef.current = updateMask
+                
+                // Update mask continuously (only when visible)
                 const animateMask = () => {
                     if (!isMountedRef.current || !vfxInstanceRef.current) {
                         return
                     }
-                    updateMask()
-                    maskUpdateFrameRef.current = requestAnimationFrame(animateMask)
+                    // Only animate mask when element is visible
+                    if (isVisibleRef.current) {
+                        updateMask()
+                        maskUpdateFrameRef.current = requestAnimationFrame(animateMask)
+                    } else {
+                        maskUpdateFrameRef.current = undefined
+                    }
                 }
                 
-                animateMask()
+                // Only start animation if visible
+                if (isVisibleRef.current) {
+                    animateMask()
+                }
             } else if (!canvas && isMountedRef.current && vfxInstanceRef.current) {
                 // Retry if canvas not found yet (max 10 retries to prevent infinite loops)
                 const retryCount = (findAndSetupCanvas as { retryCount?: number }).retryCount || 0
@@ -462,6 +551,12 @@ export default function CRTComponent(props: CRTComponentProps) {
         return () => {
             // Mark as unmounted first
             isMountedRef.current = false
+            
+            // Disconnect Intersection Observer
+            if (intersectionObserverRef.current) {
+                intersectionObserverRef.current.disconnect()
+                intersectionObserverRef.current = null
+            }
             
             // Cancel any pending timeouts
             if (findCanvasTimeoutRef.current) {
@@ -496,8 +591,9 @@ export default function CRTComponent(props: CRTComponentProps) {
             })
             
             canvasRef.current = null
+            updateMaskRef.current = null
         }
-    }, [targetId, intensity, scanlineIntensity, chromaticAberration, vignetteStrength, distortionAmount, noiseAmount, grain, speed])
+    }, [targetId, targetElements, intensity, scanlineIntensity, chromaticAberration, vignetteStrength, distortionAmount, noiseAmount, grain, speed])
 
     // Return invisible placeholder - effect is managed by VFX
     return (
