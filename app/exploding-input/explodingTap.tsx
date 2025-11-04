@@ -49,7 +49,7 @@ function createPRNG(seed: number) {
     }
 }
 
-interface ExplodingInputProps {
+interface ExplodingTapProps {
     mode?: "components" | "images"
     // Component mode props
     content?: any[]
@@ -96,7 +96,7 @@ interface ExplodingInputProps {
  * @framerDisableUnlink
  */
 
-export default function ExplodingInput({
+export default function ExplodingTap({
     mode = "components",
     content = [],
     itemCount = 4,
@@ -130,14 +130,13 @@ export default function ExplodingInput({
     },
     preview = false,
     style,
-}: ExplodingInputProps) {
+}: ExplodingTapProps) {
     const particleIdCounter = useRef(0)
     const containerRef = useRef<HTMLDivElement>(null)
     const particleContainerRef = useRef<HTMLDivElement>(null)
     const particlesRef = useRef<Particle[]>([])
     const randRef = useRef<() => number>(() => Math.random())
     const previewRef = useRef(preview)
-    const inputRef = useRef<HTMLInputElement | null>(null)
 
     // Keep preview ref updated
     useEffect(() => {
@@ -203,46 +202,38 @@ export default function ExplodingInput({
         }
     }, [])
 
-    // Helper function to calculate spawn position from an input element
-    const getInputSpawnPosition = (
-        input: HTMLInputElement | null
+    // Helper function to calculate spawn position from click/tap event
+    const getClickSpawnPosition = (
+        event: MouseEvent | TouchEvent
     ): { x: number; y: number } | null => {
         const container = containerRef.current
-        if (!container || !input) return null
+        if (!container) return null
 
-        const inputRect = input.getBoundingClientRect()
         const containerRect = container.getBoundingClientRect()
-
-        // Get the input value
-        const inputValue = input.value
-
-        // Calculate position of the last character in the input
-        const getTextWidth = (text: string, input: HTMLInputElement) => {
-            const canvas = document.createElement("canvas")
-            const context = canvas.getContext("2d")
-            if (!context) return 0
-
-            const computedStyle = window.getComputedStyle(input)
-            context.font = `${computedStyle.fontSize} ${computedStyle.fontFamily}`
-            return context.measureText(text).width
-        }
-
-        // Calculate x position of the last character
-        let x = 0
-        if (inputValue.length > 0) {
-            const textWidth = getTextWidth(inputValue, input)
-            const inputStartX = inputRect.left - containerRect.left
-
-            const computedStyle = window.getComputedStyle(input)
-            const paddingRight = parseInt(computedStyle.paddingRight, 10)
-            const maxX = inputStartX + inputRect.width - paddingRight
-            x = Math.min(textWidth + inputStartX, maxX)
+        
+        // Get click/tap coordinates
+        let clientX: number
+        let clientY: number
+        
+        // Check if it's a MouseEvent
+        if ('clientX' in event && 'clientY' in event) {
+            clientX = event.clientX
+            clientY = event.clientY
+        } else if (event.touches && event.touches.length > 0) {
+            // TouchEvent with touches array
+            clientX = event.touches[0].clientX
+            clientY = event.touches[0].clientY
+        } else if (event.changedTouches && event.changedTouches.length > 0) {
+            // TouchEvent with changedTouches (fallback)
+            clientX = event.changedTouches[0].clientX
+            clientY = event.changedTouches[0].clientY
         } else {
-            // If input is empty, position at the start
-            x = inputRect.left - containerRect.left
+            return null
         }
 
-        const y = inputRect.top - containerRect.top + inputRect.height / 2
+        // Calculate position relative to container
+        const x = clientX - containerRect.left
+        const y = clientY - containerRect.top
 
         return { x, y }
     }
@@ -446,35 +437,68 @@ export default function ExplodingInput({
         for (let i = 0; i < particlesToSpawn; i++) spawnOne()
     }
 
-    // Find input element and listen to changes
+    // Listen for click/tap events on parent element (2 levels up)
     useEffect(() => {
         const container = containerRef.current
         if (!container) return
 
-        // Find the parent label element
-        const label = container.closest("label")
-        if (!label) return
+        // Find parent element 2 levels up (Framer wraps code components)
+        let parentElement: HTMLElement | null = container.parentElement
+        if (parentElement) {
+            parentElement = parentElement.parentElement
+        }
 
-        // Find the input element within the label
-        const input = label.querySelector("input")
-        if (!input) return
+        if (!parentElement) return
 
-        // Store input ref for preview mode
-        inputRef.current = input as HTMLInputElement
+        // Handle both mouse clicks and touch events
+        const handleClick = (e: MouseEvent | TouchEvent) => {
+            // Check if click is within the parent element
+            const parentRect = parentElement!.getBoundingClientRect()
+            let clientX: number
+            let clientY: number
 
-        // Listen to input changes
-        const handleInput = () => {
-            const pos = getInputSpawnPosition(input as HTMLInputElement)
-            if (pos) {
-                createParticlesAtPosition(pos.x, pos.y)
+            // Check if it's a MouseEvent
+            if ('clientX' in e && 'clientY' in e) {
+                clientX = e.clientX
+                clientY = e.clientY
+            } else if (e.touches && e.touches.length > 0) {
+                // TouchEvent with touches array
+                clientX = e.touches[0].clientX
+                clientY = e.touches[0].clientY
+            } else if (e.changedTouches && e.changedTouches.length > 0) {
+                // TouchEvent with changedTouches (fallback)
+                clientX = e.changedTouches[0].clientX
+                clientY = e.changedTouches[0].clientY
+            } else {
+                return
+            }
+
+            // Only spawn if click is within parent bounds
+            if (
+                clientX >= parentRect.left &&
+                clientX <= parentRect.right &&
+                clientY >= parentRect.top &&
+                clientY <= parentRect.bottom
+            ) {
+                const pos = getClickSpawnPosition(e)
+                if (pos) {
+                    createParticlesAtPosition(pos.x, pos.y)
+                }
             }
         }
 
-        input.addEventListener("input", handleInput)
+        // Prevent default touch behavior to avoid scrolling issues
+        const handleTouchStart = (e: TouchEvent) => {
+            handleClick(e)
+            // Don't prevent default to allow normal touch behavior
+        }
+
+        parentElement.addEventListener("click", handleClick)
+        parentElement.addEventListener("touchstart", handleTouchStart)
 
         return () => {
-            input.removeEventListener("input", handleInput)
-            inputRef.current = null
+            parentElement?.removeEventListener("click", handleClick)
+            parentElement?.removeEventListener("touchstart", handleTouchStart)
         }
     }, [
         direction,
@@ -498,75 +522,22 @@ export default function ExplodingInput({
             const container = containerRef.current
             if (!container) return
 
-            // Try to find input element
-            let input = inputRef.current
-
-            // If no ref, try to find input nearby
-            if (!input) {
-                // Try finding in parent label
-                const label = container.closest("label")
-                input = label?.querySelector("input") as HTMLInputElement | null
-
-                // If still not found, search in parent elements
-                if (!input) {
-                    let parent = container.parentElement
-                    for (let i = 0; i < 5 && parent; i++) {
-                        const foundInput = parent.querySelector("input")
-                        if (foundInput) {
-                            input = foundInput as HTMLInputElement
-                            break
-                        }
-                        parent = parent.parentElement
-                    }
-                }
-
-                // If still not found, search document for closest input
-                if (!input) {
-                    const allInputs = document.querySelectorAll(
-                        "input[type='text'], input[type='email'], input[type='search'], input:not([type])"
-                    )
-                    if (allInputs.length > 0) {
-                        const containerRect = container.getBoundingClientRect()
-                        let closestInput: HTMLInputElement | null = null
-                        let closestDistance = Infinity
-
-                        allInputs.forEach((inp) => {
-                            const inpRect = inp.getBoundingClientRect()
-                            const distance = Math.sqrt(
-                                Math.pow(
-                                    inpRect.left +
-                                        inpRect.width / 2 -
-                                        (containerRect.left +
-                                            containerRect.width / 2),
-                                    2
-                                ) +
-                                    Math.pow(
-                                        inpRect.top +
-                                            inpRect.height / 2 -
-                                            (containerRect.top +
-                                                containerRect.height / 2),
-                                        2
-                                    )
-                            )
-                            if (distance < closestDistance && distance < 500) {
-                                closestDistance = distance
-                                closestInput = inp as HTMLInputElement
-                            }
-                        })
-
-                        input = closestInput
-                    }
-                }
+            // Find parent element 2 levels up
+            let parentElement: HTMLElement | null = container.parentElement
+            if (parentElement) {
+                parentElement = parentElement.parentElement
             }
 
-            // Get spawn position from input or use center (0, 0)
-            if (input) {
-                const pos = getInputSpawnPosition(input)
-                if (pos) {
-                    createParticlesAtPosition(pos.x, pos.y)
-                }
+            if (parentElement) {
+                const parentRect = parentElement.getBoundingClientRect()
+                const containerRect = container.getBoundingClientRect()
+                
+                // Spawn from center of parent element
+                const x = parentRect.left - containerRect.left + parentRect.width / 2
+                const y = parentRect.top - containerRect.top + parentRect.height / 2
+                createParticlesAtPosition(x, y)
             } else {
-                // No input found - spawn from center
+                // Fallback to center if parent not found
                 createParticlesAtPosition(0, 0)
             }
         }
@@ -729,7 +700,7 @@ export default function ExplodingInput({
     )
 }
 
-addPropertyControls(ExplodingInput, {
+addPropertyControls(ExplodingTap, {
     preview: {
         type: ControlType.Boolean,
         title: "Preview",
@@ -939,4 +910,4 @@ addPropertyControls(ExplodingInput, {
     },
 })
 
-ExplodingInput.displayName = "Exploding Input"
+ExplodingTap.displayName = "Exploding Tap"
