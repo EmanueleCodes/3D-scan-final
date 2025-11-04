@@ -159,7 +159,7 @@ void main() {
 
         // Find VFX canvas after it's created
         const findAndSetupCanvas = () => {
-            const canvas = document.querySelector('canvas[data-engine="three.js"]') as HTMLCanvasElement
+            const canvas = document.querySelector('canvas[data-engine="three.js r177"]') as HTMLCanvasElement
             if (canvas) {
                 canvasRef.current = canvas
                 
