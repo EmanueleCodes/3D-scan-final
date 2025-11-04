@@ -4,13 +4,14 @@ import { VFX } from "https://cdn.jsdelivr.net/gh/framer-university/components/np
 
 type CRTComponentProps = {
     targetId?: string
-    preview?: boolean
+    targetElements?: string
     intensity?: number
     scanlineIntensity?: number
     chromaticAberration?: number
     vignetteStrength?: number
     distortionAmount?: number
     noiseAmount?: number
+    grain?: number
     speed?: number
 }
 
@@ -27,32 +28,125 @@ function mapLinear(
     return outMin + t * (outMax - outMin)
 }
 
-/**
- * @framerSupportedLayoutWidth any-prefer-fixed
- * @framerSupportedLayoutHeight any-prefer-fixed
- * @framerIntrinsicWidth 800
- * @framerIntrinsicHeight 600
- * @framerDisableUnlink
- */
-export default function CRTComponent(props: CRTComponentProps) {
-    const {
-        targetId = "",
-        preview = false,
-        intensity = 0.5,
-        scanlineIntensity = 0.5,
-        chromaticAberration = 0.5,
-        vignetteStrength = 0.5,
-        distortionAmount = 0.5,
-        noiseAmount = 0.5,
-        speed = 0.5,
-    } = props
+// Generate light shader for text elements (keeps text readable)
+function generateTextShader(props: {
+    chromaticAberration: number
+    speed: number
+}) {
+    // Map chromatic aberration to glitch intensity
+    const glitchIntensity = mapLinear(props.chromaticAberration, 0, 1, 0.0, 0.3)
+    const speedMult = mapLinear(props.speed, 0, 1, 0.3, 1.7)
 
-    const vfxInstanceRef = useRef<any>(null)
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const maskUpdateFrameRef = useRef<number>()
+    return `
+precision highp float;
+uniform sampler2D src;
+uniform vec2 offset;
+uniform vec2 resolution;
+uniform float time;
+uniform float id;
+out vec4 outColor;
 
-    // CRT shader (same as reference)
-    const shader = `
+vec4 readTex(vec2 uv) {  
+  vec4 c = texture(src, uv);  
+  c.a *= smoothstep(.5, .499, abs(uv.x - .5)) * smoothstep(.5, .499, abs(uv.y - .5));
+  return c;
+}
+
+float rand(vec2 p) {
+  return fract(sin(dot(p, vec2(829., 483.))) * 394.);
+}
+float rand(vec3 p) {
+  return fract(sin(dot(p, vec3(829., 4839., 432.))) * 39428.);
+}
+
+vec2 dist(vec2 uv, float f) {
+  float t = time * ${speedMult.toFixed(2)} + id;
+  uv += sin(uv.y * 12. + t * 1.7) * sin(uv.y * 17. + t * 2.3) * f;
+  return uv;
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - offset) / resolution;
+  vec2 uvr = uv, uvg = uv, uvb = uv;
+
+  float r = rand(vec2(floor(time * ${speedMult.toFixed(2)} * 43.), id));
+  if (r > ${(0.95 - glitchIntensity * 0.15).toFixed(2)}) {
+    float y = sin(floor(uv.y / 0.07)) + sin(floor(uv.y / 0.003 + time * ${speedMult.toFixed(2)}));
+    float f = rand(vec2(y, floor(time * ${speedMult.toFixed(2)} * 5.0) + id)) * 2. - 1.;
+    uvr.x += f * ${glitchIntensity.toFixed(3)};
+    uvg.x += f * ${(glitchIntensity * 1.5).toFixed(3)};
+    uvb.x += f * ${(glitchIntensity * 2.0).toFixed(3)};
+  }
+  
+  float r2 = rand(vec2(floor(time * ${speedMult.toFixed(2)} * 37.), id + 10.));
+  if (r2 > ${(0.95 - glitchIntensity * 0.05).toFixed(2)}) {
+    uvr.x += sin(uv.y * 7. + time * ${speedMult.toFixed(2)} + id + 1.) * ${(glitchIntensity * 0.1).toFixed(3)};
+    uvg.x += sin(uv.y * 5. + time * ${speedMult.toFixed(2)} + id + 2.) * ${(glitchIntensity * 0.1).toFixed(3)};
+    uvb.x += sin(uv.y * 3. + time * ${speedMult.toFixed(2)} + id + 3.) * ${(glitchIntensity * 0.1).toFixed(3)};
+  }
+  
+  vec4 cr = readTex(uvr);
+  vec4 cg = readTex(uvg);
+  vec4 cb = readTex(uvb);  
+  
+  outColor = vec4(cr.r, cg.g, cb.b, (cr.a + cg.a + cb.a) / 1.);
+}
+`
+}
+
+// Generate shader with props-controlled values
+function generateShader(props: {
+    intensity: number
+    scanlineIntensity: number
+    chromaticAberration: number
+    vignetteStrength: number
+    distortionAmount: number
+    noiseAmount: number
+    grain: number
+    speed: number
+}) {
+    // Map UI values (0-1) to shader ranges
+    // Reference values at 0.5: distortion=0.3, blur=0.3, aberration=0.05/0.0015, scanline=0.05, grid=0.1, vignette=1.8, noise=0.1, speed=1.0
+    
+    // Distortion: 0 = no distortion, 1 = max distortion (0.0 to 0.6, default 0.3 at 0.5)
+    const distAmount = mapLinear(props.distortionAmount, 0, 1, 0.0, 0.6)
+    
+    // Blur: subtle effect (0.0 to 0.6, default 0.3 at 0.5)
+    const blurAmount = mapLinear(props.distortionAmount, 0, 1, 0.0, 0.6)
+    
+    // Chromatic aberration: base amount (0.0 to 0.1, default 0.05 at 0.5), offset (0.0 to 0.003, default 0.0015 at 0.5)
+    const aberrationBase = mapLinear(props.chromaticAberration, 0, 1, 0.0, 0.1)
+    const aberrationOffset = mapLinear(props.chromaticAberration, 0, 1, 0.0, 0.003)
+    
+    // Scanline intensity: 0.0 to 0.1 (default 0.05 at 0.5)
+    const scanline = mapLinear(props.scanlineIntensity, 0, 1, 0.0, 0.1)
+    
+    // Grid intensity: 0.0 to 0.2 (default 0.1 at 0.5)
+    // Grid opacity will be affected by noise amount
+    const gridBase = mapLinear(props.scanlineIntensity, 0, 1, 0.0, 0.2)
+    
+    // Vignette: 2.2 to 1.4 (lower = stronger vignette, default 1.8 at 0.5)
+    const vignetteBase = mapLinear(props.vignetteStrength, 0, 1, 2.2, 1.4)
+    
+    // Noise/dither: 0.0 to 0.2 (default 0.1 at 0.5)
+    const noise = mapLinear(props.noiseAmount, 0, 1, 0.0, 0.2)
+    
+    // Grain: controls edge graininess falloff (0.0 = clean edges, 1.0 = grainy edges)
+    // Grain controls how aggressively we reduce effects at edges
+    // Low grain = more aggressive falloff = cleaner edges
+    // High grain = less aggressive falloff = grainier edges
+    const grainControl = props.grain // 0.0 to 1.0
+    
+    // Speed multiplier: affects time-based animations (0.3 to 1.7, default 1.0 at 0.5)
+    // Formula: 0.3 + (1.7 - 0.3) * speed = 0.3 + 1.4 * speed
+    // At 0.5: 0.3 + 0.7 = 1.0 ✓
+    const speedMult = mapLinear(props.speed, 0, 1, 0.3, 1.7)
+    
+    // Overall intensity: scales all effects (doesn't affect base values, just final output)
+    // Map intensity from 0-1 to 0.3-1.0 (default 0.65 at 0.5) for less intense default
+    const overallIntensity = mapLinear(props.intensity, 0, 1, 0.3, 1.0)
+
+    return `
 precision highp float;
 uniform sampler2D src;
 uniform vec2 offset;
@@ -81,27 +175,38 @@ void main() {
   p.x *= resolution.x / resolution.y;
   float l = length(p); 
    
-  // distort
-  float dist = pow(l, 2.) * .3;
+  // distort - controlled by distortionAmount
+  float dist = pow(l, 2.) * ${distAmount.toFixed(3)};
   dist = smoothstep(0., 1., dist);
   uv = zoom(uv, 0.5 + dist);  
     
-  // blur
+  // blur - also controlled by distortionAmount
+  // Reduce blur at edges - intensity controlled by grain
+  float blurFalloff = 1.0 - smoothstep(0.5, 0.9, l); // Start fading from 0.5, near-zero at 0.9+
+  float blurFalloffAggressive = blurFalloff * blurFalloff; // Quadratic falloff (clean)
+  // Mix between aggressive falloff (clean) and minimal falloff (grainy) based on grain
+  float blurReduction = mix(blurFalloffAggressive, blurFalloff * 0.3 + 0.7, ${grainControl.toFixed(2)}); // More reduction when grain=0, less when grain=1
   vec2 du = (uv - .5);
   float a = atan(p.y, p.x);
-  float rd = rand(vec3(a, time, 0));
-  uv = (uv - .5) * (1.0 + rd * pow(l * 0.7, 3.) * 0.3) + .5;
+  float rd = rand(vec3(a, time * ${speedMult.toFixed(2)}, 0));
+  uv = (uv - .5) * (1.0 + rd * pow(l * 0.7, 3.) * ${blurAmount.toFixed(3)} * blurReduction) + .5;
     
   vec2 uvr = uv;
   vec2 uvg = uv;
   vec2 uvb = uv;
     
-  // aberration
-  float d = (1. + sin(uv.y * 20. + time * 3.) * 0.1) * 0.05;
-  uvr.x += 0.0015;
-  uvb.x -= 0.0015;
-  uvr = zoom(uvr, 1. + d * l * l);
-  uvb = zoom(uvb, 1. - d * l * l);    
+  // aberration - controlled by chromaticAberration and speed
+  // Reduce aberration at edges - intensity controlled by grain
+  float edgeFalloff = 1.0 - smoothstep(0.5, 0.9, l); // Start fading from 0.5, near-zero at 0.9+
+  float aberrationFalloffAggressive = edgeFalloff * edgeFalloff; // Quadratic falloff (clean)
+  // Mix between aggressive falloff (clean) and minimal falloff (grainy) based on grain
+  float aberrationReduction = mix(aberrationFalloffAggressive, edgeFalloff * 0.3 + 0.7, ${grainControl.toFixed(2)}); // More reduction when grain=0, less when grain=1
+  float d = (1. + sin(uv.y * 20. + time * 3. * ${speedMult.toFixed(2)}) * 0.1) * ${aberrationBase.toFixed(3)} * aberrationReduction;
+  uvr.x += ${aberrationOffset.toFixed(4)} * aberrationReduction;
+  uvb.x -= ${aberrationOffset.toFixed(4)} * aberrationReduction;
+  // Use l instead of l*l to reduce edge amplification
+  uvr = zoom(uvr, 1. + d * l * 0.5);
+  uvb = zoom(uvb, 1. - d * l * 0.5);    
     
   vec4 cr = readTex(uvr);
   vec4 cg = readTex(uvg);
@@ -111,27 +216,70 @@ void main() {
 
   vec4 deco;
 
-  // scanline
+  // scanline - controlled by scanlineIntensity and speed
   float res = resolution.y;
   deco += (
-    sin(uv.y * res * .7 + time * 100.) *
-    sin(uv.y * res * .3 - time * 130.)
-  ) * 0.05;
+    sin(uv.y * res * .7 + time * 100. * ${speedMult.toFixed(2)}) *
+    sin(uv.y * res * .3 - time * 130. * ${speedMult.toFixed(2)})
+  ) * ${scanline.toFixed(3)};
 
-  // grid
-  deco += smoothstep(.01, .0, min(fract(uv.x * 20.), fract(uv.y * 20.))) * 0.1;
+  // grid - controlled by scanlineIntensity, opacity affected by noise
+  float gridOpacity = ${gridBase.toFixed(3)} * (0.3 + ${noise.toFixed(3)} * 3.5); // Map noise 0-0.2 to grid multiplier 0.3-1.0
+  deco += smoothstep(.01, .0, min(fract(uv.x * 20.), fract(uv.y * 20.))) * gridOpacity;
 
-  outColor += deco * smoothstep(2., 0., l);
+  // Slightly reduce scanlines/grid at extreme edges
+  float centerFalloff = 1.0 - smoothstep(0.9, 1.3, l) * 0.3; // Only reduce 30% at extreme edges
+  outColor += deco * centerFalloff;
   
-  // vignette
-  outColor *= 1.8 - l * l;  
+  // vignette - controlled by vignetteStrength
+  // Clamp to prevent going too dark and amplifying artifacts
+  float vignette = clamp(${vignetteBase.toFixed(2)} - l * l * 0.8, 0.1, 2.0);
+  outColor *= vignette;  
 
-  // dither
-  outColor += rand(vec3(p, time)) * 0.1;     
+  // dither/noise - controlled by noiseAmount
+  // Reduce noise at edges - intensity controlled by grain
+  // Start fading from 0.5, reduce to near-zero at edges (1.0+)
+  float noiseFalloff = 1.0 - smoothstep(0.5, 1.0, l);
+  float noiseFalloffAggressive = noiseFalloff * noiseFalloff; // Quadratic falloff (clean)
+  // Mix between aggressive falloff (clean) and minimal falloff (grainy) based on grain
+  float noiseReduction = mix(noiseFalloffAggressive, noiseFalloff * 0.3 + 0.7, ${grainControl.toFixed(2)}); // More reduction when grain=0, less when grain=1
+  outColor += rand(vec3(p, time * ${speedMult.toFixed(2)})) * ${noise.toFixed(3)} * noiseReduction;     
+  
+  // Apply overall intensity to final output (now mapped to 0.3-1.0 range)
+  outColor.rgb *= ${overallIntensity.toFixed(2)};
 }
 `
+}
 
-    // Create VFX once and apply gradient mask based on viewport intersection
+/**
+ * @framerSupportedLayoutWidth any-prefer-fixed
+ * @framerSupportedLayoutHeight any-prefer-fixed
+ * @framerIntrinsicWidth 800
+ * @framerIntrinsicHeight 600
+ * @framerDisableUnlink
+ */
+export default function CRTComponent(props: CRTComponentProps) {
+    const {
+        targetId = "",
+        targetElements = "p, img, h2, h1, h3",
+        intensity = 0.3,
+        scanlineIntensity = 0.3,
+        chromaticAberration = 0.3,
+        vignetteStrength = 0.4,
+        distortionAmount = 0.2,
+        noiseAmount = 0.3,
+        grain = 0.0,
+        speed = 0.5,
+    } = props
+
+    const vfxInstanceRef = useRef<{ dispose?: () => void } | null>(null)
+    const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const maskUpdateFrameRef = useRef<number | undefined>(undefined)
+    const findCanvasTimeoutRef = useRef<number | null>(null)
+    const isMountedRef = useRef(true)
+
+    // Create VFX and apply gradient mask based on viewport intersection
+    // Recreate when props change to update shader
     useEffect(() => {
         if (!targetId) return
 
@@ -141,17 +289,72 @@ void main() {
             return
         }
 
-        // Create VFX instance once (kept mounted)
+        // Generate shader with current prop values inside useEffect
+        const shader = generateShader({
+            intensity,
+            scanlineIntensity,
+            chromaticAberration,
+            vignetteStrength,
+            distortionAmount,
+            noiseAmount,
+            grain,
+            speed,
+        })
+
+        // Generate light shader for text elements (keeps them readable)
+        const textShader = generateTextShader({
+            chromaticAberration,
+            speed,
+        })
+
+        // Clean up previous instance aggressively
+        if (vfxInstanceRef.current) {
+            try {
+                vfxInstanceRef.current.dispose?.()
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+            vfxInstanceRef.current = null
+        }
+        
+        // Cancel any pending timeouts
+        if (findCanvasTimeoutRef.current) {
+            clearTimeout(findCanvasTimeoutRef.current)
+            findCanvasTimeoutRef.current = null
+        }
+        
+        // Cancel any pending animation frames
+        if (maskUpdateFrameRef.current) {
+            cancelAnimationFrame(maskUpdateFrameRef.current)
+            maskUpdateFrameRef.current = undefined
+        }
+        
+        // Remove any existing VFX canvases from previous instances
+        const existingCanvases = document.querySelectorAll('canvas[data-engine="three.js r177"]')
+        existingCanvases.forEach((canvas) => {
+            try {
+                canvas.remove()
+            } catch (e) {
+                // Ignore removal errors
+            }
+        })
+        
+        canvasRef.current = null
+        isMountedRef.current = true
+
+        // Create VFX instance with current shader for post effect
         const vfx = new VFX({
             scrollPadding: false,
             postEffect: { shader }
         })
 
-        // Also add elements inside target for distortion
-        const elementsToCapture = targetElement.querySelectorAll('*')
+        // Add text elements with light shader (like reference) - keeps text readable
+        const elementsToCapture = targetElement.querySelectorAll(targetElements)
+        let elementIndex = 0
         elementsToCapture.forEach((element) => {
             vfx.add(element as HTMLElement, {
-                shader: shader,
+                shader: textShader,
+                uniforms: { id: elementIndex++ },
             })
         })
 
@@ -159,13 +362,25 @@ void main() {
 
         // Find VFX canvas after it's created
         const findAndSetupCanvas = () => {
+            // Check if component is still mounted
+            if (!isMountedRef.current || !vfxInstanceRef.current) {
+                return
+            }
+            
             const canvas = document.querySelector('canvas[data-engine="three.js r177"]') as HTMLCanvasElement
-            if (canvas) {
+            if (canvas && canvasRef.current !== canvas) {
                 canvasRef.current = canvas
                 
                 // Function to update mask gradient based on viewport intersection
                 const updateMask = () => {
-                    if (!canvasRef.current || !targetElement) return
+                    if (!isMountedRef.current || !canvasRef.current || !targetElement || !vfxInstanceRef.current) {
+                        // Cancel animation if unmounted
+                        if (maskUpdateFrameRef.current) {
+                            cancelAnimationFrame(maskUpdateFrameRef.current)
+                            maskUpdateFrameRef.current = undefined
+                        }
+                        return
+                    }
 
                     const rect = targetElement.getBoundingClientRect()
                     const viewportHeight = window.innerHeight
@@ -223,27 +438,44 @@ void main() {
                 
                 // Update mask continuously
                 const animateMask = () => {
+                    if (!isMountedRef.current || !vfxInstanceRef.current) {
+                        return
+                    }
                     updateMask()
                     maskUpdateFrameRef.current = requestAnimationFrame(animateMask)
                 }
                 
                 animateMask()
-            } else {
-                // Retry if canvas not found yet
-                setTimeout(findAndSetupCanvas, 100)
+            } else if (!canvas && isMountedRef.current && vfxInstanceRef.current) {
+                // Retry if canvas not found yet (max 10 retries to prevent infinite loops)
+                const retryCount = (findAndSetupCanvas as { retryCount?: number }).retryCount || 0
+                if (retryCount < 10) {
+                    (findAndSetupCanvas as { retryCount?: number }).retryCount = retryCount + 1
+                    findCanvasTimeoutRef.current = window.setTimeout(findAndSetupCanvas, 100) as unknown as number
+                }
             }
         }
         
         // Wait a bit for VFX to create canvas
-        setTimeout(findAndSetupCanvas, 100)
+        findCanvasTimeoutRef.current = window.setTimeout(findAndSetupCanvas, 100) as unknown as number
 
         return () => {
+            // Mark as unmounted first
+            isMountedRef.current = false
+            
+            // Cancel any pending timeouts
+            if (findCanvasTimeoutRef.current) {
+                clearTimeout(findCanvasTimeoutRef.current)
+                findCanvasTimeoutRef.current = null
+            }
+            
             // Cancel mask animation
             if (maskUpdateFrameRef.current) {
                 cancelAnimationFrame(maskUpdateFrameRef.current)
+                maskUpdateFrameRef.current = undefined
             }
             
-            // Clean up VFX
+            // Clean up VFX instance aggressively
             if (vfxInstanceRef.current) {
                 try {
                     vfxInstanceRef.current.dispose?.()
@@ -253,9 +485,19 @@ void main() {
                 vfxInstanceRef.current = null
             }
             
+            // Remove all VFX canvases to prevent accumulation
+            const canvases = document.querySelectorAll('canvas[data-engine="three.js r177"]')
+            canvases.forEach((canvas) => {
+                try {
+                    canvas.remove()
+                } catch (e) {
+                    // Ignore removal errors
+                }
+            })
+            
             canvasRef.current = null
         }
-    }, [targetId, shader])
+    }, [targetId, intensity, scanlineIntensity, chromaticAberration, vignetteStrength, distortionAmount, noiseAmount, grain, speed])
 
     // Return invisible placeholder - effect is managed by VFX
     return (
@@ -274,56 +516,56 @@ void main() {
 addPropertyControls(CRTComponent, {
     targetId: {
         type: ControlType.String,
-        title: "Target ID",
+        title: "Container",
         defaultValue: "",
-        placeholder: "scroll-section",
-        description: "ID of the scroll section to apply CRT effect to",
+        placeholder: "Scroll Section",
+        description: "Scroll section to apply CRT effect to",
     },
-    preview: {
-        type: ControlType.Boolean,
-        title: "Preview",
-        defaultValue: false,
-        enabledTitle: "On",
-        disabledTitle: "Off",
+    targetElements: {
+        type: ControlType.String,
+        title: "Tags",
+        defaultValue: "p, img, h2, h1, h3",
+        placeholder: "p, img, h2, h1, h3",
+        description: "Tags of the elements to distort. Avoid using DIVs",
     },
     intensity: {
         type: ControlType.Number,
-        title: "Intensity",
+        title: "Brightness",
         min: 0,
         max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
+        step: 0.01,
+        defaultValue: 0.8,
     },
     scanlineIntensity: {
         type: ControlType.Number,
         title: "Scanlines",
         min: 0,
         max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
+        step: 0.01,
+        defaultValue: 0.2,
     },
     chromaticAberration: {
         type: ControlType.Number,
-        title: "Chromatic Aberration",
+        title: "Aberration",
         min: 0,
         max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
+        step: 0.01,
+        defaultValue: 0.3,
     },
     vignetteStrength: {
         type: ControlType.Number,
         title: "Vignette",
         min: 0,
         max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
+        step: 0.01,
+        defaultValue: 0.8,
     },
     distortionAmount: {
         type: ControlType.Number,
         title: "Distortion",
         min: 0,
         max: 1,
-        step: 0.1,
+        step: 0.01,
         defaultValue: 0.5,
     },
     noiseAmount: {
@@ -331,8 +573,16 @@ addPropertyControls(CRTComponent, {
         title: "Noise",
         min: 0,
         max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
+        step: 0.01,
+        defaultValue: 0.2,
+    },
+    grain: {
+        type: ControlType.Number,
+        title: "Grain",
+        min: 0,
+        max: 1,
+        step: 0.01,
+        defaultValue: 0.6,
     },
     speed: {
         type: ControlType.Number,
@@ -341,6 +591,7 @@ addPropertyControls(CRTComponent, {
         max: 1,
         step: 0.1,
         defaultValue: 0.5,
+        description: "More componenets at [Framer University](https://frameruni.link/cc)."
     },
 })
 
