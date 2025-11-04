@@ -84,6 +84,8 @@ interface ExplodingTapProps {
         value?: number
         animate?: boolean
     }
+    speed?: number
+    randomness?: number
     preview?: boolean
     style?: React.CSSProperties
 }
@@ -128,6 +130,8 @@ export default function ExplodingTap({
         value: 0,
         animate: false,
     },
+    speed = 1,
+    randomness = 1,
     preview = false,
     style,
 }: ExplodingTapProps) {
@@ -250,8 +254,8 @@ export default function ExplodingTap({
                       ? 0.4
                       : 0
             const baseVx = mapLinear(horizontalValue, -1, 1, -800, 800)
-            const spreadVx = mapLinear(1, 0, 1, 0, 300) // Hard-coded to 1 (maximum spread)
-            const vx = baseVx + (randRef.current() * 2 - 1) * spreadVx
+            const spreadVx = mapLinear(randomness, 0, 1, 0, 300) // Controlled by randomness prop
+            const vx = (baseVx + (randRef.current() * 2 - 1) * spreadVx) * speed
 
             // Vertical: top = -0.7, center = 0, bottom = +0.7
             const verticalValue =
@@ -261,8 +265,8 @@ export default function ExplodingTap({
                       ? 0.7
                       : 0
             const baseVy = mapLinear(verticalValue, -1, 1, -800, 800)
-            const spreadVy = mapLinear(1, 0, 1, 0, 300) // Hard-coded to 1 (maximum spread)
-            const vy = baseVy + (randRef.current() * 2 - 1) * spreadVy
+            const spreadVy = mapLinear(randomness, 0, 1, 0, 300) // Controlled by randomness prop
+            const vy = (baseVy + (randRef.current() * 2 - 1) * spreadVy) * speed
 
             particleIdCounter.current += 1
 
@@ -511,6 +515,8 @@ export default function ExplodingTap({
         mode,
         itemWidth,
         itemHeight,
+        speed,
+        randomness,
     ])
 
     // Preview mode: automatically spawn particles in canvas mode
@@ -561,6 +567,8 @@ export default function ExplodingTap({
         itemHeight,
         content,
         actualContent,
+        speed,
+        randomness,
     ])
 
     // Cleanup: Remove all particles instantly when preview is turned off in canvas mode
@@ -819,44 +827,6 @@ addPropertyControls(ExplodingTap, {
         step: 1,
         defaultValue: 1,
     },
-    direction: {
-        type: ControlType.Object,
-        title: "Direction",
-        controls: {
-            horizontal: {
-                type: ControlType.Enum,
-                title: "Horizontal",
-                options: ["left", "center", "right"],
-                optionTitles: ["<-", "•", "->"],
-                defaultValue: "left",
-                displaySegmentedControl: true,
-            },
-            vertical: {
-                type: ControlType.Enum,
-                title: "Vertical",
-                options: ["top", "center", "bottom"],
-                optionTitles: ["↑", "•", "↓"],
-                defaultValue: "top",
-                displaySegmentedControl: true,
-            },
-        },
-    },
-    duration: {
-        type: ControlType.Number,
-        title: "Duration",
-        min: 0.2,
-        max: 10,
-        step: 0.1,
-        defaultValue: 3,
-    },
-    gravity: {
-        type: ControlType.Number,
-        title: "Gravity",
-        min: -1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.7,
-    },
     scale: {
         type: ControlType.Object,
         title: "Scale",
@@ -889,8 +859,6 @@ addPropertyControls(ExplodingTap, {
     rotation: {
         type: ControlType.Object,
         title: "Rotation",
-        description:
-        "More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             value: {
                 type: ControlType.Number,
@@ -907,6 +875,62 @@ addPropertyControls(ExplodingTap, {
                 defaultValue: false,
             },
         },
+    },
+    direction: {
+        type: ControlType.Object,
+        title: "Direction",
+        controls: {
+            horizontal: {
+                type: ControlType.Enum,
+                title: "Horizontal",
+                options: ["left", "center", "right"],
+                optionTitles: ["<-", "•", "->"],
+                defaultValue: "left",
+                displaySegmentedControl: true,
+            },
+            vertical: {
+                type: ControlType.Enum,
+                title: "Vertical",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["↑", "•", "↓"],
+                defaultValue: "top",
+                displaySegmentedControl: true,
+            },
+        },
+    },
+    speed: {
+        type: ControlType.Number,
+        title: "Speed",
+        min: 0.1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 1,
+    },
+    randomness: {
+        type: ControlType.Number,
+        title: "Randomness",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        defaultValue: 1,
+    },
+    gravity: {
+        type: ControlType.Number,
+        title: "Gravity",
+        min: -1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.7,
+    },
+    duration: {
+        type: ControlType.Number,
+        title: "Duration",
+        min: 0.2,
+        max: 10,
+        step: 0.1,
+        defaultValue: 3,
+        description:
+        "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 

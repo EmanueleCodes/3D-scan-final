@@ -848,44 +848,6 @@ addPropertyControls(ExplodingInput, {
         step: 1,
         defaultValue: 1,
     },
-    direction: {
-        type: ControlType.Object,
-        title: "Direction",
-        controls: {
-            horizontal: {
-                type: ControlType.Enum,
-                title: "Horizontal",
-                options: ["left", "center", "right"],
-                optionTitles: ["<-", "•", "->"],
-                defaultValue: "left",
-                displaySegmentedControl: true,
-            },
-            vertical: {
-                type: ControlType.Enum,
-                title: "Vertical",
-                options: ["top", "center", "bottom"],
-                optionTitles: ["↑", "•", "↓"],
-                defaultValue: "top",
-                displaySegmentedControl: true,
-            },
-        },
-    },
-    duration: {
-        type: ControlType.Number,
-        title: "Duration",
-        min: 0.2,
-        max: 10,
-        step: 0.1,
-        defaultValue: 3,
-    },
-    gravity: {
-        type: ControlType.Number,
-        title: "Gravity",
-        min: -1,
-        max: 1,
-        step: 0.05,
-        defaultValue: 0.7,
-    },
     scale: {
         type: ControlType.Object,
         title: "Scale",
@@ -918,8 +880,6 @@ addPropertyControls(ExplodingInput, {
     rotation: {
         type: ControlType.Object,
         title: "Rotation",
-        description:
-        "More components at [Framer University](https://frameruni.link/cc).",
         controls: {
             value: {
                 type: ControlType.Number,
@@ -936,6 +896,46 @@ addPropertyControls(ExplodingInput, {
                 defaultValue: false,
             },
         },
+    },
+    direction: {
+        type: ControlType.Object,
+        title: "Direction",
+        controls: {
+            horizontal: {
+                type: ControlType.Enum,
+                title: "Horizontal",
+                options: ["left", "center", "right"],
+                optionTitles: ["<-", "•", "->"],
+                defaultValue: "left",
+                displaySegmentedControl: true,
+            },
+            vertical: {
+                type: ControlType.Enum,
+                title: "Vertical",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["↑", "•", "↓"],
+                defaultValue: "top",
+                displaySegmentedControl: true,
+            },
+        },
+    },
+    gravity: {
+        type: ControlType.Number,
+        title: "Gravity",
+        min: -1,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.7,
+    },
+    duration: {
+        type: ControlType.Number,
+        title: "Duration",
+        min: 0.2,
+        max: 10,
+        step: 0.1,
+        defaultValue: 3,
+        description:
+        "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 
