@@ -404,23 +404,12 @@ export function withStepVariant<T extends OverrideProps>(
 }
 
 // 7. withGatedContent - Apply to MAIN COMPONENT for gated flow (Step 1 → Step 2 → Step 3)
-// ONLY sets flowType to "gated" - NO INITIALIZATION
+// READ ONLY - Just applies the current variant from the store
 export function withGatedContent<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
     return (props: T) => {
-        const [variantStore, setVariantStore] = useVariantStore()
-
-        // Set flowType to "gated" once Orchestrator has initialized
-        useEffect(() => {
-            if (variantStore.isInitialized && variantStore.flowType !== "gated") {
-                console.log("🔵 [GATED CONTENT] Setting flowType to 'gated'")
-                setVariantStore({
-                    ...variantStore,
-                    flowType: "gated",
-                })
-            }
-        }, [variantStore.isInitialized, variantStore.flowType, setVariantStore])
+        const [variantStore] = useVariantStore()
 
         // Map step number to variant name
         const variantMap: Record<number, string> = {
@@ -430,7 +419,7 @@ export function withGatedContent<T extends OverrideProps>(
         }
 
         const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        console.log(`🔵 [GATED] Step ${variantStore.currentStep} → Variant: "${targetVariant}"`)
+        console.log(`🔵 [GATED] Store Step ${variantStore.currentStep} → Applying variant: "${targetVariant}"`)
 
         return (
             <Component
@@ -442,23 +431,12 @@ export function withGatedContent<T extends OverrideProps>(
 }
 
 // 8. withNonGatedContent - Apply to MAIN COMPONENT for non-gated flow (Step 1 → Step 3)
-// ONLY sets flowType to "nonGated" - NO INITIALIZATION
+// READ ONLY - Just applies the current variant from the store
 export function withNonGatedContent<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
     return (props: T) => {
-        const [variantStore, setVariantStore] = useVariantStore()
-
-        // Set flowType to "nonGated" once Orchestrator has initialized
-        useEffect(() => {
-            if (variantStore.isInitialized && variantStore.flowType !== "nonGated") {
-                console.log("🔴 [NON-GATED CONTENT] Setting flowType to 'nonGated'")
-                setVariantStore({
-                    ...variantStore,
-                    flowType: "nonGated",
-                })
-            }
-        }, [variantStore.isInitialized, variantStore.flowType, setVariantStore])
+        const [variantStore] = useVariantStore()
 
         // Map step number to variant name
         const variantMap: Record<number, string> = {
@@ -468,7 +446,7 @@ export function withNonGatedContent<T extends OverrideProps>(
         }
 
         const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        console.log(`🔴 [NON-GATED] Step ${variantStore.currentStep} → Variant: "${targetVariant}"`)
+        console.log(`🔴 [NON-GATED] Store Step ${variantStore.currentStep} → Applying variant: "${targetVariant}"`)
 
         return (
             <Component
@@ -531,6 +509,29 @@ export function withStepButton<T extends OverrideProps>(
                 onClick={handleClick}
             />
         )
+    }
+}
+
+// 10. withStep3Indicator - Apply to the FINAL CTA BUTTON (visible only on Step 3)
+// When this button mounts, it tells the store we're at Step 3
+export function withStep3Indicator<T extends OverrideProps>(
+    Component: ComponentType<T>
+): ComponentType<T> {
+    return (props: T) => {
+        const [variantStore, setVariantStore] = useVariantStore()
+
+        useEffect(() => {
+            // When this component mounts, we're at Step 3
+            if (variantStore.currentStep !== 3) {
+                console.log("🎯 [STEP 3 INDICATOR] Final CTA mounted → Setting store to Step 3")
+                setVariantStore({
+                    ...variantStore,
+                    currentStep: 3,
+                })
+            }
+        }, []) // Empty deps - runs once on mount
+
+        return <Component {...props} />
     }
 }
 
