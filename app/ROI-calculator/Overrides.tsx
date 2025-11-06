@@ -65,6 +65,18 @@ export function withGMV<T extends OverrideProps>(
         const [store, setStore] = useFormStore()
         const [localValue, setLocalValue] = useState("")
 
+        // Initialize input value from store on mount
+        useEffect(() => {
+            const input = document.querySelector(
+                'input[name="MerchantGMV"]'
+            ) as HTMLInputElement
+            
+            if (input && store.merchantGMV > 0) {
+                input.value = String(store.merchantGMV)
+                console.log("💰 [GMV] Initialized input from store:", store.merchantGMV)
+            }
+        }, []) // Empty deps - run once on mount
+
         useEffect(() => {
             const interval = setInterval(() => {
                 const input = document.querySelector(
@@ -102,6 +114,18 @@ export function withAOV<T extends OverrideProps>(
         const [store, setStore] = useFormStore()
         const [localValue, setLocalValue] = useState("")
 
+        // Initialize input value from store on mount
+        useEffect(() => {
+            const input = document.querySelector(
+                'input[name="AOV"]'
+            ) as HTMLInputElement
+            
+            if (input && store.averageOrderValue > 0) {
+                input.value = String(store.averageOrderValue)
+                console.log("🛒 [AOV] Initialized input from store:", store.averageOrderValue)
+            }
+        }, []) // Empty deps - run once on mount
+
         useEffect(() => {
             const interval = setInterval(() => {
                 const input = document.querySelector(
@@ -138,6 +162,20 @@ export function withLMN<T extends OverrideProps>(
     return (props: T) => {
         const [store, setStore] = useFormStore()
         const [localValue, setLocalValue] = useState("")
+
+        // Initialize input value from store on mount
+        useEffect(() => {
+            const input = document.querySelector(
+                'input[name="LMN"]'
+            ) as HTMLInputElement
+            
+            if (input && store.lmnAttachRate > 0) {
+                // Convert decimal to percentage (e.g., 0.12 -> 12)
+                const percentageValue = store.lmnAttachRate * 100
+                input.value = String(percentageValue)
+                console.log("📊 [LMN] Initialized input from store:", percentageValue + "%")
+            }
+        }, []) // Empty deps - run once on mount
 
         useEffect(() => {
             const interval = setInterval(() => {
