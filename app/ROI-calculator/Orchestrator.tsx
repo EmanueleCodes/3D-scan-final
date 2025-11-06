@@ -71,7 +71,7 @@ export default function Orchestrator({ flowType = "gated" }: { flowType?: "gated
             },
         })
 
-        // Clear all form inputs
+        // Clear all form inputs in store
         setFormStore({
             merchantGMV: 0,
             averageOrderValue: 0,
@@ -79,6 +79,44 @@ export default function Orchestrator({ flowType = "gated" }: { flowType?: "gated
             transactionVolume: 0,
             isFormValid: false,
         })
+
+        // Clear DOM inputs - wait for them to be available
+        const clearInputs = () => {
+            const gmvInput = document.querySelector('input[name="MerchantGMV"]') as HTMLInputElement
+            const aovInput = document.querySelector('input[name="AOV"]') as HTMLInputElement
+            const lmnInput = document.querySelector('input[name="LMN"]') as HTMLInputElement
+            const txnInput = document.querySelector('input[name="TransactionVolume"]') as HTMLInputElement
+
+            let clearedCount = 0
+
+            if (gmvInput) {
+                gmvInput.value = ""
+                console.log("🧹 [ORCHESTRATOR] Cleared GMV input")
+                clearedCount++
+            }
+            if (aovInput) {
+                aovInput.value = ""
+                console.log("🧹 [ORCHESTRATOR] Cleared AOV input")
+                clearedCount++
+            }
+            if (lmnInput) {
+                lmnInput.value = ""
+                console.log("🧹 [ORCHESTRATOR] Cleared LMN input")
+                clearedCount++
+            }
+            if (txnInput) {
+                txnInput.value = "0"
+                console.log("🧹 [ORCHESTRATOR] Cleared Transaction Volume input")
+                clearedCount++
+            }
+
+            console.log(`🧹 [ORCHESTRATOR] Cleared ${clearedCount}/4 inputs`)
+        }
+
+        // Try multiple times to clear inputs (in case they mount later)
+        clearInputs() // Immediate
+        setTimeout(clearInputs, 100) // After 100ms
+        setTimeout(clearInputs, 500) // After 500ms
 
         console.log(`✅ [ORCHESTRATOR] Mount #${currentMount} initialization complete - Step 1, flowType: ${flowType}`)
         

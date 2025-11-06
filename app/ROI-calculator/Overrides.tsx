@@ -442,12 +442,23 @@ export function withStepVariant<T extends OverrideProps>(
 }
 
 // 7. withGatedContent - Apply to MAIN COMPONENT for gated flow (Step 1 → Step 2 → Step 3)
-// READ ONLY - Just applies the current variant from the store
+// Sets flowType to "gated" immediately on mount, then applies variant from store
 export function withGatedContent<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
     return (props: T) => {
-        const [variantStore] = useVariantStore()
+        const [variantStore, setVariantStore] = useVariantStore()
+
+        // ALWAYS force flowType to "gated" on every render until it sticks
+        useEffect(() => {
+            if (variantStore.flowType !== "gated") {
+                console.log(`🔵 [GATED CONTENT] Changing flowType from "${variantStore.flowType}" to "gated"`)
+                setVariantStore({
+                    ...variantStore,
+                    flowType: "gated",
+                })
+            }
+        }, [variantStore.flowType]) // Only depend on flowType
 
         // Map step number to variant name
         const variantMap: Record<number, string> = {
@@ -457,7 +468,7 @@ export function withGatedContent<T extends OverrideProps>(
         }
 
         const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        console.log(`🔵 [GATED] Store Step ${variantStore.currentStep} → Applying variant: "${targetVariant}"`)
+        console.log(`🔵 [GATED] FlowType: ${variantStore.flowType}, Step ${variantStore.currentStep} → Variant: "${targetVariant}"`)
 
         return (
             <Component
@@ -469,12 +480,23 @@ export function withGatedContent<T extends OverrideProps>(
 }
 
 // 8. withNonGatedContent - Apply to MAIN COMPONENT for non-gated flow (Step 1 → Step 3)
-// READ ONLY - Just applies the current variant from the store
+// Sets flowType to "nonGated" immediately on mount, then applies variant from store
 export function withNonGatedContent<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
     return (props: T) => {
-        const [variantStore] = useVariantStore()
+        const [variantStore, setVariantStore] = useVariantStore()
+
+        // ALWAYS force flowType to "nonGated" on every render until it sticks
+        useEffect(() => {
+            if (variantStore.flowType !== "nonGated") {
+                console.log(`🔴 [NON-GATED CONTENT] Changing flowType from "${variantStore.flowType}" to "nonGated"`)
+                setVariantStore({
+                    ...variantStore,
+                    flowType: "nonGated",
+                })
+            }
+        }, [variantStore.flowType]) // Only depend on flowType
 
         // Map step number to variant name
         const variantMap: Record<number, string> = {
@@ -484,7 +506,7 @@ export function withNonGatedContent<T extends OverrideProps>(
         }
 
         const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        console.log(`🔴 [NON-GATED] Store Step ${variantStore.currentStep} → Applying variant: "${targetVariant}"`)
+        console.log(`🔴 [NON-GATED] FlowType: ${variantStore.flowType}, Step ${variantStore.currentStep} → Variant: "${targetVariant}"`)
 
         return (
             <Component
