@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { createStore } from "https://framer.com/m/framer/store.js@^1.0.0"
 
 // ============================================
@@ -49,17 +49,10 @@ export const useVariantStore = createStore({
  * They should NEVER modify stores themselves - they are READ ONLY.
  */
 export default function Orchestrator({ flowType = "gated" }: { flowType?: "gated" | "nonGated" }) {
-    const [variantStore, setVariantStore] = useVariantStore()
-    const [formStore, setFormStore] = useFormStore()
-    const [mountCount, setMountCount] = useState(0)
+    const [, setVariantStore] = useVariantStore()
+    const [, setFormStore] = useFormStore()
 
-    // Track mounts (initialization)
     useEffect(() => {
-        setMountCount(prev => prev + 1)
-        const currentMount = mountCount + 1
-        console.log(`🎼 [ORCHESTRATOR] MOUNT #${currentMount} - Initializing stores to Step 1 (${flowType})`)
-
-        // Always reset to Step 1 on mount (page reload)
         setVariantStore({
             currentStep: 1,
             flowType: flowType,
@@ -71,7 +64,6 @@ export default function Orchestrator({ flowType = "gated" }: { flowType?: "gated
             },
         })
 
-        // Clear all form inputs in store
         setFormStore({
             merchantGMV: 0,
             averageOrderValue: 0,
@@ -80,81 +72,27 @@ export default function Orchestrator({ flowType = "gated" }: { flowType?: "gated
             isFormValid: false,
         })
 
-        // Clear DOM inputs - wait for them to be available
         const clearInputs = () => {
             const gmvInput = document.querySelector('input[name="MerchantGMV"]') as HTMLInputElement
             const aovInput = document.querySelector('input[name="AOV"]') as HTMLInputElement
             const lmnInput = document.querySelector('input[name="LMN"]') as HTMLInputElement
             const txnInput = document.querySelector('input[name="TransactionVolume"]') as HTMLInputElement
 
-            let clearedCount = 0
-
-            if (gmvInput) {
-                gmvInput.value = ""
-                console.log("🧹 [ORCHESTRATOR] Cleared GMV input")
-                clearedCount++
-            }
-            if (aovInput) {
-                aovInput.value = ""
-                console.log("🧹 [ORCHESTRATOR] Cleared AOV input")
-                clearedCount++
-            }
-            if (lmnInput) {
-                lmnInput.value = ""
-                console.log("🧹 [ORCHESTRATOR] Cleared LMN input")
-                clearedCount++
-            }
-            if (txnInput) {
-                txnInput.value = "0"
-                console.log("🧹 [ORCHESTRATOR] Cleared Transaction Volume input")
-                clearedCount++
-            }
-
-            console.log(`🧹 [ORCHESTRATOR] Cleared ${clearedCount}/4 inputs`)
+            if (gmvInput) gmvInput.value = ""
+            if (aovInput) aovInput.value = ""
+            if (lmnInput) lmnInput.value = ""
+            if (txnInput) txnInput.value = "0"
         }
 
-        // Try multiple times to clear inputs (in case they mount later)
-        clearInputs() // Immediate
-        setTimeout(clearInputs, 100) // After 100ms
-        setTimeout(clearInputs, 500) // After 500ms
+        clearInputs()
+        const timeout100 = setTimeout(clearInputs, 100)
+        const timeout500 = setTimeout(clearInputs, 500)
 
-        console.log(`✅ [ORCHESTRATOR] Mount #${currentMount} initialization complete - Step 1, flowType: ${flowType}`)
-        
         return () => {
-            console.log(`🔴 [ORCHESTRATOR] UNMOUNT detected! This should NEVER happen!`)
+            clearTimeout(timeout100)
+            clearTimeout(timeout500)
         }
-    }, []) // Empty deps - runs once on mount (flowType doesn't change after mount)
+    }, [flowType, setVariantStore, setFormStore])
 
-    // Debug panel
-    return (
-        <div style={{
-            position: "fixed",
-            top: "10px",
-            right: "10px",
-            background: "rgba(0, 0, 0, 0.9)",
-            color: "white",
-            padding: "12px",
-            borderRadius: "8px",
-            fontSize: "12px",
-            fontFamily: "monospace",
-            zIndex: 999999,
-            minWidth: "250px",
-            border: "2px solid #00ff00"
-        }}>
-            <div style={{ fontWeight: "bold", marginBottom: "8px", color: "#00ff00" }}>
-                🎼 Orchestrator Debug
-            </div>
-            <div>Mounts: <strong>{mountCount}</strong> {mountCount > 1 && <span style={{color: "red"}}>⚠️</span>}</div>
-            <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid #333" }}>
-                <div>Current Step: <strong style={{ color: "#00ff00" }}>{variantStore.currentStep}</strong></div>
-                <div>Flow Type: <strong style={{ color: "#00ffff" }}>{variantStore.flowType}</strong></div>
-                <div>Initialized: <strong>{variantStore.isInitialized ? "✅" : "❌"}</strong></div>
-            </div>
-            <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid #333" }}>
-                <div>GMV: ${formStore.merchantGMV.toLocaleString()}</div>
-                <div>AOV: ${formStore.averageOrderValue.toLocaleString()}</div>
-                <div>LMN: {(formStore.lmnAttachRate * 100).toFixed(0)}%</div>
-            </div>
-        </div>
-    )
+    return <div></div>
 }

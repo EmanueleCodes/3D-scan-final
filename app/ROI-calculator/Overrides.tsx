@@ -73,7 +73,6 @@ export function withGMV<T extends OverrideProps>(
             
             if (input && store.merchantGMV > 0) {
                 input.value = String(store.merchantGMV)
-                console.log("💰 [GMV] Initialized input from store:", store.merchantGMV)
             }
         }, []) // Empty deps - run once on mount
 
@@ -86,11 +85,6 @@ export function withGMV<T extends OverrideProps>(
                 if (input && input.value !== localValue) {
                     setLocalValue(input.value)
                     const parsedValue = parseInputValue(input.value)
-                    
-                    console.log("💰 withGMV - Reading GMV:", {
-                        rawValue: input.value,
-                        parsedValue,
-                    })
                     
                     setStore({
                         ...store,
@@ -122,7 +116,6 @@ export function withAOV<T extends OverrideProps>(
             
             if (input && store.averageOrderValue > 0) {
                 input.value = String(store.averageOrderValue)
-                console.log("🛒 [AOV] Initialized input from store:", store.averageOrderValue)
             }
         }, []) // Empty deps - run once on mount
 
@@ -135,11 +128,6 @@ export function withAOV<T extends OverrideProps>(
                 if (input && input.value !== localValue) {
                     setLocalValue(input.value)
                     const parsedValue = parseInputValue(input.value)
-                    
-                    console.log("🛒 withAOV - Reading AOV:", {
-                        rawValue: input.value,
-                        parsedValue,
-                    })
                     
                     setStore({
                         ...store,
@@ -170,10 +158,8 @@ export function withLMN<T extends OverrideProps>(
             ) as HTMLInputElement
             
             if (input && store.lmnAttachRate > 0) {
-                // Convert decimal to percentage (e.g., 0.12 -> 12)
                 const percentageValue = store.lmnAttachRate * 100
                 input.value = String(percentageValue)
-                console.log("📊 [LMN] Initialized input from store:", percentageValue + "%")
             }
         }, []) // Empty deps - run once on mount
 
@@ -221,43 +207,22 @@ export function withTransactionVolume<T extends OverrideProps>(
             
             if (input) {
                 input.value = "0"
-                console.log("📝 Initialized TransactionVolume input to 0")
             }
         }, [])
 
         useEffect(() => {
             const { merchantGMV, averageOrderValue } = store
 
-            console.log("🔢 withTransactionVolume - Store values:", {
-                merchantGMV,
-                averageOrderValue,
-                currentTransactionVolume: store.transactionVolume,
-            })
-
             // Calculate Transaction Volume (keep up to 2 decimal places)
             let transactionVolume = 0
             if (averageOrderValue > 0) {
                 transactionVolume = merchantGMV / averageOrderValue
-                console.log("✅ Calculation valid:", {
-                    merchantGMV,
-                    averageOrderValue,
-                    transactionVolume,
-                    calculation: `${merchantGMV} / ${averageOrderValue} = ${transactionVolume}`,
-                })
-            } else {
-                console.log("❌ Calculation skipped - AOV is 0 or invalid:", averageOrderValue)
             }
 
             // Update store with calculated value (only if significantly changed to avoid loops)
             const difference = Math.abs(store.transactionVolume - transactionVolume)
-            console.log("📊 Difference check:", {
-                difference,
-                threshold: 0.01,
-                willUpdate: difference > 0.01,
-            })
 
             if (difference > 0.01) {
-                console.log("🔄 Updating store with new transaction volume:", transactionVolume)
                 setStore({
                     ...store,
                     transactionVolume,
@@ -269,7 +234,6 @@ export function withTransactionVolume<T extends OverrideProps>(
                 ? formatNumber(transactionVolume) 
                 : "0"
             
-            console.log("🎨 Formatted value:", formatted)
             setDisplayValue(formatted)
 
             // Also update the input field if it exists
@@ -283,7 +247,6 @@ export function withTransactionVolume<T extends OverrideProps>(
                     ? transactionVolume.toFixed(2)
                     : "0"
                 input.value = unformatted
-                console.log("📝 Updated TransactionVolume input:", unformatted)
             }
         }, [store.merchantGMV, store.averageOrderValue, store.transactionVolume, setStore])
 
@@ -430,8 +393,6 @@ export function withStepVariant<T extends OverrideProps>(
         }
 
         const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        console.log(`🎭 [STEP VARIANT] Current step: ${variantStore.currentStep} → Applying variant: "${targetVariant}"`)
-
         return (
             <Component
                 {...props}
@@ -452,7 +413,6 @@ export function withGatedContent<T extends OverrideProps>(
         // ALWAYS force flowType to "gated" on every render until it sticks
         useEffect(() => {
             if (variantStore.flowType !== "gated") {
-                console.log(`🔵 [GATED CONTENT] Changing flowType from "${variantStore.flowType}" to "gated"`)
                 setVariantStore({
                     ...variantStore,
                     flowType: "gated",
@@ -468,8 +428,6 @@ export function withGatedContent<T extends OverrideProps>(
         }
 
         const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        console.log(`🔵 [GATED] FlowType: ${variantStore.flowType}, Step ${variantStore.currentStep} → Variant: "${targetVariant}"`)
-
         return (
             <Component
                 {...props}
@@ -490,7 +448,6 @@ export function withNonGatedContent<T extends OverrideProps>(
         // ALWAYS force flowType to "nonGated" on every render until it sticks
         useEffect(() => {
             if (variantStore.flowType !== "nonGated") {
-                console.log(`🔴 [NON-GATED CONTENT] Changing flowType from "${variantStore.flowType}" to "nonGated"`)
                 setVariantStore({
                     ...variantStore,
                     flowType: "nonGated",
@@ -506,8 +463,6 @@ export function withNonGatedContent<T extends OverrideProps>(
         }
 
         const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        console.log(`🔴 [NON-GATED] FlowType: ${variantStore.flowType}, Step ${variantStore.currentStep} → Variant: "${targetVariant}"`)
-
         return (
             <Component
                 {...props}
@@ -528,11 +483,8 @@ export function withStepButton<T extends OverrideProps>(
         const [variantStore, setVariantStore] = useVariantStore()
 
         const handleClick = () => {
-            console.log(`📍 [BUTTON] Clicked at Step ${variantStore.currentStep} (${variantStore.flowType})`)
-
             // ONLY handle clicks when on Step 1
             if (variantStore.currentStep !== 1) {
-                console.log("⚠️ [BUTTON] Not on Step 1, ignoring click")
                 return
             }
 
@@ -544,13 +496,11 @@ export function withStepButton<T extends OverrideProps>(
             const hasErrors = Object.values(errors).some(Boolean)
 
             if (hasErrors) {
-                console.log("❌ [BUTTON] Validation failed - showing errors")
                 displayErrorMessages(errors)
             } else {
                 // Determine next step based on flow type
                 const nextStep = variantStore.flowType === "gated" ? 2 : 3
 
-                console.log(`✅ [BUTTON] Advancing: Step 1 → Step ${nextStep} (${variantStore.flowType})`)
                 setVariantStore({
                     ...variantStore,
                     currentStep: nextStep,
@@ -583,7 +533,6 @@ export function withStep3Indicator<T extends OverrideProps>(
         useEffect(() => {
             // When this component mounts, we're at Step 3
             if (variantStore.currentStep !== 3) {
-                console.log("🎯 [STEP 3 INDICATOR] Final CTA mounted → Setting store to Step 3")
                 setVariantStore({
                     ...variantStore,
                     currentStep: 3,
@@ -624,10 +573,7 @@ function addErrorMessage(inputName: string, message: string): void {
         `input[name="${inputName}"]`
     ) as HTMLInputElement
 
-    if (!input) {
-        console.warn(`⚠️ Input with name "${inputName}" not found`)
-        return
-    }
+    if (!input) return
 
     // Create error message element
     const errorEl = document.createElement("div")
@@ -650,5 +596,4 @@ function addErrorMessage(inputName: string, message: string): void {
 
     // Insert after input in the DOM
     input.parentElement?.parentElement?.appendChild(errorEl)
-    console.log(`📝 Error message added for ${inputName}: ${message}`)
 }
