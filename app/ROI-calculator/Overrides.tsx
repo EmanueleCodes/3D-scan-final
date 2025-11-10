@@ -1,3 +1,17 @@
+/**
+ * ROI Calculator - Form Input & Calculation Overrides
+ * 
+ * This file contains overrides for:
+ * - Form input handling (GMV, AOV, LMN, Transaction Volume)
+ * - Calculations (Incremental GMV, ROI)
+ * - Form validation
+ * - Step listeners for individual components
+ * - Button interactions
+ * 
+ * For FLOW CONTROL overrides (withOneStepFlow, withThreeStepFlow, etc.),
+ * see FlowSteps.tsx
+ */
+
 import type { ComponentType } from "react"
 import { useEffect, useState } from "react"
 import { useFormStore, useVariantStore } from "./Orchestrator.tsx"
@@ -402,23 +416,15 @@ export function withStepVariant<T extends OverrideProps>(
     }
 }
 
-// 7. withGatedContent - Apply to MAIN COMPONENT for gated flow (Step 1 → Step 2 → Step 3)
-// Sets flowType to "gated" immediately on mount, then applies variant from store
-export function withGatedContent<T extends OverrideProps>(
+// 7. withStepListener - Apply to INDIVIDUAL COMPONENTS (Desktop, Tablet, Phone)
+// Simply reads the currentStep from the store and applies the correct variant
+// Does NOT modify the store - purely reactive
+export function withStepListener<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
     return (props: T) => {
-        const [variantStore, setVariantStore] = useVariantStore()
-
-        // ALWAYS force flowType to "gated" on every render until it sticks
-        useEffect(() => {
-            if (variantStore.flowType !== "gated") {
-                setVariantStore({
-                    ...variantStore,
-                    flowType: "gated",
-                })
-            }
-        }, [variantStore.flowType]) // Only depend on flowType
+        const [variantStore] = useVariantStore()
+        const [localVariant, setLocalVariant] = useState<string>("Step 1")
 
         // Map step number to variant name
         const variantMap: Record<number, string> = {
@@ -427,53 +433,36 @@ export function withGatedContent<T extends OverrideProps>(
             3: "Step 3",
         }
 
-        const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        return (
-            <Component
-                {...props}
-                variant={targetVariant}
-            />
-        )
-    }
-}
-
-// 8. withNonGatedContent - Apply to MAIN COMPONENT for non-gated flow (Step 1 → Step 3)
-// Sets flowType to "nonGated" immediately on mount, then applies variant from store
-export function withNonGatedContent<T extends OverrideProps>(
-    Component: ComponentType<T>
-): ComponentType<T> {
-    return (props: T) => {
-        const [variantStore, setVariantStore] = useVariantStore()
-
-        // ALWAYS force flowType to "nonGated" on every render until it sticks
+        // Update local variant whenever store changes
         useEffect(() => {
-            if (variantStore.flowType !== "nonGated") {
-                setVariantStore({
-                    ...variantStore,
-                    flowType: "nonGated",
-                })
-            }
-        }, [variantStore.flowType]) // Only depend on flowType
+            const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
+            console.log("🎨 withStepListener: store changed", { 
+                currentStep: variantStore.currentStep, 
+                targetVariant,
+                currentLocalVariant: localVariant
+            })
+            setLocalVariant(targetVariant)
+        }, [variantStore.currentStep])
 
-        // Map step number to variant name
-        const variantMap: Record<number, string> = {
-            1: "Step 1",
-            2: "Step 2",
-            3: "Step 3",
-        }
-
-        const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
+        console.log("🎨 withStepListener: rendering", { 
+            currentStep: variantStore.currentStep, 
+            localVariant,
+            propsVariant: props.variant
+        })
+        
         return (
             <Component
                 {...props}
-                variant={targetVariant}
+                variant={localVariant}
             />
         )
     }
 }
 
-// 9. withStepButton - Apply to BUTTON to advance from Step 1 ONLY
-// This button ONLY handles Step 1 → Step 2 (gated) or Step 1 → Step 3 (nonGated)
+// 8. withStepButton - Apply to BUTTON to advance from Step 1 ONLY
+// Determines next step based on flowType:
+// - "1to3": Step 1 → Step 3
+// - "1to2to3": Step 1 → Step 2
 // All other transitions (Step 2 → Step 3) are handled by Framer variants
 export function withStepButton<T extends OverrideProps>(
     Component: ComponentType<T>
@@ -483,8 +472,15 @@ export function withStepButton<T extends OverrideProps>(
         const [variantStore, setVariantStore] = useVariantStore()
 
         const handleClick = () => {
+            console.log("🔘 withStepButton: button clicked", { 
+                currentStep: variantStore.currentStep,
+                flowType: variantStore.flowType,
+                formStore
+            })
+            
             // ONLY handle clicks when on Step 1
             if (variantStore.currentStep !== 1) {
+                console.log("⚠️ withStepButton: ignoring click, not on Step 1")
                 return
             }
 
@@ -495,11 +491,25 @@ export function withStepButton<T extends OverrideProps>(
             const errors = validateForm(formStore)
             const hasErrors = Object.values(errors).some(Boolean)
 
+            console.log("✅ withStepButton: validation result", { errors, hasErrors })
+
             if (hasErrors) {
+                console.log("❌ withStepButton: showing errors")
                 displayErrorMessages(errors)
             } else {
                 // Determine next step based on flow type
-                const nextStep = variantStore.flowType === "gated" ? 2 : 3
+                let nextStep = 2 // Default to Step 2
+                
+                if (variantStore.flowType === "1to3") {
+                    nextStep = 3 // Skip to Step 3
+                } else if (variantStore.flowType === "1to2to3") {
+                    nextStep = 2 // Go to Step 2 (email gate)
+                }
+                
+                console.log("🚀 withStepButton: advancing to next step", { 
+                    flowType: variantStore.flowType,
+                    nextStep 
+                })
 
                 setVariantStore({
                     ...variantStore,
@@ -522,23 +532,32 @@ export function withStepButton<T extends OverrideProps>(
     }
 }
 
-// 10. withStep3Indicator - Apply to the FINAL CTA BUTTON (visible only on Step 3)
+// 9. withStep3Indicator - Apply to the FINAL CTA BUTTON (visible only on Step 3)
 // When this button mounts, it tells the store we're at Step 3
+// BUT: Only after initial setup is complete (to avoid interfering with resets)
 export function withStep3Indicator<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
     return (props: T) => {
         const [variantStore, setVariantStore] = useVariantStore()
+        const [hasSetStep, setHasSetStep] = useState(false)
 
         useEffect(() => {
-            // When this component mounts, we're at Step 3
-            if (variantStore.currentStep !== 3) {
-                setVariantStore({
-                    ...variantStore,
-                    currentStep: 3,
-                })
-            }
-        }, []) // Empty deps - runs once on mount
+            // Wait a tick to ensure FlowSteps overrides have run first
+            const timeout = setTimeout(() => {
+                // Only set to Step 3 if we're not already there and haven't set it yet
+                if (variantStore.currentStep !== 3 && !hasSetStep) {
+                    console.log("🔧 withStep3Indicator: setting currentStep to 3")
+                    setVariantStore({
+                        ...variantStore,
+                        currentStep: 3,
+                    })
+                    setHasSetStep(true)
+                }
+            }, 100) // Small delay to let resets happen first
+
+            return () => clearTimeout(timeout)
+        }, [variantStore.currentStep]) // Watch current step
 
         return <Component {...props} />
     }
