@@ -38,13 +38,13 @@ type ResponsiveImage =
 
 const MAX_COLORS = 10
 const DEFAULT_PALETTE = [
-    "#11206a",
-    "#1f3ba2",
-    "#2f63e7",
-    "#6bd7ff",
-    "#ffe679",
-    "#ff991e",
-    "#ff4c00",
+            "#11206a",
+            "#1f3ba2",
+            "#2f63e7",
+            "#6bd7ff",
+            "#ffe679",
+            "#ff991e",
+            "#ff4c00",
     "#ff4c00",
     "#ff4c00",
     "#ff4c00",
@@ -220,18 +220,18 @@ float sst(float edge0, float edge1, float x) {
 float shadowShape(vec2 uv, float t, float contour) {
     vec2 scaledUV = uv;
     float posY = mix(-1., 2., t);
-    
+
     scaledUV.y -= .5;
     float mainCircleScale = sst(0., .8, posY) * lst(1.4, .9, posY);
     scaledUV *= vec2(1., 1. + 1.5 * mainCircleScale);
     scaledUV.y += .5;
-    
+
     float innerR = .4;
     float outerR = 1. - .3 * (sst(.1, .2, t) * (1. - sst(.2, .5, t)));
     float s = circle(scaledUV, vec2(.5, posY - .2), vec2(innerR, outerR));
     s = pow(s, 1.4);
     s *= 1.2;
-    
+
     float topFlattener = 0.;
     {
         float pos = posY - uv.y;
@@ -241,7 +241,7 @@ float shadowShape(vec2 uv, float t, float contour) {
         float topFlattenerMixer = (1. - sst(.0, .3, pos));
         s = mix(topFlattener, s, topFlattenerMixer);
     }
-    
+
     {
         float visibility = sst(.6, .7, t) * (1. - sst(.8, .9, t));
         float angle = -2. - t * TWO_PI;
@@ -249,7 +249,7 @@ float shadowShape(vec2 uv, float t, float contour) {
         rightCircle *= visibility;
         s = mix(s, 0., rightCircle);
     }
-    
+
     {
         float topCircle = circle(uv, vec2(.5, .19), vec2(.05, .25));
         topCircle += 2. * contour * circle(uv, vec2(.5, .19), vec2(.2, .5));
@@ -257,28 +257,28 @@ float shadowShape(vec2 uv, float t, float contour) {
         topCircle *= visibility;
         s = mix(s, 0., topCircle);
     }
-    
+
     float leafMask = circle(uv, vec2(.53, .13), vec2(.08, .19));
     leafMask = mix(leafMask, 0., 1. - sst(.4, .54, uv.x));
     leafMask = mix(0., leafMask, sst(.0, .2, uv.y));
     leafMask *= (sst(.5, 1.1, posY) * sst(1.5, 1.3, posY));
     s += leafMask;
-    
+
     {
         float visibility = sst(.0, .4, t) * (1. - sst(.6, .8, t));
         s = mix(s, 0., visibility * circle(uv, vec2(.52, .92), vec2(.09, .25)));
     }
-    
+
     {
         float pos = sst(.0, .6, t) * (1. - sst(.6, 1., t));
         s = mix(s, .5, circle(uv, vec2(.0, 1.2 - .5 * pos), vec2(.1, .3)));
         s = mix(s, .0, circle(uv, vec2(1., .5 + .5 * pos), vec2(.1, .3)));
-        
+
         s = mix(s, 1., circle(uv, vec2(.95, .2 + .2 * sst(.3, .4, t) * sst(.7, .5, t)), vec2(.07, .22)));
         s = mix(s, 1., circle(uv, vec2(.95, .2 + .2 * sst(.3, .4, t) * (1. - sst(.5, .7, t))), vec2(.07, .22)));
         s /= max(1e-4, sst(1., .85, uv.y));
     }
-    
+
     s = clamp(s, 0., 1.);
     return s;
 }
@@ -286,29 +286,29 @@ float shadowShape(vec2 uv, float t, float contour) {
 void main() {
     vec2 uv = v_objectUV + .5;
     uv.y = 1. - uv.y;
-    
+
     vec2 imgUV = v_imageUV;
     imgUV -= .5;
     imgUV *= 0.5714285714285714;
     imgUV += .5;
     float imgSoftFrame = getImgFrame(imgUV, .03);
-    
+
     vec4 img = texture(u_image, imgUV);
     if (img.a == 0.) {
         fragColor = u_colorBack;
         return;
     }
-    
+
     float t = .1 * u_time;
     t -= .3;
-    
+
     float tCopy = t + 1. / 3.;
     float tCopy2 = t + 2. / 3.;
-    
+
     t = mod(t, 1.);
     tCopy = mod(tCopy, 1.);
     tCopy2 = mod(tCopy2, 1.);
-    
+
     vec2 animationUV = imgUV - vec2(.5);
     float angle = -u_angle * PI / 180.;
     float cosA = cos(angle);
@@ -317,34 +317,34 @@ void main() {
         animationUV.x * cosA - animationUV.y * sinA,
         animationUV.x * sinA + animationUV.y * cosA
     ) + vec2(.5);
-    
+
     float shape = img[0];
     float outerBlur = 1. - mix(1., img[1], shape);
     float innerBlur = mix(img[1], 0., shape);
     float contour = mix(img[2], 0., shape);
-    
+
     outerBlur *= imgSoftFrame;
-    
+
     float shadow = shadowShape(animationUV, t, innerBlur);
     float shadowCopy = shadowShape(animationUV, tCopy, innerBlur);
     float shadowCopy2 = shadowShape(animationUV, tCopy2, innerBlur);
-    
+
     float inner = .8 + .8 * innerBlur;
     inner = mix(inner, 0., shadow);
     inner = mix(inner, 0., shadowCopy);
     inner = mix(inner, 0., shadowCopy2);
-    
+
     inner *= mix(0., 2., u_innerGlow);
-    
+
     inner += (u_contour * 2.) * contour;
     inner = min(1., inner);
     inner *= (1. - shape);
-    
+
     float outer = 0.;
     {
         t *= 3.;
         t = mod(t - .1, 1.);
-        
+
         outer = .9 * pow(outerBlur, .8);
         float y = mod(animationUV.y - t, 1.);
         float animatedMask = sst(.3, .65, y) * (1. - sst(.65, 1., y));
@@ -353,12 +353,12 @@ void main() {
         outer *= mix(0., 5., pow(u_outerGlow, 2.));
         outer *= imgSoftFrame;
     }
-    
+
     inner = pow(inner, 1.2);
     float heat = clamp(inner + outer, 0., 1.);
-    
+
     heat += (.005 + .35 * u_noise) * (fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453123) - .5);
-    
+
     float mixer = heat * u_colorsCount;
     vec4 gradient = u_colors[0];
     gradient.rgb *= gradient.a;
@@ -373,16 +373,16 @@ void main() {
         c.rgb *= c.a;
         gradient = mix(gradient, c, m);
     }
-    
+
     vec3 color = gradient.rgb * outerShape;
     float opacity = gradient.a * outerShape;
-    
+
     vec3 bgColor = u_colorBack.rgb * u_colorBack.a;
     color = color + bgColor * (1.0 - opacity);
     opacity = opacity + u_colorBack.a * (1.0 - opacity);
-    
+
     color += .02 * (fract(sin(dot(uv + 1., vec2(12.9898, 78.233))) * 43758.5453123) - .5);
-    
+
     fragColor = vec4(color, opacity);
 }
 `
@@ -394,6 +394,88 @@ const log = (...args: any[]) => {
 
 const DEFAULT_IMAGE =
     "https://workers.paper.design/file-assets/01K2KEX78Z34EZ86R69T4CGNNX/01K4PRJY7A6KB5V1PXMR92Q9F4.png"
+
+const CANVAS_SIZE = 1000
+
+const loadHtmlImage = (src: string): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+        const image = new Image()
+        image.crossOrigin = "anonymous"
+        image.onload = () => resolve(image)
+        image.onerror = (event) => reject(event)
+        image.src = src
+    })
+
+const toProcessedHeatmap = async (source: string): Promise<Blob> => {
+    const image = await loadHtmlImage(source)
+
+    if (source.endsWith(".svg")) {
+        image.width = CANVAS_SIZE
+        image.height = CANVAS_SIZE
+    }
+
+    const ratio = image.naturalWidth / image.naturalHeight
+
+    const maxBlur = Math.floor(CANVAS_SIZE * 0.15)
+    const padding = Math.ceil(maxBlur * 2.5)
+    let imgWidth = CANVAS_SIZE
+    let imgHeight = CANVAS_SIZE
+    if (ratio > 1) {
+        imgHeight = Math.floor(CANVAS_SIZE / ratio)
+    } else {
+        imgWidth = Math.floor(CANVAS_SIZE * ratio)
+    }
+
+    const canvas = document.createElement("canvas")
+    canvas.width = imgWidth + 2 * padding
+    canvas.height = imgHeight + 2 * padding
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })
+    if (!ctx) {
+        throw new Error("Failed to get 2d context for heatmap processing")
+    }
+
+    ctx.fillStyle = "white"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.filter = `grayscale(100%) blur(${maxBlur}px)`
+    ctx.drawImage(image, padding, padding, imgWidth, imgHeight)
+    const bigBlurData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.filter = `grayscale(100%) blur(${Math.round(0.12 * maxBlur)}px)`
+    ctx.drawImage(image, padding, padding, imgWidth, imgHeight)
+    const innerBlurSmallData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.filter = "grayscale(100%) blur(5px)"
+    ctx.drawImage(image, padding, padding, imgWidth, imgHeight)
+    const contourData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+
+    const processed = ctx.createImageData(canvas.width, canvas.height)
+    const totalPixels = canvas.width * canvas.height
+    for (let i = 0; i < totalPixels; i++) {
+        const px = i * 4
+        processed.data[px] = contourData[px]!
+        processed.data[px + 1] = bigBlurData[px]!
+        processed.data[px + 2] = innerBlurSmallData[px]!
+        processed.data[px + 3] = 255
+    }
+    ctx.putImageData(processed, 0, 0)
+
+    return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+            (blob) => {
+                if (blob) {
+                    resolve(blob)
+                } else {
+                    reject(new Error("Failed to create processed heatmap blob"))
+                }
+            },
+            "image/png",
+            1
+        )
+    })
+}
 
 /**
  * @framerSupportedLayoutWidth fixed
@@ -446,6 +528,7 @@ export default function HeatmapComponent({
         contour,
     })
     const [glReady, setGlReady] = useState(false)
+    const processedUrlRef = useRef<string | null>(null)
 
     const applyColorUniforms = (
         gl: WebGL2RenderingContext,
@@ -604,6 +687,8 @@ export default function HeatmapComponent({
         const resolvedSrc = resolveImageSource(image)
         log("Resolved image source", resolvedSrc)
 
+        let cancelled = false
+
         img.onload = () => {
             gl.bindTexture(gl.TEXTURE_2D, texture)
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img)
@@ -617,7 +702,25 @@ export default function HeatmapComponent({
             log("Image failed to load", event, image)
         }
 
-        img.src = resolvedSrc
+        const startProcessing = async () => {
+            try {
+                const blob = await toProcessedHeatmap(resolvedSrc)
+                if (cancelled) return
+                if (processedUrlRef.current) {
+                    URL.revokeObjectURL(processedUrlRef.current)
+                }
+                const objectUrl = URL.createObjectURL(blob)
+                processedUrlRef.current = objectUrl
+                img.src = objectUrl
+            } catch (error) {
+                log("Heatmap preprocessing failed; using original image", error)
+                if (!cancelled) {
+                    img.src = resolvedSrc
+                }
+            }
+        }
+
+        startProcessing()
 
         const resize = () => {
             const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -679,6 +782,7 @@ export default function HeatmapComponent({
 
         return () => {
             window.removeEventListener("resize", resize)
+            cancelled = true
             if (animationRef.current) {
                 cancelAnimationFrame(animationRef.current)
             }
@@ -693,6 +797,10 @@ export default function HeatmapComponent({
             }
             if (fShader) {
                 gl.deleteShader(fShader)
+            }
+            if (processedUrlRef.current) {
+                URL.revokeObjectURL(processedUrlRef.current)
+                processedUrlRef.current = null
             }
             log("WebGL resources cleaned up")
             setGlReady(false)
