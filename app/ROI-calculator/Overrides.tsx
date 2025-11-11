@@ -60,7 +60,7 @@ function formatCurrency(value: number): string {
 function formatNumber(value: number): string {
     return new Intl.NumberFormat("en-US", {
         minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
+        maximumFractionDigits: 0,
     }).format(value)
 }
 
@@ -68,7 +68,7 @@ function formatNumber(value: number): string {
 function parseInputValue(value: string): number {
     const cleaned = value.replace(/[^0-9.]/g, "")
     const parsed = parseFloat(cleaned)
-    return isNaN(parsed) ? 0 : parsed
+    return isNaN(parsed) ? 0 : Math.floor(parsed)
 }
 
 // 1. withGMV - Reads and validates Merchant Annual GMV input
@@ -227,16 +227,16 @@ export function withTransactionVolume<T extends OverrideProps>(
         useEffect(() => {
             const { merchantGMV, averageOrderValue } = store
 
-            // Calculate Transaction Volume (keep up to 2 decimal places)
+            // Calculate Transaction Volume as an integer
             let transactionVolume = 0
             if (averageOrderValue > 0) {
-                transactionVolume = merchantGMV / averageOrderValue
+                transactionVolume = Math.floor(merchantGMV / averageOrderValue)
             }
 
             // Update store with calculated value (only if significantly changed to avoid loops)
             const difference = Math.abs(store.transactionVolume - transactionVolume)
 
-            if (difference > 0.01) {
+            if (difference > 0) {
                 setStore({
                     ...store,
                     transactionVolume,
@@ -257,10 +257,7 @@ export function withTransactionVolume<T extends OverrideProps>(
             ) as HTMLInputElement
             
             if (input) {
-                const unformatted = transactionVolume > 0 
-                    ? transactionVolume.toFixed(2)
-                    : "0"
-                input.value = unformatted
+                input.value = transactionVolume > 0 ? String(transactionVolume) : "0"
             }
         }, [store.merchantGMV, store.averageOrderValue, store.transactionVolume, setStore])
 
