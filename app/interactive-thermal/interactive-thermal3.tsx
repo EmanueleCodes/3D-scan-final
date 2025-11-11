@@ -37,6 +37,7 @@ type ResponsiveImage =
     | undefined
 
 const MAX_COLORS = 10
+const HEAT_RESOLUTION = 256
 const DEFAULT_PALETTE = [
             "#11206a",
             "#1f3ba2",
@@ -50,7 +51,82 @@ const DEFAULT_PALETTE = [
     "#ff4c00",
 ]
 
+const parseSimpleColor = (value: string): [number, number, number, number] | null => {
+    if (!value) return null
+    const trimmed = value.trim()
+    if (!trimmed) return null
+
+    if (trimmed.startsWith("#")) {
+        const hex = trimmed.slice(1)
+        let expanded = hex
+        if (hex.length === 3) {
+            expanded = hex
+                .split("")
+                .map((char) => char + char)
+                .join("")
+        } else if (hex.length === 4) {
+            expanded = hex
+                .split("")
+                .map((char) => char + char)
+                .join("")
+        }
+
+        if (expanded.length === 6 || expanded.length === 8) {
+            const r = parseInt(expanded.slice(0, 2), 16)
+            const g = parseInt(expanded.slice(2, 4), 16)
+            const b = parseInt(expanded.slice(4, 6), 16)
+            const a = expanded.length === 8 ? parseInt(expanded.slice(6, 8), 16) / 255 : 1
+            if ([r, g, b].every((channel) => !Number.isNaN(channel))) {
+                return [r / 255, g / 255, b / 255, Number.isNaN(a) ? 1 : a]
+            }
+        }
+    }
+
+    const rgbaMatch = trimmed.match(/^rgba?\(([^)]+)\)$/i)
+    if (rgbaMatch) {
+        const parts = rgbaMatch[1]
+            .split(",")
+            .map((segment) => segment.trim())
+            .filter(Boolean)
+        if (parts.length >= 3) {
+            const parseChannel = (channel: string): number | null => {
+                if (channel.endsWith("%")) {
+                    const percent = parseFloat(channel.slice(0, -1))
+                    if (Number.isNaN(percent)) return null
+                    return Math.min(255, Math.max(0, (percent / 100) * 255))
+                }
+                const value = parseFloat(channel)
+                if (Number.isNaN(value)) return null
+                return value
+            }
+
+            const r = parseChannel(parts[0] ?? "")
+            const g = parseChannel(parts[1] ?? "")
+            const b = parseChannel(parts[2] ?? "")
+            const a = parts[3] !== undefined ? parseFloat(parts[3]) : 1
+            if (r !== null && g !== null && b !== null) {
+                return [r / 255, g / 255, b / 255, Number.isNaN(a) ? 1 : Math.min(1, Math.max(0, a))]
+            }
+        }
+    }
+
+    return null
+}
+
 const createColorParser = () => {
+    if (typeof document === "undefined") {
+        const cache = new Map<string, [number, number, number, number]>()
+        return (input: string, fallback: string): [number, number, number, number] => {
+            const key = `${input}|${fallback}`
+            const cached = cache.get(key)
+            if (cached) return cached
+
+            const parsed = parseSimpleColor(input) ?? parseSimpleColor(fallback) ?? [0, 0, 0, 1]
+            cache.set(key, parsed)
+            return parsed
+        }
+    }
+
     const canvas = document.createElement("canvas")
     canvas.width = canvas.height = 1
     const context = canvas.getContext("2d")
@@ -78,7 +154,7 @@ const createColorParser = () => {
             cache.set(key, rgba)
             return rgba
         } catch {
-            return [0, 0, 0, 1]
+            return parseSimpleColor(fallback) ?? [0, 0, 0, 1]
         }
     }
 }
@@ -127,6 +203,7 @@ type UniformLocations = {
     u_resolution: WebGLUniformLocation | null
     u_imageAspectRatio: WebGLUniformLocation | null
     u_image: WebGLUniformLocation | null
+    u_heatmap: WebGLUniformLocation | null
     u_time: WebGLUniformLocation | null
     u_colorBack: WebGLUniformLocation | null
     u_colorsCount: WebGLUniformLocation | null
@@ -180,6 +257,7 @@ in mediump vec2 v_objectUV;
 out vec4 fragColor;
 
 uniform sampler2D u_image;
+uniform sampler2D u_heatmap;
 uniform float u_time;
 uniform mediump float u_imageAspectRatio;
 
@@ -356,6 +434,10 @@ void main() {
 
     inner = pow(inner, 1.2);
     float heat = clamp(inner + outer, 0., 1.);
+
+    // Add cursor trail heat contribution
+    float cursorHeat = texture(u_heatmap, v_objectUV + 0.5).r;
+    heat = max(heat, pow(cursorHeat, 0.5) * 1.2);
 
     heat += (.005 + .35 * u_noise) * (fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453123) - .5);
 
@@ -618,6 +700,7 @@ export default function HeatmapComponent({
             u_resolution: gl.getUniformLocation(program, "u_resolution"),
             u_imageAspectRatio: gl.getUniformLocation(program, "u_imageAspectRatio"),
             u_image: gl.getUniformLocation(program, "u_image"),
+            u_heatmap: gl.getUniformLocation(program, "u_heatmap"),
             u_time: gl.getUniformLocation(program, "u_time"),
             u_colorBack: gl.getUniformLocation(program, "u_colorBack"),
             u_colorsCount: gl.getUniformLocation(program, "u_colorsCount"),
@@ -640,6 +723,7 @@ export default function HeatmapComponent({
             gl.uniform4f(uniformLocs.u_colorBack, bg[0], bg[1], bg[2], bg[3])
         }
 
+        // Main image texture
         const texture = gl.createTexture()
         textureRef.current = texture
         gl.bindTexture(gl.TEXTURE_2D, texture)
@@ -647,6 +731,31 @@ export default function HeatmapComponent({
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+        // Heatmap texture for cursor trails
+        const heatmapTexture = gl.createTexture()
+        gl.activeTexture(gl.TEXTURE1)
+        gl.bindTexture(gl.TEXTURE_2D, heatmapTexture)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA,
+            HEAT_RESOLUTION,
+            HEAT_RESOLUTION,
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            heatmapBufferRef.current
+        )
+        if (uniformLocs.u_heatmap) {
+            gl.uniform1i(uniformLocs.u_heatmap, 1) // Bind to texture unit 1
+        }
+        heatmapDataRef.current = { texture: heatmapTexture, needsUpdate: false }
+        gl.activeTexture(gl.TEXTURE0) // Switch back to texture unit 0
 
         const img = new Image()
         img.crossOrigin = "anonymous"
@@ -761,6 +870,28 @@ export default function HeatmapComponent({
             gl.clearColor(bgColor[0], bgColor[1], bgColor[2], bgColor[3])
             gl.clear(gl.COLOR_BUFFER_BIT)
 
+            // Update heatmap texture every frame (fade happens continuously)
+            if (heatmapBufferRef.current) {
+                // Fade heat each frame
+                fadeHeat()
+                
+                gl.activeTexture(gl.TEXTURE1)
+                gl.bindTexture(gl.TEXTURE_2D, heatmapDataRef.current?.texture)
+                gl.texSubImage2D(
+                    gl.TEXTURE_2D,
+                    0,
+                    0,
+                    0,
+                    HEAT_RESOLUTION,
+                    HEAT_RESOLUTION,
+                    gl.RGBA,
+                    gl.UNSIGNED_BYTE,
+                    heatmapBufferRef.current
+                )
+                gl.activeTexture(gl.TEXTURE0)
+                gl.bindTexture(gl.TEXTURE_2D, texture)
+            }
+
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 
             animationRef.current = requestAnimationFrame(render)
@@ -788,6 +919,9 @@ export default function HeatmapComponent({
             }
             if (texture) {
                 gl.deleteTexture(texture)
+            }
+            if (heatmapDataRef.current?.texture) {
+                gl.deleteTexture(heatmapDataRef.current.texture)
             }
             if (program) {
                 gl.deleteProgram(program)
@@ -827,8 +961,109 @@ export default function HeatmapComponent({
         gl.uniform4f(uniformLocs.u_colorBack, bg[0], bg[1], bg[2], bg[3])
     }, [colors?.bgColor, glReady])
 
+    // Heat texture and cursor trail system
+    const heatmapBufferRef = useRef<Uint8Array | null>(null)
+    const heatmapDataRef = useRef<any>(null)
+    
+    const stampHeat = (nx: number, ny: number) => {
+        const buffer = heatmapBufferRef.current
+        if (!buffer) return
+        
+        const size = HEAT_RESOLUTION
+        const centerX = Math.max(0, Math.min(size - 1, Math.round(nx * (size - 1))))
+        const centerY = Math.max(0, Math.min(size - 1, Math.round(ny * (size - 1))))
+        const radius = 12 // Trail brush radius
+        const radiusSq = radius * radius
+        const intensity = 0.8 // Trail intensity
+        
+        const minX = Math.max(0, Math.floor(centerX - radius))
+        const maxX = Math.min(size - 1, Math.ceil(centerX + radius))
+        const minY = Math.max(0, Math.floor(centerY - radius))
+        const maxY = Math.min(size - 1, Math.ceil(centerY + radius))
+        
+        for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+                const dx = x - centerX
+                const dy = y - centerY
+                const distanceSq = dx * dx + dy * dy
+                if (distanceSq > radiusSq) continue
+                
+                const falloff = 1 - distanceSq / radiusSq
+                const boost = intensity * falloff * falloff
+                const idx = (y * size + x) * 4
+                const current = buffer[idx]
+                const next = Math.min(255, current + Math.round(boost * 255))
+                buffer[idx] = next
+                buffer[idx + 1] = next
+                buffer[idx + 2] = next
+                buffer[idx + 3] = 255
+            }
+        }
+        if (heatmapDataRef.current) {
+            heatmapDataRef.current.needsUpdate = true
+        }
+    }
+    
+    const fadeHeat = () => {
+        const buffer = heatmapBufferRef.current
+        const texture = heatmapDataRef.current
+        if (!buffer || !texture) return
+        
+        let changed = false
+        for (let i = 0; i < buffer.length; i += 4) {
+            const current = buffer[i]
+            if (current <= 0) continue
+            const cooled = current * 0.96 - 1
+            const next = cooled <= 1 ? 0 : Math.min(255, Math.max(0, Math.floor(cooled)))
+            if (next !== current) {
+                buffer[i] = next
+                buffer[i + 1] = next
+                buffer[i + 2] = next
+                changed = true
+            }
+        }
+        if (changed) {
+            texture.needsUpdate = true
+        }
+    }
+
+    // Initialize heat texture on component mount
+    useEffect(() => {
+        const data = new Uint8Array(HEAT_RESOLUTION * HEAT_RESOLUTION * 4)
+        heatmapBufferRef.current = data
+        heatmapDataRef.current = { needsUpdate: false }
+        
+        return () => {
+            heatmapBufferRef.current = null
+            heatmapDataRef.current = null
+        }
+    }, [])
+
+
+    // Handle mouse movement for heat trail
+    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        
+        const rect = canvas.getBoundingClientRect()
+        if (rect.width === 0 || rect.height === 0) return
+        
+        const nx = (e.clientX - rect.left) / rect.width
+        const ny = (e.clientY - rect.top) / rect.height
+        
+        stampHeat(nx, 1 - ny)
+        log("Cursor at", { nx, ny })
+    }
+
     return (
         <div
+            onMouseMove={handleMouseMove}
+            onMouseEnter={() => {
+                if (canvasRef.current) canvasRef.current.style.cursor = "auto"
+            }}
+            onMouseLeave={() => {
+                if (canvasRef.current) canvasRef.current.style.cursor = "auto"
+            }}
             style={{
                 width: "100%",
                 height: "100%",
