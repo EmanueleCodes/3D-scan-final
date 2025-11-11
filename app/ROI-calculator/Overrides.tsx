@@ -71,6 +71,16 @@ function parseInputValue(value: string): number {
     return isNaN(parsed) ? 0 : Math.floor(parsed)
 }
 
+function configureNumericInput(input: HTMLInputElement): void {
+    if (input.getAttribute("data-has-commas") === "true") {
+        return
+    }
+
+    input.setAttribute("type", "text")
+    input.setAttribute("inputmode", "numeric")
+    input.setAttribute("data-has-commas", "true")
+}
+
 // 1. withGMV - Reads and validates Merchant Annual GMV input
 export function withGMV<T extends OverrideProps>(
     Component: ComponentType<T>
@@ -84,22 +94,76 @@ export function withGMV<T extends OverrideProps>(
             const input = document.querySelector(
                 'input[name="MerchantGMV"]'
             ) as HTMLInputElement
-            
-            if (input && store.merchantGMV > 0) {
-                input.value = String(store.merchantGMV)
+
+            if (!input) {
+                return
             }
-        }, []) // Empty deps - run once on mount
+
+            configureNumericInput(input)
+
+            const targetValue =
+                store.merchantGMV > 0 ? formatNumber(store.merchantGMV) : ""
+
+            if (input.value !== targetValue) {
+                input.value = targetValue
+            }
+
+            setLocalValue((current) =>
+                current === targetValue ? current : targetValue
+            )
+        }, [store.merchantGMV])
 
         useEffect(() => {
             const interval = setInterval(() => {
                 const input = document.querySelector(
                     'input[name="MerchantGMV"]'
                 ) as HTMLInputElement
-                
-                if (input && input.value !== localValue) {
-                    setLocalValue(input.value)
-                    const parsedValue = parseInputValue(input.value)
-                    
+
+                if (!input) {
+                    return
+                }
+
+                configureNumericInput(input)
+
+                const rawValue = input.value
+
+                if (rawValue === localValue) {
+                    return
+                }
+
+                const digitsOnly = rawValue.replace(/[^0-9]/g, "")
+
+                if (digitsOnly === "") {
+                    if (localValue !== "") {
+                        setLocalValue("")
+                    }
+
+                    if (input.value !== "") {
+                        input.value = ""
+                    }
+
+                    if (store.merchantGMV !== 0) {
+                        setStore({
+                            ...store,
+                            merchantGMV: 0,
+                        })
+                    }
+
+                    return
+                }
+
+                const parsedValue = parseInputValue(rawValue)
+                const formattedValue = formatNumber(parsedValue)
+
+                if (input.value !== formattedValue) {
+                    input.value = formattedValue
+                }
+
+                if (localValue !== formattedValue) {
+                    setLocalValue(formattedValue)
+                }
+
+                if (parsedValue !== store.merchantGMV) {
                     setStore({
                         ...store,
                         merchantGMV: parsedValue,
@@ -127,22 +191,78 @@ export function withAOV<T extends OverrideProps>(
             const input = document.querySelector(
                 'input[name="AOV"]'
             ) as HTMLInputElement
-            
-            if (input && store.averageOrderValue > 0) {
-                input.value = String(store.averageOrderValue)
+
+            if (!input) {
+                return
             }
-        }, []) // Empty deps - run once on mount
+
+            configureNumericInput(input)
+
+            const targetValue =
+                store.averageOrderValue > 0
+                    ? formatNumber(store.averageOrderValue)
+                    : ""
+
+            if (input.value !== targetValue) {
+                input.value = targetValue
+            }
+
+            setLocalValue((current) =>
+                current === targetValue ? current : targetValue
+            )
+        }, [store.averageOrderValue])
 
         useEffect(() => {
             const interval = setInterval(() => {
                 const input = document.querySelector(
                     'input[name="AOV"]'
                 ) as HTMLInputElement
-                
-                if (input && input.value !== localValue) {
-                    setLocalValue(input.value)
-                    const parsedValue = parseInputValue(input.value)
-                    
+
+                if (!input) {
+                    return
+                }
+
+                configureNumericInput(input)
+
+                const rawValue = input.value
+
+                if (rawValue === localValue) {
+                    return
+                }
+
+                const digitsOnly = rawValue.replace(/[^0-9]/g, "")
+
+                if (digitsOnly === "") {
+                    if (localValue !== "") {
+                        setLocalValue("")
+                    }
+
+                    if (input.value !== "") {
+                        input.value = ""
+                    }
+
+                    if (store.averageOrderValue !== 0) {
+                        setStore({
+                            ...store,
+                            averageOrderValue: 0,
+                        })
+                    }
+
+                    return
+                }
+
+                const parsedValue = parseInputValue(rawValue)
+                const formattedValue = formatNumber(parsedValue)
+
+                if (input.value !== formattedValue) {
+                    input.value = formattedValue
+                }
+
+                if (localValue !== formattedValue) {
+                    setLocalValue(formattedValue)
+                }
+
+                if (parsedValue !== store.averageOrderValue) {
                     setStore({
                         ...store,
                         averageOrderValue: parsedValue,
@@ -170,26 +290,79 @@ export function withLMN<T extends OverrideProps>(
             const input = document.querySelector(
                 'input[name="LMN"]'
             ) as HTMLInputElement
-            
-            if (input && store.lmnAttachRate > 0) {
-                const percentageValue = store.lmnAttachRate * 100
-                input.value = String(percentageValue)
+
+            if (!input) {
+                return
             }
-        }, []) // Empty deps - run once on mount
+
+            configureNumericInput(input)
+
+            const percentageValue = Math.floor(store.lmnAttachRate * 100)
+            const targetValue =
+                percentageValue > 0 ? formatNumber(percentageValue) : ""
+
+            if (input.value !== targetValue) {
+                input.value = targetValue
+            }
+
+            setLocalValue((current) =>
+                current === targetValue ? current : targetValue
+            )
+        }, [store.lmnAttachRate])
 
         useEffect(() => {
             const interval = setInterval(() => {
                 const input = document.querySelector(
                     'input[name="LMN"]'
                 ) as HTMLInputElement
-                
-                if (input && input.value !== localValue) {
-                    setLocalValue(input.value)
-                    const parsedValue = parseInputValue(input.value)
-                    
-                    // Convert percentage to decimal (e.g., 50 -> 0.50)
-                    const decimalValue = parsedValue / 100
-                    
+
+                if (!input) {
+                    return
+                }
+
+                configureNumericInput(input)
+
+                const rawValue = input.value
+
+                if (rawValue === localValue) {
+                    return
+                }
+
+                const digitsOnly = rawValue.replace(/[^0-9]/g, "")
+
+                if (digitsOnly === "") {
+                    if (localValue !== "") {
+                        setLocalValue("")
+                    }
+
+                    if (input.value !== "") {
+                        input.value = ""
+                    }
+
+                    if (store.lmnAttachRate !== 0) {
+                        setStore({
+                            ...store,
+                            lmnAttachRate: 0,
+                        })
+                    }
+
+                    return
+                }
+
+                const parsedValue = parseInputValue(rawValue)
+                const formattedValue = formatNumber(parsedValue)
+
+                if (input.value !== formattedValue) {
+                    input.value = formattedValue
+                }
+
+                if (localValue !== formattedValue) {
+                    setLocalValue(formattedValue)
+                }
+
+                const decimalValue = parsedValue / 100
+
+                if (decimalValue !== store.lmnAttachRate) {
                     setStore({
                         ...store,
                         lmnAttachRate: decimalValue,
@@ -220,6 +393,7 @@ export function withTransactionVolume<T extends OverrideProps>(
             ) as HTMLInputElement
             
             if (input) {
+                configureNumericInput(input)
                 input.value = "0"
             }
         }, [])
@@ -257,7 +431,12 @@ export function withTransactionVolume<T extends OverrideProps>(
             ) as HTMLInputElement
             
             if (input) {
-                input.value = transactionVolume > 0 ? String(transactionVolume) : "0"
+                const formattedInput =
+                    transactionVolume > 0 ? formatNumber(transactionVolume) : "0"
+
+                if (input.value !== formattedInput) {
+                    input.value = formattedInput
+                }
             }
         }, [store.merchantGMV, store.averageOrderValue, store.transactionVolume, setStore])
 
