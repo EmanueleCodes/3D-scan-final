@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react"
-import { addPropertyControls, ControlType } from "framer"
+import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 interface HeatmapProps {
     colors?: {
@@ -39,7 +39,7 @@ type ResponsiveImage =
     | undefined
 
 const MAX_COLORS = 10
-const HEAT_RESOLUTION = 256
+const HEAT_RESOLUTION = 528
 const DEFAULT_PALETTE = [
             "#11206a",
             "#1f3ba2",
@@ -214,6 +214,7 @@ type UniformLocations = {
     u_innerGlow: WebGLUniformLocation | null
     u_outerGlow: WebGLUniformLocation | null
     u_contour: WebGLUniformLocation | null
+    u_imageScale: WebGLUniformLocation | null
     u_colors: Array<WebGLUniformLocation | null>
 }
 
@@ -237,9 +238,9 @@ void main() {
     // Object UV (for shader animations)
     v_objectUV = uv;
     
-    // Image UV (for texture sampling)
+    // Image UV (for texture sampling) - use 'contain' fit
     vec2 imageBoxSize;
-    imageBoxSize.x = max(u_resolution.x / u_imageAspectRatio, u_resolution.y) * u_imageAspectRatio;
+    imageBoxSize.x = min(u_resolution.x / u_imageAspectRatio, u_resolution.y) * u_imageAspectRatio;
     imageBoxSize.y = imageBoxSize.x / u_imageAspectRatio;
     vec2 imageBoxScale = u_resolution.xy / imageBoxSize;
     
@@ -272,6 +273,7 @@ uniform float u_noise;
 uniform float u_innerGlow;
 uniform float u_outerGlow;
 uniform float u_contour;
+uniform float u_imageScale;
 
 #define TWO_PI 6.28318530718
 #define PI 3.14159265358979323846
@@ -369,7 +371,7 @@ void main() {
 
     vec2 imgUV = v_imageUV;
     imgUV -= .5;
-    imgUV *= 0.5714285714285714;
+    imgUV *= u_imageScale;
     imgUV += .5;
     float imgSoftFrame = getImgFrame(imgUV, .03);
 
@@ -438,7 +440,8 @@ void main() {
     float heat = clamp(inner + outer, 0., 1.);
 
     // Add cursor trail heat contribution (masked to black pixels only)
-    float cursorHeat = texture(u_heatmap, v_objectUV + 0.5).r;
+    vec2 heatUV = v_objectUV + 0.5;
+    float cursorHeat = texture(u_heatmap, heatUV).r;
     cursorHeat *= (1.0 - shape); // Only show on black pixels (shape = 0 for black)
     cursorHeat *= imgSoftFrame; // Also respect the image frame
     // Boost cursor to reach red-orange colors at high intensity
@@ -593,7 +596,9 @@ export default function HeatmapComponent({
     cursorStrength = 0.5,
     image = DEFAULT_IMAGE,
 }: HeatmapProps) {
+    const containerRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const zoomProbeRef = useRef<HTMLDivElement | null>(null)
     const glRef = useRef<WebGL2RenderingContext | null>(null)
     const programRef = useRef<WebGLProgram | null>(null)
     const textureRef = useRef<WebGLTexture | null>(null)
@@ -623,6 +628,16 @@ export default function HeatmapComponent({
     const heatmapBufferRef = useRef<Uint8Array | null>(null)
     const heatmapDataRef = useRef<any>(null)
     const lastMouseTimeRef = useRef(0)
+    const imageScaleRef = useRef(1)
+    
+    // Track canvas size changes to avoid unnecessary resizes on zoom
+    const lastCanvasSizeRef = useRef<{ w: number; h: number; aspect: number; zoom: number; ts: number }>({
+        w: 0,
+        h: 0,
+        aspect: 0,
+        zoom: 0,
+        ts: 0,
+    })
 
     const applyColorUniforms = (
         gl: WebGL2RenderingContext,
@@ -728,6 +743,7 @@ export default function HeatmapComponent({
             u_innerGlow: gl.getUniformLocation(program, "u_innerGlow"),
             u_outerGlow: gl.getUniformLocation(program, "u_outerGlow"),
             u_contour: gl.getUniformLocation(program, "u_contour"),
+            u_imageScale: gl.getUniformLocation(program, "u_imageScale"),
             u_colors: Array.from({ length: MAX_COLORS }, (_, index) =>
                 gl.getUniformLocation(program, `u_colors[${index}]`)
             ),
@@ -823,7 +839,21 @@ export default function HeatmapComponent({
             if (uniformLocs.u_imageAspectRatio) {
                 gl.uniform1f(uniformLocs.u_imageAspectRatio, img.width / img.height)
             }
-            log("Image loaded", { width: img.width, height: img.height })
+            // Calculate proper image scale based on padding
+            // Scale = original_size / (original_size + 2*padding)
+            const maxBlur = Math.floor(CANVAS_SIZE * 0.15)
+            const padding = Math.ceil(maxBlur * 2.5)
+            const ratio = img.width / img.height
+            let imgWidth = CANVAS_SIZE
+            let imgHeight = CANVAS_SIZE
+            if (ratio > 1) {
+                imgHeight = Math.floor(CANVAS_SIZE / ratio)
+            } else {
+                imgWidth = Math.floor(CANVAS_SIZE * ratio)
+            }
+            const scale = imgWidth / (imgWidth + 2 * padding)
+            imageScaleRef.current = scale
+            log("Image loaded", { width: img.width, height: img.height, scale })
         }
 
         img.onerror = (event) => {
@@ -855,10 +885,15 @@ export default function HeatmapComponent({
         requestAnimationFrame(() => startProcessing())
 
         const resize = () => {
+            if (!gl) return
             const dpr = Math.min(window.devicePixelRatio || 1, 2)
-            const rect = canvas.getBoundingClientRect()
-            canvas.width = rect.width * dpr
-            canvas.height = rect.height * dpr
+            // Use clientWidth/clientHeight from container for consistent sizing
+            const containerElem = containerRef.current
+            if (!containerElem) return
+            const w = containerElem.clientWidth || containerElem.offsetWidth || 1
+            const h = containerElem.clientHeight || containerElem.offsetHeight || 1
+            canvas.width = w * dpr
+            canvas.height = h * dpr
             gl.viewport(0, 0, canvas.width, canvas.height)
             if (uniformLocs.u_resolution) {
                 gl.uniform2f(uniformLocs.u_resolution, canvas.width, canvas.height)
@@ -866,7 +901,6 @@ export default function HeatmapComponent({
         }
 
         resize()
-        window.addEventListener("resize", resize)
         log("Resize initialised", { width: canvas.width, height: canvas.height })
 
         const render = () => {
@@ -888,6 +922,8 @@ export default function HeatmapComponent({
                 gl.uniform1f(uniformLocs.u_outerGlow, params.outerGlow)
             if (uniformLocs.u_contour)
                 gl.uniform1f(uniformLocs.u_contour, params.contour)
+            if (uniformLocs.u_imageScale)
+                gl.uniform1f(uniformLocs.u_imageScale, imageScaleRef.current)
 
             const bgColor = bgColorRef.current
             gl.clearColor(bgColor[0], bgColor[1], bgColor[2], bgColor[3])
@@ -934,8 +970,49 @@ export default function HeatmapComponent({
         log("Render loop started")
         setGlReady(true)
 
+        const resizeCleanup = RenderTarget.current() === RenderTarget.canvas 
+            ? (() => {
+                let rafId = 0
+                const TICK_MS = 250
+                const EPS_ASPECT = 0.001
+                const tick = (now?: number) => {
+                    const container = containerRef.current
+                    const probe = zoomProbeRef.current
+                    if (container && probe) {
+                        const cw = container.clientWidth || container.offsetWidth || 1
+                        const ch = container.clientHeight || container.offsetHeight || 1
+                        const aspect = cw / ch
+                        const zoom = probe.getBoundingClientRect().width / 20
+                        
+                        const timeOk = !lastCanvasSizeRef.current.ts || 
+                            (now || performance.now()) - lastCanvasSizeRef.current.ts >= TICK_MS
+                        const aspectChanged = Math.abs(aspect - lastCanvasSizeRef.current.aspect) > EPS_ASPECT
+                        const sizeChanged = Math.abs(cw - lastCanvasSizeRef.current.w) > 1 || 
+                            Math.abs(ch - lastCanvasSizeRef.current.h) > 1
+                        
+                        if (timeOk && (aspectChanged || sizeChanged)) {
+                            lastCanvasSizeRef.current = {
+                                w: cw,
+                                h: ch,
+                                aspect,
+                                zoom,
+                                ts: now || performance.now(),
+                            }
+                            resize()
+                        }
+                    }
+                    rafId = requestAnimationFrame(tick)
+                }
+                rafId = requestAnimationFrame(tick)
+                return () => cancelAnimationFrame(rafId)
+            })()
+            : (() => {
+                window.addEventListener("resize", resize)
+                return () => window.removeEventListener("resize", resize)
+            })()
+
         return () => {
-            window.removeEventListener("resize", resize)
+            resizeCleanup()
             cancelled = true
             if (animationRef.current) {
                 cancelAnimationFrame(animationRef.current)
@@ -984,30 +1061,36 @@ export default function HeatmapComponent({
         gl.uniform4f(uniformLocs.u_colorBack, bg[0], bg[1], bg[2], bg[3])
     }, [colors?.bgColor, glReady])
 
-    const stampHeat = (nx: number, ny: number) => {
+    const stampHeat = (nx: number, ny: number, aspect: number) => {
         const buffer = heatmapBufferRef.current
         if (!buffer) return
         
         const size = HEAT_RESOLUTION
         const centerX = Math.max(0, Math.min(size - 1, Math.round(nx * (size - 1))))
         const centerY = Math.max(0, Math.min(size - 1, Math.round(ny * (size - 1))))
-        const radius = Math.max(1, cursorSize * size) // Trail brush radius based on cursorSize prop
-        const radiusSq = radius * radius
-        const intensity = Math.max(0, Math.min(1, cursorStrength)) // Trail intensity based on cursorStrength prop
         
-        const minX = Math.max(0, Math.floor(centerX - radius))
-        const maxX = Math.min(size - 1, Math.ceil(centerX + radius))
-        const minY = Math.max(0, Math.floor(centerY - radius))
-        const maxY = Math.min(size - 1, Math.ceil(centerY + radius))
+        // Map normalized cursor size (0.1-1) to actual range (0.02-0.3)
+        const mappedCursorSize = 0.02 + (cursorSize - 0.1) * (0.3 - 0.02) / (1 - 0.1)
+        // Adjust radius based on aspect ratio to keep circular appearance on canvas
+        const baseRadius = mappedCursorSize * size
+        const radiusX = aspect > 1 ? baseRadius / aspect : baseRadius
+        const radiusY = aspect < 1 ? baseRadius * aspect : baseRadius
+        const intensity = Math.max(0, Math.min(1, cursorStrength))
+        
+        const minX = Math.max(0, Math.floor(centerX - radiusX))
+        const maxX = Math.min(size - 1, Math.ceil(centerX + radiusX))
+        const minY = Math.max(0, Math.floor(centerY - radiusY))
+        const maxY = Math.min(size - 1, Math.ceil(centerY + radiusY))
         
         for (let y = minY; y <= maxY; y++) {
             for (let x = minX; x <= maxX; x++) {
-                const dx = x - centerX
-                const dy = y - centerY
+                // Use elliptical distance for aspect-corrected circle
+                const dx = (x - centerX) / radiusX
+                const dy = (y - centerY) / radiusY
                 const distanceSq = dx * dx + dy * dy
-                if (distanceSq > radiusSq) continue
+                if (distanceSq > 1) continue
                 
-                const falloff = 1 - distanceSq / radiusSq
+                const falloff = 1 - distanceSq
                 const boost = intensity * falloff * falloff
                 const idx = (y * size + x) * 4
                 const current = buffer[idx]
@@ -1059,14 +1142,24 @@ export default function HeatmapComponent({
         const rect = canvas.getBoundingClientRect()
         if (rect.width === 0 || rect.height === 0) return
         
-        const nx = (e.clientX - rect.left) / rect.width
-        const ny = (e.clientY - rect.top) / rect.height
+        // Get mouse position relative to canvas
+        const relX = e.clientX - rect.left
+        const relY = e.clientY - rect.top
         
-        stampHeat(nx, 1 - ny)
+        if (relX < 0 || relX > rect.width || relY < 0 || relY > rect.height) return
+        
+        // Normalize to 0-1 (full canvas coordinates)
+        const nx = relX / rect.width
+        const ny = relY / rect.height
+        const aspect = rect.width / rect.height
+        
+        // Stamp with aspect ratio so the ellipse in buffer space appears circular on canvas
+        stampHeat(nx, 1 - ny, aspect)
     }
 
     return (
         <div
+            ref={containerRef}
             onMouseMove={handleMouseMove}
             onMouseEnter={() => {
                 if (canvasRef.current) canvasRef.current.style.cursor = "auto"
@@ -1080,11 +1173,27 @@ export default function HeatmapComponent({
                 overflow: "hidden",
                 position: "relative",
                 background: colors?.bgColor || "#000000",
+                display: "block",
+                margin: 0,
+                padding: 0,
             }}
         >
+            {/* Hidden 20x20 probe to detect editor zoom level in canvas */}
+            <div
+                ref={zoomProbeRef}
+                style={{
+                    position: "absolute",
+                    width: 20,
+                    height: 20,
+                    opacity: 0,
+                    pointerEvents: "none",
+                }}
+            />
             <canvas
                 ref={canvasRef}
                 style={{
+                    position: "absolute",
+                    inset: 0,
                     width: "100%",
                     height: "100%",
                     display: "block",
@@ -1168,20 +1277,20 @@ addPropertyControls(HeatmapComponent, {
         min: 0,
         max: 1,
         step: 0.1,
-        defaultValue: 0.5,
+        defaultValue: 0.1,
     },
     cursorSize: {
         type: ControlType.Number,
         title: "Cursor Size",
-        min: 0.02,
-        max: 0.3,
-        step: 0.02,
-        defaultValue: 0.08,
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.4,
     },
     cursorStrength: {
         type: ControlType.Number,
         title: "Cursor Intensity",
-        min: 0,
+        min: 0.1,
         max: 1,
         step: 0.1,
         defaultValue: 0.5,
