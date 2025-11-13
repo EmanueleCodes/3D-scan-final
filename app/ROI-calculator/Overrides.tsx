@@ -1,20 +1,20 @@
 /**
  * ROI Calculator - Form Input & Calculation Overrides
- * 
+ *
  * This file contains overrides for:
  * - Form input handling (GMV, AOV, LMN, Transaction Volume)
  * - Calculations (Incremental GMV, ROI)
  * - Form validation
  * - Step listeners for individual components
  * - Button interactions
- * 
+ *
  * For FLOW CONTROL overrides (withOneStepFlow, withThreeStepFlow, etc.),
  * see FlowSteps.tsx
  */
 
 import type { ComponentType } from "react"
 import { useEffect, useState } from "react"
-import { useFormStore, useVariantStore } from "./Orchestrator.tsx"
+import { createStore } from "https://framer.com/m/framer/store.js@^1.0.0"
 
 // Hide number input spinners (up/down arrows)
 if (typeof document !== "undefined") {
@@ -40,10 +40,30 @@ interface OverrideProps {
     [key: string]: unknown
 }
 
+export const useFormStore = createStore({
+    merchantGMV: 0,
+    averageOrderValue: 0,
+    lmnAttachRate: 0,
+    transactionVolume: 0,
+    isFormValid: false,
+})
+
+export const useVariantStore = createStore({
+    currentStep: 1,
+    flowType: "1to2to3",
+    isInitialized: false,
+    resetCounter: 0,
+    errors: {
+        merchantGMV: false,
+        averageOrderValue: false,
+        lmnAttachRate: false,
+    },
+})
+
 // Constants for calculations
-const VOLUME_UPLIFT = 0.10 // 10%
+const VOLUME_UPLIFT = 0.1 // 10%
 const TRANSACTION_FEE_PERCENT = 0.045 // 4.50%
-const TRANSACTION_FEE_DOLLAR = 0.30 // $0.30
+const TRANSACTION_FEE_DOLLAR = 0.3 // $0.30
 const LMN_FEE = 10 // $10
 
 // Utility function to format currency
@@ -391,7 +411,7 @@ export function withTransactionVolume<T extends OverrideProps>(
             const input = document.querySelector(
                 'input[name="TransactionVolume"]'
             ) as HTMLInputElement
-            
+
             if (input) {
                 configureNumericInput(input)
                 input.value = "0"
@@ -408,7 +428,9 @@ export function withTransactionVolume<T extends OverrideProps>(
             }
 
             // Update store with calculated value (only if significantly changed to avoid loops)
-            const difference = Math.abs(store.transactionVolume - transactionVolume)
+            const difference = Math.abs(
+                store.transactionVolume - transactionVolume
+            )
 
             if (difference > 0) {
                 setStore({
@@ -418,10 +440,9 @@ export function withTransactionVolume<T extends OverrideProps>(
             }
 
             // Format for display with commas and up to 2 decimals
-            const formatted = transactionVolume > 0 
-                ? formatNumber(transactionVolume) 
-                : "0"
-            
+            const formatted =
+                transactionVolume > 0 ? formatNumber(transactionVolume) : "0"
+
             setDisplayValue(formatted)
 
             // Also update the input field if it exists
@@ -429,16 +450,23 @@ export function withTransactionVolume<T extends OverrideProps>(
             const input = document.querySelector(
                 'input[name="TransactionVolume"]'
             ) as HTMLInputElement
-            
+
             if (input) {
                 const formattedInput =
-                    transactionVolume > 0 ? formatNumber(transactionVolume) : "0"
+                    transactionVolume > 0
+                        ? formatNumber(transactionVolume)
+                        : "0"
 
                 if (input.value !== formattedInput) {
                     input.value = formattedInput
                 }
             }
-        }, [store.merchantGMV, store.averageOrderValue, store.transactionVolume, setStore])
+        }, [
+            store.merchantGMV,
+            store.averageOrderValue,
+            store.transactionVolume,
+            setStore,
+        ])
 
         return (
             <Component
@@ -484,18 +512,17 @@ export function withROI<T extends OverrideProps>(
         const [displayValue, setDisplayValue] = useState("0.00x")
 
         useEffect(() => {
-            const {
-                merchantGMV,
-                transactionVolume,
-                lmnAttachRate,
-            } = store
+            const { merchantGMV, transactionVolume, lmnAttachRate } = store
 
             // Calculate Incremental GMV
             const incrementalGMV = merchantGMV * VOLUME_UPLIFT
 
             // Calculate Total Flex Fee
             const component1 =
-                TRANSACTION_FEE_PERCENT * merchantGMV * (1 + VOLUME_UPLIFT) * VOLUME_UPLIFT
+                TRANSACTION_FEE_PERCENT *
+                merchantGMV *
+                (1 + VOLUME_UPLIFT) *
+                VOLUME_UPLIFT
             const component2 =
                 TRANSACTION_FEE_DOLLAR * transactionVolume * VOLUME_UPLIFT
             const component3 =
@@ -511,84 +538,22 @@ export function withROI<T extends OverrideProps>(
 
             // Format for display
             setDisplayValue(`${roi.toFixed(2)}x`)
-        }, [
-            store.merchantGMV,
-            store.transactionVolume,
-            store.lmnAttachRate,
-        ])
+        }, [store.merchantGMV, store.transactionVolume, store.lmnAttachRate])
 
         return <Component {...props} text={displayValue} />
-    }
-}
-
-// Bonus: Override to validate entire form and switch variants
-export function withFormValidation<T extends OverrideProps>(
-    Component: ComponentType<T>
-): ComponentType<T> {
-    return (props: T) => {
-        const [store] = useFormStore()
-        const [isValid, setIsValid] = useState(false)
-
-        useEffect(() => {
-            // Check if all required fields are filled
-            const valid =
-                store.merchantGMV > 0 &&
-                store.averageOrderValue > 0 &&
-                store.lmnAttachRate > 0
-
-            setIsValid(valid)
-        }, [
-            store.merchantGMV,
-            store.averageOrderValue,
-            store.lmnAttachRate,
-        ])
-
-        return (
-            <Component
-                {...props}
-                style={{
-                    ...props.style,
-                    opacity: isValid ? 1 : 0.5,
-                    pointerEvents: isValid ? "auto" : "none",
-                }}
-            />
-        )
     }
 }
 
 
 
 // Helper function for form validation
-function validateForm(formStore: Record<string, number>): Record<string, boolean> {
+function validateForm(
+    formStore: Record<string, number>
+): Record<string, boolean> {
     return {
         merchantGMV: formStore.merchantGMV <= 0,
         averageOrderValue: formStore.averageOrderValue <= 0,
         lmnAttachRate: formStore.lmnAttachRate <= 0,
-    }
-}
-
-// 6b. withStepVariant - Apply to MAIN COMPONENT to sync variant with current step
-// Reads currentStep from store and applies the correct variant
-export function withStepVariant<T extends OverrideProps>(
-    Component: ComponentType<T>
-): ComponentType<T> {
-    return (props: T) => {
-        const [variantStore] = useVariantStore()
-
-        // Map step number to variant name
-        const variantMap: Record<number, string> = {
-            1: "Step 1",
-            2: "Step 2",
-            3: "Step 3",
-        }
-
-        const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-        return (
-            <Component
-                {...props}
-                variant={targetVariant}
-            />
-        )
     }
 }
 
@@ -611,27 +576,23 @@ export function withStepListener<T extends OverrideProps>(
 
         // Update local variant whenever store changes
         useEffect(() => {
-            const targetVariant = variantMap[variantStore.currentStep] || "Step 1"
-            console.log("🎨 withStepListener: store changed", { 
-                currentStep: variantStore.currentStep, 
+            const targetVariant =
+                variantMap[variantStore.currentStep] || "Step 1"
+            console.log("🎨 withStepListener: store changed", {
+                currentStep: variantStore.currentStep,
                 targetVariant,
-                currentLocalVariant: localVariant
+                currentLocalVariant: localVariant,
             })
             setLocalVariant(targetVariant)
         }, [variantStore.currentStep])
 
-        console.log("🎨 withStepListener: rendering", { 
-            currentStep: variantStore.currentStep, 
+        console.log("🎨 withStepListener: rendering", {
+            currentStep: variantStore.currentStep,
             localVariant,
-            propsVariant: props.variant
+            propsVariant: props.variant,
         })
-        
-        return (
-            <Component
-                {...props}
-                variant={localVariant}
-            />
-        )
+
+        return <Component {...props} variant={localVariant} />
     }
 }
 
@@ -648,12 +609,12 @@ export function withStepButton<T extends OverrideProps>(
         const [variantStore, setVariantStore] = useVariantStore()
 
         const handleClick = () => {
-            console.log("🔘 withStepButton: button clicked", { 
+            console.log("🔘 withStepButton: button clicked", {
                 currentStep: variantStore.currentStep,
                 flowType: variantStore.flowType,
-                formStore
+                formStore,
             })
-            
+
             // ONLY handle clicks when on Step 1
             if (variantStore.currentStep !== 1) {
                 console.log("⚠️ withStepButton: ignoring click, not on Step 1")
@@ -667,7 +628,10 @@ export function withStepButton<T extends OverrideProps>(
             const errors = validateForm(formStore)
             const hasErrors = Object.values(errors).some(Boolean)
 
-            console.log("✅ withStepButton: validation result", { errors, hasErrors })
+            console.log("✅ withStepButton: validation result", {
+                errors,
+                hasErrors,
+            })
 
             if (hasErrors) {
                 console.log("❌ withStepButton: showing errors")
@@ -675,16 +639,16 @@ export function withStepButton<T extends OverrideProps>(
             } else {
                 // Determine next step based on flow type
                 let nextStep = 2 // Default to Step 2
-                
+
                 if (variantStore.flowType === "1to3") {
                     nextStep = 3 // Skip to Step 3
                 } else if (variantStore.flowType === "1to2to3") {
                     nextStep = 2 // Go to Step 2 (email gate)
                 }
-                
-                console.log("🚀 withStepButton: advancing to next step", { 
+
+                console.log("🚀 withStepButton: advancing to next step", {
                     flowType: variantStore.flowType,
-                    nextStep 
+                    nextStep,
                 })
 
                 setVariantStore({
@@ -699,43 +663,7 @@ export function withStepButton<T extends OverrideProps>(
             }
         }
 
-        return (
-            <Component
-                {...props}
-                onClick={handleClick}
-            />
-        )
-    }
-}
-
-// 9. withStep3Indicator - Apply to the FINAL CTA BUTTON (visible only on Step 3)
-// When this button mounts, it tells the store we're at Step 3
-// BUT: Only after initial setup is complete (to avoid interfering with resets)
-export function withStep3Indicator<T extends OverrideProps>(
-    Component: ComponentType<T>
-): ComponentType<T> {
-    return (props: T) => {
-        const [variantStore, setVariantStore] = useVariantStore()
-        const [hasSetStep, setHasSetStep] = useState(false)
-
-        useEffect(() => {
-            // Wait a tick to ensure FlowSteps overrides have run first
-            const timeout = setTimeout(() => {
-                // Only set to Step 3 if we're not already there and haven't set it yet
-                if (variantStore.currentStep !== 3 && !hasSetStep) {
-                    console.log("🔧 withStep3Indicator: setting currentStep to 3")
-                    setVariantStore({
-                        ...variantStore,
-                        currentStep: 3,
-                    })
-                    setHasSetStep(true)
-                }
-            }, 100) // Small delay to let resets happen first
-
-            return () => clearTimeout(timeout)
-        }, [variantStore.currentStep]) // Watch current step
-
-        return <Component {...props} />
+        return <Component {...props} onClick={handleClick} />
     }
 }
 
@@ -747,9 +675,7 @@ function clearErrorMessages(): void {
 }
 
 // Helper function to display error messages
-function displayErrorMessages(
-    errors: Record<string, boolean>
-): void {
+function displayErrorMessages(errors: Record<string, boolean>): void {
     // Add error messages for invalid fields
     if (errors.merchantGMV) {
         addErrorMessage("MerchantGMV", "This field is required")

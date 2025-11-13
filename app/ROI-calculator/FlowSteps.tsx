@@ -1,6 +1,6 @@
 import type { ComponentType } from "react"
 import { useEffect } from "react"
-import { useVariantStore } from "./Orchestrator.tsx"
+import { useVariantStore } from "./Overrides.tsx"
 
 /**
  * Flow Step Overrides
