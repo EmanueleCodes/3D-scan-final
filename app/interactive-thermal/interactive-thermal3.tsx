@@ -22,6 +22,8 @@ interface HeatmapProps {
     noise?: number
     innerGlow?: number
     outerGlow?: number
+    cursorSize?: number
+    cursorStrength?: number
     image?: string | ResponsiveImage
 }
 
@@ -48,8 +50,8 @@ const DEFAULT_PALETTE = [
             "#ff4c00",
     "#ff4c00",
     "#ff4c00",
-    "#ff4c00",
-]
+            "#ff4c00",
+        ]
 
 const parseSimpleColor = (value: string): [number, number, number, number] | null => {
     if (!value) return null
@@ -435,9 +437,12 @@ void main() {
     inner = pow(inner, 1.2);
     float heat = clamp(inner + outer, 0., 1.);
 
-    // Add cursor trail heat contribution
+    // Add cursor trail heat contribution (masked to black pixels only)
     float cursorHeat = texture(u_heatmap, v_objectUV + 0.5).r;
-    heat = max(heat, pow(cursorHeat, 0.5) * 1.2);
+    cursorHeat *= (1.0 - shape); // Only show on black pixels (shape = 0 for black)
+    cursorHeat *= imgSoftFrame; // Also respect the image frame
+    // Boost cursor to reach red-orange colors at high intensity
+    heat = max(heat, pow(cursorHeat, 0.8) * 1.2);
 
     heat += (.005 + .35 * u_noise) * (fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453123) - .5);
 
@@ -584,6 +589,8 @@ export default function HeatmapComponent({
     noise = 0.05,
     innerGlow = 0.5,
     outerGlow = 0.5,
+    cursorSize = 0.08,
+    cursorStrength = 0.5,
     image = DEFAULT_IMAGE,
 }: HeatmapProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -611,6 +618,11 @@ export default function HeatmapComponent({
     })
     const [glReady, setGlReady] = useState(false)
     const processedUrlRef = useRef<string | null>(null)
+    
+    // Heat texture and cursor trail system - MUST init before WebGL
+    const heatmapBufferRef = useRef<Uint8Array | null>(null)
+    const heatmapDataRef = useRef<any>(null)
+    const lastMouseTimeRef = useRef(0)
 
     const applyColorUniforms = (
         gl: WebGL2RenderingContext,
@@ -641,6 +653,13 @@ export default function HeatmapComponent({
     useEffect(() => {
         paramsRef.current = { angle, noise, innerGlow, outerGlow, contour }
     }, [angle, noise, innerGlow, outerGlow, contour])
+
+    // Initialize heat texture on component mount - MUST happen before WebGL setup
+    useEffect(() => {
+        const data = new Uint8Array(HEAT_RESOLUTION * HEAT_RESOLUTION * 4)
+        heatmapBufferRef.current = data
+        heatmapDataRef.current = { texture: null, needsUpdate: false }
+    }, [])
 
     useEffect(() => {
         const canvas = canvasRef.current
@@ -811,6 +830,9 @@ export default function HeatmapComponent({
             log("Image failed to load", event, image)
         }
 
+        // Load original image immediately, process in background
+        img.src = resolvedSrc
+
         const startProcessing = async () => {
             try {
                 const blob = await toProcessedHeatmap(resolvedSrc)
@@ -820,16 +842,17 @@ export default function HeatmapComponent({
                 }
                 const objectUrl = URL.createObjectURL(blob)
                 processedUrlRef.current = objectUrl
+                // Update to processed version only if it's ready
                 img.src = objectUrl
+                log("Heatmap preprocessing complete")
             } catch (error) {
                 log("Heatmap preprocessing failed; using original image", error)
-                if (!cancelled) {
-                    img.src = resolvedSrc
-                }
+                // Already have original loaded, no need to do anything
             }
         }
 
-        startProcessing()
+        // Defer processing to next tick to avoid blocking render
+        requestAnimationFrame(() => startProcessing())
 
         const resize = () => {
             const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -961,10 +984,6 @@ export default function HeatmapComponent({
         gl.uniform4f(uniformLocs.u_colorBack, bg[0], bg[1], bg[2], bg[3])
     }, [colors?.bgColor, glReady])
 
-    // Heat texture and cursor trail system
-    const heatmapBufferRef = useRef<Uint8Array | null>(null)
-    const heatmapDataRef = useRef<any>(null)
-    
     const stampHeat = (nx: number, ny: number) => {
         const buffer = heatmapBufferRef.current
         if (!buffer) return
@@ -972,9 +991,9 @@ export default function HeatmapComponent({
         const size = HEAT_RESOLUTION
         const centerX = Math.max(0, Math.min(size - 1, Math.round(nx * (size - 1))))
         const centerY = Math.max(0, Math.min(size - 1, Math.round(ny * (size - 1))))
-        const radius = 12 // Trail brush radius
+        const radius = Math.max(1, cursorSize * size) // Trail brush radius based on cursorSize prop
         const radiusSq = radius * radius
-        const intensity = 0.8 // Trail intensity
+        const intensity = Math.max(0, Math.min(1, cursorStrength)) // Trail intensity based on cursorStrength prop
         
         const minX = Math.max(0, Math.floor(centerX - radius))
         const maxX = Math.min(size - 1, Math.ceil(centerX + radius))
@@ -1027,21 +1046,13 @@ export default function HeatmapComponent({
         }
     }
 
-    // Initialize heat texture on component mount
-    useEffect(() => {
-        const data = new Uint8Array(HEAT_RESOLUTION * HEAT_RESOLUTION * 4)
-        heatmapBufferRef.current = data
-        heatmapDataRef.current = { needsUpdate: false }
-        
-        return () => {
-            heatmapBufferRef.current = null
-            heatmapDataRef.current = null
-        }
-    }, [])
-
-
-    // Handle mouse movement for heat trail
+    // Handle mouse movement for heat trail with throttling
     const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        const now = Date.now()
+        // Throttle to ~16ms (60fps) to avoid excessive updates
+        if (now - lastMouseTimeRef.current < 16) return
+        lastMouseTimeRef.current = now
+
         const canvas = canvasRef.current
         if (!canvas) return
         
@@ -1052,7 +1063,6 @@ export default function HeatmapComponent({
         const ny = (e.clientY - rect.top) / rect.height
         
         stampHeat(nx, 1 - ny)
-        log("Cursor at", { nx, ny })
     }
 
     return (
@@ -1155,6 +1165,22 @@ addPropertyControls(HeatmapComponent, {
     outerGlow: {
         type: ControlType.Number,
         title: "Glow Out",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
+    },
+    cursorSize: {
+        type: ControlType.Number,
+        title: "Cursor Size",
+        min: 0.02,
+        max: 0.3,
+        step: 0.02,
+        defaultValue: 0.08,
+    },
+    cursorStrength: {
+        type: ControlType.Number,
+        title: "Cursor Intensity",
         min: 0,
         max: 1,
         step: 0.1,
