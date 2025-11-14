@@ -95,3 +95,39 @@ declare module 'glslify' {
   const glsl: (source: string) => string
   export default glsl
 }
+
+declare module "@tsparticles/engine" {
+  export interface Engine {
+    addInteractor?(name: string, interactor: unknown): void
+    addParticleUpdater?(name: string, updater: unknown): void
+  }
+
+  export interface Container {
+    readonly canvas: HTMLCanvasElement
+  }
+}
+
+declare module "@tsparticles/react" {
+  import type { ComponentType } from "react"
+  import type { Container, Engine } from "@tsparticles/engine"
+
+  export interface ParticlesProps {
+    id?: string
+    className?: string
+    options?: Record<string, unknown>
+    particlesLoaded?: (container?: Container) => void | Promise<void>
+  }
+
+  const Particles: ComponentType<ParticlesProps>
+
+  export default Particles
+  export function initParticlesEngine(
+    initializer: (engine: Engine) => Promise<void> | void
+  ): Promise<void>
+}
+
+declare module "@tsparticles/slim" {
+  import type { Engine } from "@tsparticles/engine"
+
+  export function loadSlim(engine: Engine): Promise<void>
+}
