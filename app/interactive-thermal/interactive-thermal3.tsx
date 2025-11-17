@@ -860,9 +860,7 @@ export default function HeatmapComponent({
             log("Image failed to load", event, image)
         }
 
-        // Load original image immediately, process in background
-        img.src = resolvedSrc
-
+        // Process image first, then load it to avoid showing unprocessed version
         const startProcessing = async () => {
             try {
                 const blob = await toProcessedHeatmap(resolvedSrc)
@@ -872,17 +870,20 @@ export default function HeatmapComponent({
                 }
                 const objectUrl = URL.createObjectURL(blob)
                 processedUrlRef.current = objectUrl
-                // Update to processed version only if it's ready
+                // Load processed version
                 img.src = objectUrl
                 log("Heatmap preprocessing complete")
             } catch (error) {
                 log("Heatmap preprocessing failed; using original image", error)
-                // Already have original loaded, no need to do anything
+                // Fallback to original if processing fails
+                if (!cancelled) {
+                    img.src = resolvedSrc
+                }
             }
         }
 
-        // Defer processing to next tick to avoid blocking render
-        requestAnimationFrame(() => startProcessing())
+        // Start processing immediately
+        startProcessing()
 
         const resize = () => {
             if (!gl) return
@@ -1289,7 +1290,7 @@ addPropertyControls(HeatmapComponent, {
     },
     cursorStrength: {
         type: ControlType.Number,
-        title: "Cursor Intensity",
+        title: "Intensity",
         min: 0.1,
         max: 1,
         step: 0.1,

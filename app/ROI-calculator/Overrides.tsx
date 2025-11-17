@@ -2,11 +2,12 @@
  * ROI Calculator - Form Input & Calculation Overrides
  *
  * This file contains overrides for:
- * - Form input handling (GMV, AOV, LMN, Transaction Volume)
+ * - Form input handling (GMV, AOV, LMN, Transaction Volume, Email)
  * - Calculations (Incremental GMV, ROI)
- * - Form validation
+ * - Form validation (including work email validation)
  * - Step listeners for individual components
- * - Button interactions
+ * - Button interactions (including email button disable/enable)
+ * - Error message display
  *
  * For FLOW CONTROL overrides (withOneStepFlow, withThreeStepFlow, etc.),
  * see FlowSteps.tsx
@@ -46,6 +47,8 @@ export const useFormStore = createStore({
     lmnAttachRate: 0,
     transactionVolume: 0,
     isFormValid: false,
+    workEmail: "",
+    isWorkEmailValid: false,
 })
 
 export const useVariantStore = createStore({
@@ -58,6 +61,7 @@ export const useVariantStore = createStore({
         averageOrderValue: false,
         lmnAttachRate: false,
     },
+    emailErrorVisible: false,
 })
 
 // Constants for calculations
@@ -717,4 +721,185 @@ function addErrorMessage(inputName: string, message: string): void {
 
     // Insert after input in the DOM
     input.parentElement?.parentElement?.appendChild(errorEl)
+}
+
+// Utility function to validate work email
+// Returns true if email is valid and NOT from a personal domain
+function isWorkEmail(email: string): boolean {
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+        return false
+    }
+
+    // List of common personal email domains to reject
+    const personalDomains = [
+        "gmail.com",
+        "yahoo.com",
+        "hotmail.com",
+        "outlook.com",
+        "icloud.com",
+        "aol.com",
+        "protonmail.com",
+        "mail.com",
+        "zoho.com",
+        "yandex.com",
+        "gmx.com",
+        "live.com",
+        "msn.com",
+        "me.com",
+        "mac.com",
+    ]
+
+    // Extract domain from email
+    const domain = email.split("@")[1]?.toLowerCase()
+
+    // Check if domain is in the personal domains list
+    return !personalDomains.includes(domain)
+}
+
+// 9. withWorkEmailCheck - Validates work email input
+export function withWorkEmailCheck<T extends OverrideProps>(
+    Component: ComponentType<T>
+): ComponentType<T> {
+    return (props: T) => {
+        const [store, setStore] = useFormStore()
+        const [variantStore, setVariantStore] = useVariantStore()
+        const [localValue, setLocalValue] = useState("")
+
+        // Initialize input value from store on mount
+        useEffect(() => {
+            const input = document.querySelector(
+                'input[name="Email"]'
+            ) as HTMLInputElement
+
+            if (!input) {
+                return
+            }
+
+            const targetValue = store.workEmail || ""
+
+            if (input.value !== targetValue) {
+                input.value = targetValue
+            }
+
+            setLocalValue((current) =>
+                current === targetValue ? current : targetValue
+            )
+        }, [store.workEmail])
+
+        // Monitor input changes
+        useEffect(() => {
+            const interval = setInterval(() => {
+                const input = document.querySelector(
+                    'input[name="Email"]'
+                ) as HTMLInputElement
+
+                if (!input) {
+                    return
+                }
+
+                const rawValue = input.value.trim()
+
+                if (rawValue === localValue) {
+                    return
+                }
+
+                setLocalValue(rawValue)
+
+                // Validate email
+                const isValid = isWorkEmail(rawValue)
+
+                // Update store
+                if (
+                    rawValue !== store.workEmail ||
+                    isValid !== store.isWorkEmailValid
+                ) {
+                    setStore({
+                        ...store,
+                        workEmail: rawValue,
+                        isWorkEmailValid: isValid,
+                    })
+
+                    // Hide error message when typing a valid email
+                    if (isValid && variantStore.emailErrorVisible) {
+                        setVariantStore({
+                            ...variantStore,
+                            emailErrorVisible: false,
+                        })
+                    }
+                }
+            }, 100)
+
+            return () => clearInterval(interval)
+        }, [localValue, store, setStore, variantStore, setVariantStore])
+
+        return <Component {...props} />
+    }
+}
+
+// 10. withDisableEmailButton - Disables button when email is invalid
+export function withDisableEmailButton<T extends OverrideProps>(
+    Component: ComponentType<T>
+): ComponentType<T> {
+    return (props: T) => {
+        const [formStore] = useFormStore()
+        const [variantStore, setVariantStore] = useVariantStore()
+
+        const handleClick = (event: React.MouseEvent) => {
+            // If email is invalid, prevent default action and show error message
+            if (!formStore.isWorkEmailValid) {
+                event.preventDefault()
+                event.stopPropagation()
+                setVariantStore({
+                    ...variantStore,
+                    emailErrorVisible: true,
+                })
+                return
+            }
+            // If email is valid, allow the original onClick to proceed
+            if (props.onClick && typeof props.onClick === "function") {
+                ;(props.onClick as (event: React.MouseEvent) => void)(event)
+            }
+        }
+
+        // Determine button variant based on email validity
+        const isDisabled = !formStore.isWorkEmailValid
+        const buttonVariant = formStore.isWorkEmailValid ? "Default" : "Disabled"
+
+        return (
+            <Component
+                {...props}
+                variant={buttonVariant}
+                onClick={handleClick}
+                style={{
+                    ...props.style,
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                }}
+            />
+        )
+    }
+}
+
+// 11. withShowErrorMessage - Shows error message when email is invalid
+export function withShowErrorMessage<T extends OverrideProps>(
+    Component: ComponentType<T>
+): ComponentType<T> {
+    return (props: T) => {
+        const [variantStore] = useVariantStore()
+
+        // Show/hide error message based on store state
+        const shouldShow = variantStore.emailErrorVisible
+
+        return (
+            <Component
+                {...props}
+                style={{
+                    ...props.style,
+                    opacity: shouldShow ? 1 : 0,
+                    pointerEvents: shouldShow ? "auto" : "none",
+                }}
+            />
+        )
+    }
 }

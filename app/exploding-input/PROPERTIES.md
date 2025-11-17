@@ -1,50 +1,67 @@
-Exploding Input - Property Controls
+Exploding Tap - Property Controls
 
 Preview
-Shows or hides the particle animation while editing in Framer. Turn it off when you're positioning the component to save performance.
+When enabled, automatically spawns particles in the Framer canvas to preview the effect without user interaction.
 
 Mode
-Choose between Components mode (uses component instances as particles) or Images mode (uses uploaded images as particles).
+Sets the content type for particles: Components (uses component instances) or Images (uses image assets).
 
 Content
-Add component instances that will be used as particles when text is entered into the input field. Only visible in Components mode.
+Add component instances that will be used as particles when they spawn. Only visible in Components mode.
 
 Count
-Sets how many images to cycle through when using Images mode. Images 1-10 will appear based on this count. Only visible in Images mode.
+Sets how many different images will be used as particles. Only visible in Images mode.
 
 Image 1-10
-Upload images to use as particles. Each image will be randomly selected when particles spawn. Images appear based on the Count setting. Only visible in Images mode.
+Add images to use as particles. Each image slot appears based on the Count setting. Only visible in Images mode.
 
 Width
-Controls the width of particle images in pixels. Only visible in Images mode.
+Controls the width of image particles in pixels. Only visible in Images mode.
 
 Height
-Controls the height of particle images in pixels. Only visible in Images mode.
+Controls the height of image particles in pixels. Only visible in Images mode.
 
 Amount
-Sets how many particles spawn each time text is entered. Higher values create more particles at once.
+Sets how many particles spawn when you click or tap the component.
 
 Scale
-Controls the base size of particles. Values below 1 make particles smaller, values above 1 make them larger.
+Controls the size of particles when they spawn.
+
+Scale
+Sets the base size multiplier for all particles. Values below 1 make particles smaller, above 1 make them larger.
 
 Randomize
-When enabled, adds random variation to particle scale. Each particle will be slightly different in size.
+When enabled, allows particles to have varying sizes instead of a uniform scale.
 
 Variation
-Sets how much the scale can vary from the base value, as a percentage. Only visible when Randomize is enabled. Higher values create more size variation between particles.
+Controls how much particle sizes can vary from the base scale, as a percentage. Only visible when Randomize is enabled.
 
 Rotation
-Sets the initial rotation angle of particles in degrees. Positive values rotate clockwise, negative values rotate counterclockwise.
+Controls particle rotation behavior.
+
+Rotation
+Sets the initial rotation angle of particles in degrees.
 
 Animate
-When enabled, particles will rotate continuously during their animation. The rotation will be randomized for each particle.
+When enabled, particles will rotate as they move. Without animation, particles maintain their initial rotation.
 
 Direction
-Controls which direction particles fly when they spawn. Horizontal controls left/right movement, Vertical controls up/down movement. Center options result in no movement in that axis.
+Controls which direction particles fly when spawned.
+
+Horizontal
+Sets the horizontal launch direction: left (←), center (•), or right (→).
+
+Vertical
+Sets the vertical launch direction: top (↑), center (•), or bottom (↓).
+
+Speed
+Controls how fast particles move after spawning. Higher values create faster movement.
+
+Randomness
+Controls how much random variation is added to particle trajectories. Higher values create more chaotic, spread-out patterns.
 
 Gravity
-Controls how strongly particles are pulled down (positive values) or up (negative values). At 0, particles move in a straight line. Higher absolute values create stronger gravitational pull.
+Controls the gravitational force affecting particles. Positive values pull particles down, negative values pull them up. At 0, particles move in straight lines.
 
 Duration
-Sets how long particles remain visible before fading out, in seconds. Longer durations allow particles to travel further before disappearing.
-
+Sets how long particles remain visible before fading out, measured in seconds. More components at [Framer University](https://frameruni.link/cc).
