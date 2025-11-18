@@ -18,9 +18,49 @@ interface InfiniteCanvasProps {
     scrollSpeed?: number
     dragSpeed?: number
     ease?: number
-    parallax?: number
+    parallax?: {
+        enabled?: boolean
+        general?: number
+        child?: number
+    }
     enableDrag?: boolean
     style?: React.CSSProperties
+}
+
+/**
+ * Linear mapping function: Maps UI values to internal values
+ * UI 0.1-1 → Internal 0.1-2
+ */
+function mapLinear(
+    value: number,
+    inMin: number,
+    inMax: number,
+    outMin: number,
+    outMax: number
+): number {
+    if (inMax === inMin) return outMin
+    const t = (value - inMin) / (inMax - inMin)
+    return outMin + t * (outMax - outMin)
+}
+
+/**
+ * Maps speed UI values (0.1-1) to internal values (0.1-2)
+ * UI 0.1 → Internal 0.1
+ * UI 1.0 → Internal 2.0
+ */
+function mapSpeedUiToInternal(ui: number): number {
+    const clamped = Math.max(0.1, Math.min(1, ui))
+    return mapLinear(clamped, 0.1, 1.0, 0.1, 2.0)
+}
+
+/**
+ * Maps ease UI values (0-1) to internal values (0.01-0.2)
+ * UI 0 → Internal 0.01 (smoother)
+ * UI 1 → Internal 0.2 (snappier)
+ */
+function mapEaseUiToInternal(ui: number): number {
+    const clamped = Math.max(0, Math.min(1, ui))
+    return mapLinear(clamped, 0, 1.0, 0.01, 0.2)
 }
 
 /**
@@ -33,18 +73,27 @@ interface InfiniteCanvasProps {
 
 export default function InfiniteCanvas({
     scrollSpeed = 0.4,
-    dragSpeed = 1,
-    ease = 0.06,
-    parallax = 1,
+    dragSpeed = 0.5,
+    ease = 0.3,
+    parallax = {
+        enabled: true,
+        general: 1,
+        child: 1,
+    },
     enableDrag = true,
     style,
 }: InfiniteCanvasProps) {
+    // Map UI values to internal values
+    const internalScrollSpeed = mapSpeedUiToInternal(scrollSpeed)
+    const internalDragSpeed = mapSpeedUiToInternal(dragSpeed)
+    const internalEase = mapEaseUiToInternal(ease)
+    
     const containerRef = useRef<HTMLDivElement>(null)
     const parentElementRef = useRef<HTMLElement | null>(null)
     const trackedElementsRef = useRef<TrackedElement[]>([])
 
     const scroll = useRef({
-        ease: ease,
+        ease: internalEase,
         current: { x: 0, y: 0 },
         target: { x: 0, y: 0 },
         last: { x: 0, y: 0 },
@@ -67,6 +116,9 @@ export default function InfiniteCanvas({
 
     // Find parent element and initialize tracked elements
     useEffect(() => {
+
+        if (RenderTarget.current() === RenderTarget.canvas) return;
+
         const container = containerRef.current
         if (!container) return
 
@@ -219,13 +271,15 @@ export default function InfiniteCanvas({
 
     // Handle wheel events for scrolling
     useEffect(() => {
+        if (RenderTarget.current() === RenderTarget.canvas) return;
+        
         const parentElement = parentElementRef.current
         if (!parentElement) return
 
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault()
-            scroll.current.target.x -= e.deltaX * scrollSpeed
-            scroll.current.target.y -= e.deltaY * scrollSpeed
+            scroll.current.target.x -= e.deltaX * internalScrollSpeed
+            scroll.current.target.y -= e.deltaY * internalScrollSpeed
         }
 
         window.addEventListener("wheel", handleWheel, { passive: false })
@@ -237,6 +291,8 @@ export default function InfiniteCanvas({
 
     // Handle drag events
     useEffect(() => {
+        if (RenderTarget.current() === RenderTarget.canvas) return;
+        
         const parentElement = parentElementRef.current
         if (!parentElement || !enableDrag) return
 
@@ -264,8 +320,8 @@ export default function InfiniteCanvas({
             if (isDragging.current) {
                 const dx = e.clientX - drag.current.startX
                 const dy = e.clientY - drag.current.startY
-                scroll.current.target.x = drag.current.scrollX + dx * dragSpeed
-                scroll.current.target.y = drag.current.scrollY + dy * dragSpeed
+                scroll.current.target.x = drag.current.scrollX + dx * internalDragSpeed
+                scroll.current.target.y = drag.current.scrollY + dy * internalDragSpeed
             }
         }
 
@@ -295,8 +351,8 @@ export default function InfiniteCanvas({
                 mouse.current.y.t = touch.clientY / winH.current
                 const dx = touch.clientX - drag.current.startX
                 const dy = touch.clientY - drag.current.startY
-                scroll.current.target.x = drag.current.scrollX + dx * dragSpeed
-                scroll.current.target.y = drag.current.scrollY + dy * dragSpeed
+                scroll.current.target.x = drag.current.scrollX + dx * internalDragSpeed
+                scroll.current.target.y = drag.current.scrollY + dy * internalDragSpeed
             }
         }
 
@@ -323,34 +379,19 @@ export default function InfiniteCanvas({
 
     // Update ease value when prop changes
     useEffect(() => {
-        scroll.current.ease = ease
+        if (RenderTarget.current() === RenderTarget.canvas) return;
+        
+        scroll.current.ease = mapEaseUiToInternal(ease)
     }, [ease])
 
     // Animation loop
     const render = () => {
-        const isCanvas = RenderTarget.current() === RenderTarget.canvas
+        // EARLY RETURN: If in canvas mode, don't run any animation logic
+        // Reset all elements to original positions and return immediately
+        // This ensures the canvas is completely untouched by the effect
+        if (RenderTarget.current() === RenderTarget.canvas) return
 
-        // If in canvas mode, reset all elements to original positions (no transforms)
-        // Also hide clones so designers only see the original elements
-        if (isCanvas) {
-            trackedElementsRef.current.forEach((item) => {
-                item.el.style.transform = ""
-                // Hide clones in canvas mode
-                if (item.isClone) {
-                    item.el.style.display = "none"
-                    item.el.style.opacity = "0"
-                } else {
-                    item.el.style.display = ""
-                    item.el.style.opacity = ""
-                }
-                // Reset first child transform if it exists
-                const firstChild = item.el.firstElementChild as HTMLElement
-                if (firstChild) {
-                    firstChild.style.transform = ""
-                }
-            })
-            return
-        }
+        // All animation logic below only runs in preview/live mode
 
         // In preview/live mode, show original elements and manage clone visibility dynamically
         trackedElementsRef.current.forEach((item) => {
@@ -408,12 +449,14 @@ export default function InfiniteCanvas({
             const originalItem = group.find((i) => !i.isClone) || item
             
             // Parallax = scroll delta effect + mouse position effect
+            // Only apply if parallax is enabled
+            const parallaxMultiplier = parallax?.enabled ? (parallax.general ?? 1) : 0
             const parallaxX =
                 5 * scroll.current.delta.x.c * originalItem.ease +
-                (mouse.current.x.c - 0.5) * originalItem.width * 0.6 * parallax
+                (mouse.current.x.c - 0.5) * originalItem.width * 0.6 * parallaxMultiplier
             const parallaxY =
                 5 * scroll.current.delta.y.c * originalItem.ease +
-                (mouse.current.y.c - 0.5) * originalItem.height * 0.6 * parallax
+                (mouse.current.y.c - 0.5) * originalItem.height * 0.6 * parallaxMultiplier
 
             // POSITION CALCULATION
             const scrollX = scroll.current.current.x
@@ -470,14 +513,27 @@ export default function InfiniteCanvas({
             }
 
             // Apply parallax scale effect on press
-            const scale = 1.2 + 0.2 * mouse.current.press.c * item.ease
-            const translateX = -mouse.current.x.c * item.ease * 10 * parallax
-            const translateY = -mouse.current.y.c * item.ease * 10 * parallax
+            // parallax.child multiplies the effect intensity (0 = no effect, 1 = full effect)
+            // When parallax.child = 0, scale should be 1 (no scaling) and translate should be 0
+            const insideParallaxValue = parallax?.enabled ? (parallax.child ?? 1) : 0
+            const scale = 1 + 0.2 * mouse.current.press.c * item.ease * insideParallaxValue
+            
+            // Center the translate around zero by subtracting 0.5 from normalized mouse position
+            // mouse.x.c ranges from 0 to 1, so (mouse.x.c - 0.5) ranges from -0.5 to +0.5
+            // This allows translate to go both positive and negative, centered at zero
+            const generalParallax = parallax?.general ?? 1
+            const translateX = (0.5 - mouse.current.x.c) * item.ease * 20 * generalParallax * insideParallaxValue
+            const translateY = (0.5 - mouse.current.y.c) * item.ease * 20 * generalParallax * insideParallaxValue
 
             // Apply to first child if it exists (for nested content)
             const firstChild = item.el.firstElementChild as HTMLElement
             if (firstChild) {
-                firstChild.style.transform = `scale(${scale}) translate(${translateX}%, ${translateY}%)`
+                // When parallax.child = 0 or parallax.enabled = false, apply no transform (identity)
+                if (insideParallaxValue === 0) {
+                    firstChild.style.transform = "none"
+                } else {
+                    firstChild.style.transform = `scale(${scale}) translate(${translateX}%, ${translateY}%)`
+                }
             }
         })
 
@@ -520,51 +576,73 @@ export default function InfiniteCanvas({
 }
 
 addPropertyControls(InfiniteCanvas, {
-    scrollSpeed: {
-        type: ControlType.Number,
-        title: "Scroll Speed",
-        min: 0.1,
-        max: 2,
-        step: 0.1,
-        defaultValue: 0.4,
+    enableDrag: {
+        type: ControlType.Boolean,
+        title: "Enable Drag",
+        defaultValue: true,
     },
     dragSpeed: {
         type: ControlType.Number,
         title: "Drag Speed",
         min: 0.1,
-        max: 2,
+        max: 1,
         step: 0.1,
-        defaultValue: 1,
+        defaultValue: 0.5,
+        hidden: (props) => !props.enableDrag,
     },
+    scrollSpeed: {
+        type: ControlType.Number,
+        title: "Scroll Speed",
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.4,
+    },
+    
     ease: {
         type: ControlType.Number,
-        title: "Smoothness",
-        min: 0.01,
-        max: 0.2,
-        step: 0.01,
-        defaultValue: 0.06,
-        description: "Lower = smoother, higher = snappier",
+        title: "Snappy",
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.3,
     },
     parallax: {
-        type: ControlType.Number,
+        type: ControlType.Object,
         title: "Parallax",
-        min: 0,
-        max: 2,
-        step: 0.1,
-        defaultValue: 1,
-    },
-    enableDrag: {
-        type: ControlType.Boolean,
-        title: "Enable Drag",
-        defaultValue: true,
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
-    },
-    style: {
-        type: ControlType.Object,
-        title: "Style",
-        controls: {},
-        hidden: () => true,
+        controls: {
+            enabled: {
+                type: ControlType.Boolean,
+                title: "Enabled",
+                defaultValue: true,
+                enabledTitle: "On",
+                disabledTitle: "Off",
+            },
+            general: {
+                type: ControlType.Number,
+                title: "General",
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: 1,
+            },
+            child: {
+                type: ControlType.Number,
+                title: "Child",
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: 1,
+                description: "Controls the parallax effect intensity on inner elements (0 = no effect, 1 = full effect)",
+            },
+        },
+        defaultValue: {
+            enabled: true,
+            general: 1,
+            child: 1,
+        },
     },
 })
 
