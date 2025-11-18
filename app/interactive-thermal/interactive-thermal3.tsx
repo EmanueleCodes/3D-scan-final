@@ -622,6 +622,8 @@ export default function HeatmapComponent({
         contour,
     })
     const [glReady, setGlReady] = useState(false)
+    const [imageReady, setImageReady] = useState(false) // Track when image is fully loaded
+    const hadFirstImageRef = useRef(false) // Track if we've ever loaded an image
     const processedUrlRef = useRef<string | null>(null)
     
     // Heat texture and cursor trail system - MUST init before WebGL
@@ -669,6 +671,41 @@ export default function HeatmapComponent({
         paramsRef.current = { angle, noise, innerGlow, outerGlow, contour }
     }, [angle, noise, innerGlow, outerGlow, contour])
 
+    // Helper function to resolve image source
+    const resolveImageSource = (input?: string | ResponsiveImage): string => {
+        if (!input) return DEFAULT_IMAGE
+        if (typeof input === "string" && input.trim().length > 0) return input.trim()
+        if (typeof input === "object") {
+            const possibleSources: Array<unknown> = [
+                input.src,
+                input.url,
+                input.default,
+                input.asset?.url,
+            ]
+            if (typeof input.srcSet === "string") {
+                possibleSources.push(
+                    input.srcSet
+                        .split(",")
+                        .map((entry) => entry.trim().split(" ")[0])
+                        .filter(Boolean)[0]
+                )
+            } else if (Array.isArray(input.srcSet)) {
+                possibleSources.push(
+                    input.srcSet.map((entry) => entry?.src).filter(Boolean)[0]
+                )
+            }
+            const resolved = possibleSources.find(
+                (value): value is string =>
+                    typeof value === "string" && value.trim().length > 0
+            )
+            if (resolved) return resolved.trim()
+        }
+        return DEFAULT_IMAGE
+    }
+
+    // Extract actual image URL to avoid unnecessary re-renders
+    const resolvedImageUrl = resolveImageSource(image)
+
     // Initialize heat texture on component mount - MUST happen before WebGL setup
     useEffect(() => {
         const data = new Uint8Array(HEAT_RESOLUTION * HEAT_RESOLUTION * 4)
@@ -677,6 +714,11 @@ export default function HeatmapComponent({
     }, [])
 
     useEffect(() => {
+        // Only hide canvas on initial load, not when switching images
+        if (!hadFirstImageRef.current) {
+            setImageReady(false)
+        }
+        
         const canvas = canvasRef.current
         if (!canvas) return
 
@@ -795,45 +837,12 @@ export default function HeatmapComponent({
         const img = new Image()
         img.crossOrigin = "anonymous"
         imageRef.current = img
-        log("Image load started", image)
-
-        const resolveImageSource = (input?: string | ResponsiveImage): string => {
-            if (!input) return DEFAULT_IMAGE
-            if (typeof input === "string" && input.trim().length > 0) return input.trim()
-            if (typeof input === "object") {
-                const possibleSources: Array<unknown> = [
-                    input.src,
-                    input.url,
-                    input.default,
-                    input.asset?.url,
-                ]
-                if (typeof input.srcSet === "string") {
-                    possibleSources.push(
-                        input.srcSet
-                            .split(",")
-                            .map((entry) => entry.trim().split(" ")[0])
-                            .filter(Boolean)[0]
-                    )
-                } else if (Array.isArray(input.srcSet)) {
-                    possibleSources.push(
-                        input.srcSet.map((entry) => entry?.src).filter(Boolean)[0]
-                    )
-                }
-                const resolved = possibleSources.find(
-                    (value): value is string =>
-                        typeof value === "string" && value.trim().length > 0
-                )
-                if (resolved) return resolved.trim()
-            }
-            return DEFAULT_IMAGE
-        }
-
-        const resolvedSrc = resolveImageSource(image)
-        log("Resolved image source", resolvedSrc)
+        log("Image load started", resolvedImageUrl)
 
         let cancelled = false
 
         img.onload = () => {
+            if (cancelled) return
             gl.bindTexture(gl.TEXTURE_2D, texture)
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img)
             if (uniformLocs.u_imageAspectRatio) {
@@ -854,16 +863,23 @@ export default function HeatmapComponent({
             const scale = imgWidth / (imgWidth + 2 * padding)
             imageScaleRef.current = scale
             log("Image loaded", { width: img.width, height: img.height, scale })
+            // Signal that image is ready and start rendering
+            hadFirstImageRef.current = true
+            setImageReady(true)
+            if (!animationRef.current) {
+                animationRef.current = requestAnimationFrame(render)
+                log("Render loop started after image load")
+            }
         }
 
         img.onerror = (event) => {
-            log("Image failed to load", event, image)
+            log("Image failed to load", event, resolvedImageUrl)
         }
 
         // Process image first, then load it to avoid showing unprocessed version
         const startProcessing = async () => {
             try {
-                const blob = await toProcessedHeatmap(resolvedSrc)
+                const blob = await toProcessedHeatmap(resolvedImageUrl)
                 if (cancelled) return
                 if (processedUrlRef.current) {
                     URL.revokeObjectURL(processedUrlRef.current)
@@ -877,7 +893,7 @@ export default function HeatmapComponent({
                 log("Heatmap preprocessing failed; using original image", error)
                 // Fallback to original if processing fails
                 if (!cancelled) {
-                    img.src = resolvedSrc
+                    img.src = resolvedImageUrl
                 }
             }
         }
@@ -967,8 +983,9 @@ export default function HeatmapComponent({
             }
         }
 
-        animationRef.current = requestAnimationFrame(render)
-        log("Render loop started")
+        // Don't start render loop here - wait for image to load
+        // animationRef.current = requestAnimationFrame(render)
+        log("WebGL setup complete, waiting for image to load")
         setGlReady(true)
 
         const resizeCleanup = RenderTarget.current() === RenderTarget.canvas 
@@ -1017,6 +1034,7 @@ export default function HeatmapComponent({
             cancelled = true
             if (animationRef.current) {
                 cancelAnimationFrame(animationRef.current)
+                animationRef.current = null
             }
             if (texture) {
                 gl.deleteTexture(texture)
@@ -1039,8 +1057,9 @@ export default function HeatmapComponent({
             }
             log("WebGL resources cleaned up")
             setGlReady(false)
+            // Don't reset imageReady here to avoid flicker during transitions
         }
-    }, [image])
+    }, [resolvedImageUrl])
 
     useEffect(() => {
         if (!glReady) return
@@ -1198,6 +1217,8 @@ export default function HeatmapComponent({
                     width: "100%",
                     height: "100%",
                     display: "block",
+                    opacity: imageReady ? 1 : 0,
+                    transition: "opacity 0.1s ease-in-out",
                 }}
             />
         </div>

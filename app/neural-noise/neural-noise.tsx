@@ -245,7 +245,7 @@ function mapLinear(
  */
 const NeuralNoise: ComponentType<NeuralNoiseProps> = (props) => {
     const {
-        backgroundColor = "#151912",
+        backgroundColor = "transparent",
         animationSpeed = 0.5,
         pointerStrength = 0.3,
         intensity = 0.45,
@@ -470,7 +470,7 @@ const NeuralNoise: ComponentType<NeuralNoiseProps> = (props) => {
             programRef.current = null
             colorUniformsRef.current = { colorA: null, colorB: null }
         }
-    }, [mappedAnimationSpeed, mappedPointerStrength, mappedIntensity, detail, preview])
+    }, [mappedAnimationSpeed, mappedPointerStrength, mappedIntensity, detail, preview,primaryColor, secondaryColor, backgroundColor])
 
     useEffect(() => {
         colorsRef.current.colorA = parseColorToRgb(primaryColor, "#007BFF")
@@ -571,7 +571,8 @@ addPropertyControls(NeuralNoise, {
     backgroundColor: {
         type: ControlType.Color,
         title: "Background",
-        defaultValue: "#151912",
+        defaultValue: "#0e0e0e",
+        optional:true
     },
     secondaryColor: {
         type: ControlType.Color,
