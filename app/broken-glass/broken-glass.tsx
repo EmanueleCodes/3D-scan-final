@@ -17,7 +17,7 @@ type ResponsiveImage =
 interface BrokenGlassProps {
     preview: boolean
     image?: string | ResponsiveImage
-    effectOn?: boolean
+    breakAgain?: boolean
     distance?: number
     edgeThickness?: number
     style?: React.CSSProperties
@@ -62,7 +62,7 @@ const resolveImageSource = (input?: string | ResponsiveImage): string | null => 
 export default function BrokenGlass({
     preview = false,
     image,
-    effectOn = true,
+    breakAgain = true,
     distance = 0.5,
     edgeThickness = 0.5,
     style,
@@ -78,6 +78,8 @@ export default function BrokenGlass({
     const clickRandomizerRef = useRef(0.332)
     const [imageReady, setImageReady] = useState(false)
     const imageReadyRef = useRef(false)
+    const [isBroken, setIsBroken] = useState(false)
+    const isBrokenRef = useRef(false)
     
     // Track canvas size changes to trigger resize
     const lastCanvasSizeRef = useRef<{ w: number; h: number; aspect: number; ts: number }>({
@@ -94,7 +96,6 @@ export default function BrokenGlass({
 
     // Refs for live property updates - allows property changes to update immediately
     // without reinitializing the entire WebGL context
-    const effectOnRef = useRef(effectOn)
     const distanceRef = useRef(distance)
     const edgeThicknessRef = useRef(edgeThickness)
 
@@ -103,10 +104,12 @@ export default function BrokenGlass({
         imageReadyRef.current = imageReady
     }, [imageReady])
 
-    // Update refs when props change - this pattern ensures real-time updates in canvas mode
+    // Sync isBroken state with ref
     useEffect(() => {
-        effectOnRef.current = effectOn
-    }, [effectOn])
+        isBrokenRef.current = isBroken
+    }, [isBroken])
+
+    // Update refs when props change - this pattern ensures real-time updates in canvas mode
 
     useEffect(() => {
         // Map from UI range [0-1] to shader range [0-0.2]
@@ -410,7 +413,8 @@ export default function BrokenGlass({
             gl.uniform1f(uniforms.u_effect, distanceRef.current)
         }
         if (uniforms.u_effect_active) {
-            gl.uniform1f(uniforms.u_effect_active, effectOnRef.current ? 1 : 0)
+            // Effect is active only when glass is broken
+            gl.uniform1f(uniforms.u_effect_active, isBrokenRef.current ? 1 : 0)
         }
         if (uniforms.u_edge_thickness) {
             gl.uniform1f(uniforms.u_edge_thickness, edgeThicknessRef.current)
@@ -458,8 +462,12 @@ export default function BrokenGlass({
     useEffect(() => {
         if (!resolvedImageUrl) {
             setImageReady(false)
+            setIsBroken(false) // Reset broken state when image changes
             return
         }
+        
+        // Reset broken state when image changes
+        setIsBroken(false)
 
         const canvas = canvasRef.current
         if (!canvas) return
@@ -600,22 +608,47 @@ export default function BrokenGlass({
                 textureRef.current = null
             }
             imageReadyRef.current = false
+            isBrokenRef.current = false
         }
     }, [resolvedImageUrl, isCanvas, preview])
 
-    // Handle canvas click to break glass at cursor position
+    // Handle canvas click to break/unbreak glass
+    // Behavior controlled by breakAgain prop:
+    // - breakAgain = true (Toggle mode): Click to break, click again to unbreak, and so on
+    // - breakAgain = false (One-time mode): Can only break once, stays broken forever
     const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
         const canvas = canvasRef.current
         if (!canvas) return
 
-        const rect = canvas.getBoundingClientRect()
-        // Convert click position to normalized coordinates (0-1)
-        const x = (e.clientX - rect.left) / rect.width
-        const y = (e.clientY - rect.top) / rect.height
+        if (breakAgain) {
+            // Toggle mode: click to break, click again to unbreak, etc.
+            if (!isBroken) {
+                // Breaking the glass
+                const rect = canvas.getBoundingClientRect()
+                const x = (e.clientX - rect.left) / rect.width
+                const y = (e.clientY - rect.top) / rect.height
+                
+                pointerRef.current = { x, y }
+                clickRandomizerRef.current = Math.random()
+                setIsBroken(true)
+            } else {
+                // Unbreaking the glass
+                setIsBroken(false)
+            }
+        } else {
+            // One-time mode: can only break once
+            if (!isBroken) {
+                const rect = canvas.getBoundingClientRect()
+                const x = (e.clientX - rect.left) / rect.width
+                const y = (e.clientY - rect.top) / rect.height
+                
+                pointerRef.current = { x, y }
+                clickRandomizerRef.current = Math.random()
+                setIsBroken(true)
+            }
+            // If already broken, do nothing
+        }
 
-        // Update pointer position and randomize crack pattern
-        pointerRef.current = { x, y }
-        clickRandomizerRef.current = Math.random()
         updateUniforms()
 
         // Force immediate render in canvas mode (since animation loop might be paused)
@@ -624,13 +657,13 @@ export default function BrokenGlass({
         }
     }
 
-    // Force render when properties change in canvas mode
+    // Force render when properties change in canvas mode or broken state changes
     useEffect(() => {
         if (isCanvas && imageReady && glRef.current) {
             updateUniforms()
             glRef.current.drawArrays(glRef.current.TRIANGLE_STRIP, 0, 4)
         }
-    }, [effectOn, distance, edgeThickness, isCanvas, imageReady])
+    }, [distance, edgeThickness, isBroken, isCanvas, imageReady])
 
     // Show empty state when no image
     if (!hasImage) {
@@ -658,6 +691,24 @@ export default function BrokenGlass({
         )
     }
 
+    // In canvas mode with preview off, just show the plain image (no WebGL)
+    if (isCanvas && !preview) {
+        return (
+            <div
+                style={{
+                    ...style,
+                    position: "relative",
+                    width: "100%",
+                    height: "100%",
+                    backgroundImage: `url(${resolvedImageUrl})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    backgroundRepeat: "no-repeat",
+                }}
+            />
+        )
+    }
+
     return (
         <div
             ref={containerRef}
@@ -667,7 +718,7 @@ export default function BrokenGlass({
                 width: "100%",
                 height: "100%",
                 overflow: "hidden",
-                cursor: "crosshair",
+                cursor: (!breakAgain && isBroken) ? "default" : "pointer",
             }}
         >
             <canvas
@@ -699,12 +750,12 @@ addPropertyControls(BrokenGlass, {
         type: ControlType.ResponsiveImage,
         title: "Image",
     },
-    effectOn: {
+    breakAgain: {
         type: ControlType.Boolean,
-        title: "Effect",
+        title: "Break",
         defaultValue: true,
-        enabledTitle: "On",
-        disabledTitle: "Off",
+        enabledTitle: "Toggle",
+        disabledTitle: "Once",
     },
     distance: {
         type: ControlType.Number,
