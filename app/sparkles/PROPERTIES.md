@@ -22,4 +22,4 @@ Sparkle
 Sets the color of the sparkle particles.
 
 Background
-Sets the background color of the component. More components at [Framer University](https://frameruni.link/cc).
+Sets the background color of the component.
