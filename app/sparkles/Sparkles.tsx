@@ -161,6 +161,7 @@ export default function Sparkles({
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const particlesRef = useRef<Particle[]>([])
     const animationRef = useRef<number | null>(null)
+    const lastFrameTimeRef = useRef<number>(0) // Track last frame time for delta-time
     const lastRef = useRef<{
         w: number
         h: number
@@ -230,8 +231,15 @@ export default function Sparkles({
         const particleColorRgba = parseColorToRgba(resolvedParticleColor)
         const particleColorBase = rgbaToCanvasColor({ ...particleColorRgba, a: 1 }) // Base color without alpha
 
-        const animate = () => {
+        const animate = (currentTime: number) => {
             if (!canvas || !ctx) return
+
+            // Calculate delta time (time since last frame) for frame-rate independent animation
+            // Target 60fps (16.67ms) as baseline
+            const deltaTime = lastFrameTimeRef.current === 0 
+                ? 1 
+                : Math.min((currentTime - lastFrameTimeRef.current) / 16.67, 3) // Cap at 3x to prevent huge jumps
+            lastFrameTimeRef.current = currentTime
 
             const width = canvas.width / (window.devicePixelRatio || 1)
             const height = canvas.height / (window.devicePixelRatio || 1)
@@ -242,11 +250,20 @@ export default function Sparkles({
             ctx.fillRect(0, 0, width, height)
 
             // Update and draw particles
-            particlesRef.current.forEach((particle) => {
+            const particles = particlesRef.current
+            const particleCount = particles.length
+            const baseAlpha = particleColorRgba.a
+            
+            // Set fill style once for all particles (performance optimization)
+            ctx.fillStyle = particleColorBase
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = particles[i]
+                
                 // Update position
                 if (shouldAnimate) {
-                    particle.x += particle.vx
-                    particle.y += particle.vy
+                    particle.x += particle.vx * deltaTime
+                    particle.y += particle.vy * deltaTime
 
                     // Wrap around edges
                     if (particle.x < 0) particle.x = width
@@ -254,22 +271,25 @@ export default function Sparkles({
                     if (particle.y < 0) particle.y = height
                     if (particle.y > height) particle.y = 0
 
-                    // Update opacity (flicker effect)
-                    particle.opacity += particle.opacityVel * mappedSpeed * 0.5
-                    if (particle.opacity <= 0.1 || particle.opacity >= 1) {
-                        particle.opacityVel *= -1
+                    // Update opacity (flicker effect) - frame-rate independent
+                    particle.opacity += particle.opacityVel * mappedSpeed * 0.5 * deltaTime
+                    
+                    // Bounce opacity at boundaries and clamp
+                    if (particle.opacity <= 0.1) {
+                        particle.opacity = 0.1
+                        particle.opacityVel = Math.abs(particle.opacityVel) // Make positive
+                    } else if (particle.opacity >= 1) {
+                        particle.opacity = 1
+                        particle.opacityVel = -Math.abs(particle.opacityVel) // Make negative
                     }
-                    particle.opacity = Math.max(0.1, Math.min(1, particle.opacity))
                 }
 
                 // Draw particle with combined opacity (particleColor alpha * particle opacity)
-                const combinedAlpha = particleColorRgba.a * particle.opacity
-                ctx.fillStyle = particleColorBase
-                ctx.globalAlpha = combinedAlpha
+                ctx.globalAlpha = baseAlpha * particle.opacity
                 ctx.beginPath()
                 ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2)
                 ctx.fill()
-            })
+            }
 
             ctx.globalAlpha = 1
 
@@ -278,7 +298,9 @@ export default function Sparkles({
             }
         }
 
-        animate()
+        // Reset frame time and start animation
+        lastFrameTimeRef.current = 0
+        animationRef.current = requestAnimationFrame(animate)
 
         // Canvas resize detection for Framer Canvas
         let resizeRafId = 0
@@ -304,17 +326,22 @@ export default function Sparkles({
                         resize()
                         if (!shouldAnimate) {
                             // Render one frame in canvas mode when preview is off
+                            const particles = particlesRef.current
+                            const particleCount = particles.length
+                            const baseAlpha = particleColorRgba.a
+                            
                             ctx.clearRect(0, 0, cw, ch)
                             ctx.fillStyle = backgroundColor
                             ctx.fillRect(0, 0, cw, ch)
                             ctx.fillStyle = particleColorBase
-                            particlesRef.current.forEach((particle) => {
-                                const combinedAlpha = particleColorRgba.a * particle.opacity
-                                ctx.globalAlpha = combinedAlpha
+                            
+                            for (let i = 0; i < particleCount; i++) {
+                                const particle = particles[i]
+                                ctx.globalAlpha = baseAlpha * particle.opacity
                                 ctx.beginPath()
                                 ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2)
                                 ctx.fill()
-                            })
+                            }
                             ctx.globalAlpha = 1
                         }
                     }
@@ -362,17 +389,22 @@ export default function Sparkles({
             const height = canvas.height / (window.devicePixelRatio || 1)
 
             // Force render with new colors
+            const particles = particlesRef.current
+            const particleCount = particles.length
+            const baseAlpha = particleColorRgba.a
+            
             ctx.clearRect(0, 0, width, height)
             ctx.fillStyle = backgroundColor
             ctx.fillRect(0, 0, width, height)
             ctx.fillStyle = particleColorBase
-            particlesRef.current.forEach((particle) => {
-                const combinedAlpha = particleColorRgba.a * particle.opacity
-                ctx.globalAlpha = combinedAlpha
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = particles[i]
+                ctx.globalAlpha = baseAlpha * particle.opacity
                 ctx.beginPath()
                 ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2)
                 ctx.fill()
-            })
+            }
             ctx.globalAlpha = 1
         }
     }, [background, particleColor, preview])
