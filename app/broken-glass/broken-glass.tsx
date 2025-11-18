@@ -542,10 +542,10 @@ export default function BrokenGlass({
 
         img.src = resolvedImageUrl
 
-        // Resize handling - different approaches for canvas vs live preview
-        const resizeCleanup = isCanvas 
+        // Resize handling - only run polling when preview is ON in canvas mode
+        const resizeCleanup = (isCanvas && preview)
             ? (() => {
-                // Canvas mode: Use polling to detect resize (since Framer canvas doesn't fire resize events)
+                // Canvas mode with preview ON: Use polling to detect resize
                 let rafId = 0
                 const TICK_MS = 100 // Check every 100ms for responsive resizing
                 const EPS_ASPECT = 0.001
@@ -583,7 +583,8 @@ export default function BrokenGlass({
                 rafId = requestAnimationFrame(tick)
                 return () => cancelAnimationFrame(rafId)
             })()
-            : (() => {
+            : !isCanvas
+            ? (() => {
                 // Live preview: Use standard resize event
                 const handleResize = () => {
                     resizeCanvas()
@@ -595,6 +596,10 @@ export default function BrokenGlass({
                 }
                 window.addEventListener("resize", handleResize)
                 return () => window.removeEventListener("resize", handleResize)
+            })()
+            : (() => {
+                // Canvas mode with preview OFF: No resize detection needed
+                return () => {}
             })()
 
         return () => {
@@ -618,7 +623,8 @@ export default function BrokenGlass({
     // - breakAgain = false (One-time mode): Can only break once, stays broken forever
     const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
         const canvas = canvasRef.current
-        if (!canvas) return
+        const gl = glRef.current
+        if (!canvas || !gl) return
 
         if (breakAgain) {
             // Toggle mode: click to break, click again to unbreak, etc.
@@ -630,9 +636,22 @@ export default function BrokenGlass({
                 
                 pointerRef.current = { x, y }
                 clickRandomizerRef.current = Math.random()
+                
+                // Update ref immediately for instant WebGL render (performance optimization)
+                isBrokenRef.current = true
+                updateUniforms()
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+                
+                // Update state for React consistency (happens after visual update)
                 setIsBroken(true)
             } else {
                 // Unbreaking the glass
+                // Update ref immediately for instant WebGL render
+                isBrokenRef.current = false
+                updateUniforms()
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+                
+                // Update state for React consistency
                 setIsBroken(false)
             }
         } else {
@@ -644,18 +663,35 @@ export default function BrokenGlass({
                 
                 pointerRef.current = { x, y }
                 clickRandomizerRef.current = Math.random()
+                
+                // Update ref immediately for instant WebGL render (performance optimization)
+                isBrokenRef.current = true
+                updateUniforms()
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+                
+                // Update state for React consistency (happens after visual update)
                 setIsBroken(true)
             }
             // If already broken, do nothing
         }
-
-        updateUniforms()
-
-        // Force immediate render in canvas mode (since animation loop might be paused)
-        if (isCanvas && glRef.current) {
-            glRef.current.drawArrays(glRef.current.TRIANGLE_STRIP, 0, 4)
-        }
     }
+
+    // Auto-break glass in canvas mode when preview turns ON
+    useEffect(() => {
+        if (isCanvas && preview && imageReady) {
+            // Set glass as broken with center position when preview is enabled
+            pointerRef.current = { x: 0.5, y: 0.5 }
+            clickRandomizerRef.current = Math.random()
+            isBrokenRef.current = true
+            setIsBroken(true)
+            
+            // Force immediate render
+            if (glRef.current) {
+                updateUniforms()
+                glRef.current.drawArrays(glRef.current.TRIANGLE_STRIP, 0, 4)
+            }
+        }
+    }, [isCanvas, preview, imageReady])
 
     // Force render when properties change in canvas mode or broken state changes
     useEffect(() => {
