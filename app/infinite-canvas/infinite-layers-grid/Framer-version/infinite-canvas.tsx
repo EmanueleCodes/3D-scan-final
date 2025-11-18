@@ -492,11 +492,13 @@ export default function InfiniteCanvas({
             const finalY = item.y + scrollY + item.extraY + parallaxY
 
             // CLONE VISIBILITY
-            // Only show clones when they enter the parent bounds
+            // Show clones with a buffer zone before they enter the viewport
+            // This prevents elements from popping in when already visible
             if (item.isClone) {
+                const buffer = Math.max(item.width, item.height, 200) // Buffer zone in pixels
                 const isVisible = 
-                    (finalX >= -item.width && finalX <= parentW) &&
-                    (finalY >= -item.height && finalY <= parentH)
+                    (finalX >= -item.width - buffer && finalX <= winW.current + buffer) &&
+                    (finalY >= -item.height - buffer && finalY <= winH.current + buffer)
                 
                 item.el.style.opacity = isVisible ? "1" : "0"
                 item.el.style.pointerEvents = isVisible ? "auto" : "none"
