@@ -64,4 +64,4 @@ Gravity
 Controls the gravitational force affecting particles. Positive values pull particles down, negative values pull them up. At 0, particles move in straight lines.
 
 Duration
-Sets how long particles remain visible before fading out, measured in seconds. More components at [Framer University](https://frameruni.link/cc).
+Sets how long particles remain visible before fading out, measured in seconds. 
