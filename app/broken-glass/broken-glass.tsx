@@ -120,8 +120,11 @@ export default function BrokenGlass({
         edgeThicknessRef.current = edgeThickness * 0.02
     }, [edgeThickness])
 
-    // Inner scale: render image at 90% to leave padding for displaced glass shards
-    const innerScale = 0.769
+    // Canvas scale: how much larger the canvas is compared to the container
+    const canvasScale = 1.3
+    
+    // Inner scale: image fills the container exactly when distance = 0
+    const innerScale = 1.0
 
     // Vertex shader
     const vertexShader = `
@@ -150,6 +153,7 @@ export default function BrokenGlass({
         uniform float u_effect;
         uniform float u_effect_active;
         uniform float u_inner_scale;
+        uniform float u_canvas_scale;
 
         #define TWO_PI 6.28318530718
         #define PI 3.14159265358979323846
@@ -202,25 +206,31 @@ export default function BrokenGlass({
         }
 
         vec2 get_img_uv() {
-            vec2 uv = vUv - .5;
+            // Start from canvas UV and center
+            vec2 uv = vUv - 0.5;
             
-            // Apply inner scale first (scale UP the UVs to render image smaller)
-            // This leaves padding around edges for displaced glass shards
+            // First shrink to container size inside overscanned canvas
+            uv *= u_canvas_scale;
+            
+            // Map only the central inner rectangle to the image by expanding UVs
+            // Dividing by the inner scale means only a center region of size u_inner_scale
+            // in canvas space maps into [0,1]; outside becomes <0 or >1 and thus transparent
             uv /= u_inner_scale;
             
-            // Cover behavior: zoom in to fill container, cropping the overflow
-            // We scale DOWN the UV coordinates (< 1.0) to sample less of the image (zoom in)
-            if (u_ratio > u_img_ratio) {
-                // Canvas is wider - image is relatively taller
-                // Scale Y down to zoom in vertically (crop top/bottom)
-                uv.y *= u_img_ratio / u_ratio;
+            // Apply object-fit: cover mapping (same logic as liquidHover)
+            float containerAspect = u_ratio; // width / height of container (not canvas)
+            float imageAspect = u_img_ratio; // image width / height
+            vec2 scale = vec2(1.0);
+            if (containerAspect > imageAspect) {
+                // Container is wider than image: scale to fill height, crop left/right
+                scale.y = imageAspect / containerAspect;
             } else {
-                // Canvas is taller - image is relatively wider
-                // Scale X down to zoom in horizontally (crop left/right)
-                uv.x *= u_ratio / u_img_ratio;
+                // Container is taller than image: scale to fill width, crop top/bottom
+                scale.x = containerAspect / imageAspect;
             }
+            uv *= scale;
             
-            uv += .5;
+            uv += 0.5;
             uv.y = 1. - uv.y;
 
             return uv;
@@ -435,6 +445,10 @@ export default function BrokenGlass({
         if (uniforms.u_inner_scale) {
             gl.uniform1f(uniforms.u_inner_scale, innerScale)
         }
+        if (uniforms.u_canvas_scale) {
+            // Map canvas UVs to container UVs (zoom into center region)
+            gl.uniform1f(uniforms.u_canvas_scale, canvasScale)
+        }
     }
 
     // Resize canvas to match container
@@ -451,9 +465,9 @@ export default function BrokenGlass({
         const height = container.clientHeight || container.offsetHeight || 1
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
         
-        // Device-pixel backing store for crisp rendering
-        canvas.width = Math.max(2, Math.round(width * dpr))
-        canvas.height = Math.max(2, Math.round(height * dpr))
+        // Device-pixel backing store for crisp rendering with overscan
+        canvas.width = Math.max(2, Math.round(width * canvasScale * dpr))
+        canvas.height = Math.max(2, Math.round(height * canvasScale * dpr))
 
         gl.viewport(0, 0, canvas.width, canvas.height)
 
