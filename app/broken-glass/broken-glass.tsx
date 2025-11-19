@@ -212,28 +212,28 @@ export default function BrokenGlass({
             // First shrink to container size inside overscanned canvas
             uv *= u_canvas_scale;
             
-            // Map only the central inner rectangle to the image by expanding UVs
-            // Dividing by the inner scale means only a center region of size u_inner_scale
-            // in canvas space maps into [0,1]; outside becomes <0 or >1 and thus transparent
-            uv /= u_inner_scale;
-            
-            // Apply object-fit: cover mapping (same logic as liquidHover)
-            float containerAspect = u_ratio; // width / height of container (not canvas)
-            float imageAspect = u_img_ratio; // image width / height
+            // Apply object-fit: cover mapping (EXACT copy from liquidHover)
+            float containerAspect = u_ratio;
+            float imageAspect = u_img_ratio;
             vec2 scale = vec2(1.0);
             if (containerAspect > imageAspect) {
-                // Container is wider than image: scale to fill height, crop left/right
                 scale.y = imageAspect / containerAspect;
             } else {
-                // Container is taller than image: scale to fill width, crop top/bottom
                 scale.x = containerAspect / imageAspect;
             }
             uv *= scale;
             
-            uv += 0.5;
-            uv.y = 1. - uv.y;
+            // Map only the central inner rectangle to the image by expanding UVs
+            uv /= u_inner_scale;
+            
+            return uv + 0.5;
+        }
 
-            return uv;
+        vec2 get_frame_uv() {
+            vec2 uv = vUv - 0.5;
+            uv *= u_canvas_scale;
+            uv /= u_inner_scale;
+            return uv + 0.5;
         }
 
         vec2 get_disturbed_uv(vec2 uv, float section_constant, float edge, vec2 direction, float border) {
@@ -316,7 +316,8 @@ export default function BrokenGlass({
                 sector_start_angle += sector_size;
             }
 
-            float img_edge_alpha = get_img_frame_alpha(img_uv, .004);
+            vec2 frame_uv = get_frame_uv();
+            float img_edge_alpha = get_img_frame_alpha(frame_uv, .004);
             is_sector_edge = 1. - is_sector_edge;
 
             float cracks_edge = max(is_grid_edge, is_sector_edge);
@@ -326,14 +327,16 @@ export default function BrokenGlass({
             cracks_edge += central_cracks;
 
             if (u_effect_active > 0.) {
-                img_uv = get_disturbed_uv(img_uv, sector_constant, cracks_edge, pointer_direction, get_img_frame_alpha(img_uv, .2));
+                float border = get_img_frame_alpha(frame_uv, .2);
+                img_uv = get_disturbed_uv(img_uv, sector_constant, cracks_edge, pointer_direction, border);
+                frame_uv = get_disturbed_uv(frame_uv, sector_constant, cracks_edge, pointer_direction, border);
             }
 
-            vec4 img = texture2D(u_image_texture, img_uv);
+            vec4 img = texture2D(u_image_texture, vec2(img_uv.x, 1.0 - img_uv.y));
             color = img.rgb;
             color += .12 * u_effect_active * (sector_constant - .5);
 
-            img_edge_alpha = get_img_frame_alpha(img_uv, .004);
+            img_edge_alpha = get_img_frame_alpha(frame_uv, .004);
             float opacity = img_edge_alpha;
             opacity -= .3 * u_effect_active * pow(is_grid_edge, 4.);
             opacity -= .3 * u_effect_active * is_central_edge;
@@ -446,7 +449,8 @@ export default function BrokenGlass({
             gl.uniform1f(uniforms.u_inner_scale, innerScale)
         }
         if (uniforms.u_canvas_scale) {
-            // Map canvas UVs to container UVs (zoom into center region)
+            // Map container area (center of oversized canvas) to full UV range
+            // This shrinks the coordinate space so the image fits in the center 76.9%
             gl.uniform1f(uniforms.u_canvas_scale, canvasScale)
         }
     }
@@ -468,6 +472,12 @@ export default function BrokenGlass({
         // Device-pixel backing store for crisp rendering with overscan
         canvas.width = Math.max(2, Math.round(width * canvasScale * dpr))
         canvas.height = Math.max(2, Math.round(height * canvasScale * dpr))
+        
+        // CSS pixels for layout/centering (same as liquidHover)
+        const cssW = width * canvasScale
+        const cssH = height * canvasScale
+        canvas.style.width = `${cssW}px`
+        canvas.style.height = `${cssH}px`
 
         gl.viewport(0, 0, canvas.width, canvas.height)
 
@@ -770,14 +780,11 @@ export default function BrokenGlass({
                 onClick={handleClick}
                 style={{
                     position: "absolute",
-                    // top: 0,
-                    // left: 0,
-                    width: "130%",
-                    height: "130%",
                     top: "-15%",
                     left: "-15%",
                     display: "block",
                     opacity: imageReady ? 1 : 0,
+                    // width and height set dynamically in resizeCanvas()
                 }}
             />
         </div>
