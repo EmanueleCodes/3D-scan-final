@@ -72,7 +72,6 @@ export default function BrokenGlass({
     const glRef = useRef<WebGLRenderingContext | null>(null)
     const uniformsRef = useRef<Record<string, WebGLUniformLocation | null>>({})
     const imageRef = useRef<HTMLImageElement | null>(null)
-    const animationRef = useRef<number | null>(null)
     const textureRef = useRef<WebGLTexture | null>(null)
     const pointerRef = useRef({ x: 0.55, y: 0.5 })
     const clickRandomizerRef = useRef(0.332)
@@ -514,24 +513,12 @@ export default function BrokenGlass({
 
             resizeCanvas()
             updateUniforms()
+            
+            // Initial render (no continuous loop needed since effect is static)
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+            
             setImageReady(true)
             imageReadyRef.current = true
-
-            // Render loop - continuously updates and draws the WebGL scene
-            const render = () => {
-                if (!gl) return
-                updateUniforms()
-                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                
-                // Only continue animation loop if in preview mode or not in canvas
-                // This optimizes performance in Framer canvas when preview is off
-                if (!isCanvas || preview) {
-                    animationRef.current = requestAnimationFrame(render)
-                }
-            }
-
-            // Start the render loop
-            animationRef.current = requestAnimationFrame(render)
         }
 
         img.onerror = () => {
@@ -604,10 +591,6 @@ export default function BrokenGlass({
 
         return () => {
             resizeCleanup()
-            if (animationRef.current) {
-                cancelAnimationFrame(animationRef.current)
-                animationRef.current = null
-            }
             if (gl && textureRef.current) {
                 gl.deleteTexture(textureRef.current)
                 textureRef.current = null
@@ -767,7 +750,7 @@ export default function BrokenGlass({
                     height: "100%",
                     display: "block",
                     opacity: imageReady ? 1 : 0,
-                    transition: "opacity 0.2s ease-in-out",
+                   
                 }}
             />
         </div>
