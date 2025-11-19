@@ -120,6 +120,9 @@ export default function BrokenGlass({
         edgeThicknessRef.current = edgeThickness * 0.02
     }, [edgeThickness])
 
+    // Inner scale: render image at 90% to leave padding for displaced glass shards
+    const innerScale = 0.769
+
     // Vertex shader
     const vertexShader = `
         precision mediump float;
@@ -146,6 +149,7 @@ export default function BrokenGlass({
         uniform float u_click_randomizer;
         uniform float u_effect;
         uniform float u_effect_active;
+        uniform float u_inner_scale;
 
         #define TWO_PI 6.28318530718
         #define PI 3.14159265358979323846
@@ -198,25 +202,28 @@ export default function BrokenGlass({
         }
 
         vec2 get_img_uv() {
-            vec2 img_uv = vUv;
-            img_uv -= .5;
+            vec2 uv = vUv - .5;
+            
+            // Apply inner scale first (scale UP the UVs to render image smaller)
+            // This leaves padding around edges for displaced glass shards
+            uv /= u_inner_scale;
             
             // Cover behavior: zoom in to fill container, cropping the overflow
             // We scale DOWN the UV coordinates (< 1.0) to sample less of the image (zoom in)
             if (u_ratio > u_img_ratio) {
                 // Canvas is wider - image is relatively taller
                 // Scale Y down to zoom in vertically (crop top/bottom)
-                img_uv.y *= u_img_ratio / u_ratio;
+                uv.y *= u_img_ratio / u_ratio;
             } else {
                 // Canvas is taller - image is relatively wider
                 // Scale X down to zoom in horizontally (crop left/right)
-                img_uv.x *= u_ratio / u_img_ratio;
+                uv.x *= u_ratio / u_img_ratio;
             }
             
-            img_uv += .5;
-            img_uv.y = 1. - img_uv.y;
+            uv += .5;
+            uv.y = 1. - uv.y;
 
-            return img_uv;
+            return uv;
         }
 
         vec2 get_disturbed_uv(vec2 uv, float section_constant, float edge, vec2 direction, float border) {
@@ -425,6 +432,9 @@ export default function BrokenGlass({
                 pointerRef.current.y
             )
         }
+        if (uniforms.u_inner_scale) {
+            gl.uniform1f(uniforms.u_inner_scale, innerScale)
+        }
     }
 
     // Resize canvas to match container
@@ -437,16 +447,17 @@ export default function BrokenGlass({
 
         if (!canvas || !container || !gl || !img || !uniforms) return
 
-        const dpr = Math.min(window.devicePixelRatio || 1, 2)
         const width = container.clientWidth || container.offsetWidth || 1
         const height = container.clientHeight || container.offsetHeight || 1
-
-        canvas.width = width * dpr
-        canvas.height = height * dpr
+        const dpr = Math.min(window.devicePixelRatio || 1, 2)
+        
+        // Device-pixel backing store for crisp rendering
+        canvas.width = Math.max(2, Math.round(width * dpr))
+        canvas.height = Math.max(2, Math.round(height * dpr))
 
         gl.viewport(0, 0, canvas.width, canvas.height)
 
-        const canvasRatio = canvas.width / canvas.height
+        const canvasRatio = width / height
         const imgRatio = img.naturalWidth / img.naturalHeight
 
         if (uniforms.u_ratio) {
@@ -736,7 +747,7 @@ export default function BrokenGlass({
                 position: "relative",
                 width: "100%",
                 height: "100%",
-                overflow: "hidden",
+                overflow: "visible",
                 cursor: (!breakAgain && isBroken) ? "default" : "pointer",
             }}
         >
@@ -745,12 +756,14 @@ export default function BrokenGlass({
                 onClick={handleClick}
                 style={{
                     position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
+                    // top: 0,
+                    // left: 0,
+                    width: "130%",
+                    height: "130%",
+                    top: "-15%",
+                    left: "-15%",
                     display: "block",
                     opacity: imageReady ? 1 : 0,
-                   
                 }}
             />
         </div>
