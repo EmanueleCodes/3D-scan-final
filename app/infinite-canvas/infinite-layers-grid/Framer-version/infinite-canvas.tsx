@@ -1,17 +1,32 @@
 import React, { useEffect, useRef } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
-interface TrackedElement {
-    el: HTMLElement
-    x: number // Absolute position including tile offset (like infinite-grid.js)
-    y: number // Absolute position including tile offset (like infinite-grid.js)
+interface TrackedPosition {
+    x: number // Base position including tile offset (relative to parent 0,0)
+    y: number // Base position including tile offset (relative to parent 0,0)
     width: number
     height: number
     extraX: number // For infinite wrapping
     extraY: number // For infinite wrapping
     ease: number
-    isClone: boolean // Track if this is a cloned element for cleanup
-    baseElement: HTMLElement // Reference to original element for shared calculations
+    baseElement: HTMLElement // Reference to original element (key for grouping)
+}
+
+interface ElementGroup {
+    baseElement: HTMLElement
+    realElement: HTMLElement
+    clones: HTMLElement[]
+    positions: TrackedPosition[]
+    lastActiveIndex: number // Track last assigned index to prevent jumping
+    originalStyles: {
+        position: string
+        left: string
+        top: string
+        width: string
+        height: string
+        margin: string
+        transform: string
+    }
 }
 
 interface InfiniteCanvasProps {
@@ -90,7 +105,9 @@ export default function InfiniteCanvas({
     
     const containerRef = useRef<HTMLDivElement>(null)
     const parentElementRef = useRef<HTMLElement | null>(null)
-    const trackedElementsRef = useRef<TrackedElement[]>([])
+    
+    // Store groups of elements (real + clones) and their tracked positions
+    const elementGroupsRef = useRef<ElementGroup[]>([])
 
     const scroll = useRef({
         ease: internalEase,
@@ -151,59 +168,84 @@ export default function InfiniteCanvas({
         const repsX = [0, parentWidth]
         const repsY = [0, parentHeight]
 
-        trackedElementsRef.current = []
+        elementGroupsRef.current = []
 
         baseChildren.forEach((baseChild) => {
             // STEP 1: Capture the element's current position relative to parent
-            // This is where Framer has positioned it via CSS
             const rect = baseChild.getBoundingClientRect()
             const baseX = rect.left - parentRect.left
             const baseY = rect.top - parentRect.top
+            const width = rect.width
+            const height = rect.height
 
             // STEP 2: Generate random ease value (for parallax variation)
             const elementEase = Math.random() * 0.5 + 0.5
             
-            // STEP 3: Reference to the base element (for clone tracking)
-            let baseElementRef: HTMLElement | null = null
+            // STEP 3: Create clones and positions
+            const clones: HTMLElement[] = []
+            const positions: TrackedPosition[] = []
 
-            // STEP 4: Create 2x2 grid of elements
-            // repsX = [0, parentWidth] creates columns at x=0 and x=parentWidth
-            // repsY = [0, parentHeight] creates rows at y=0 and y=parentHeight
+            // Save original styles to restore later
+            const originalStyles = {
+                position: baseChild.style.position,
+                left: baseChild.style.left,
+                top: baseChild.style.top,
+                width: baseChild.style.width,
+                height: baseChild.style.height,
+                margin: baseChild.style.margin,
+                transform: baseChild.style.transform,
+            }
+
+            // Create 3 clones (since we need 4 items total for 2x2 grid)
+            // We will dynamically assign the Real Element to the most visible position
+            for (let i = 0; i < 3; i++) {
+                const clone = baseChild.cloneNode(true) as HTMLElement
+                parentElement!.appendChild(clone)
+                
+                // Setup clone styles
+                clone.style.position = "absolute"
+                clone.style.left = "0"
+                clone.style.top = "0"
+                clone.style.width = `${width}px`
+                clone.style.height = `${height}px`
+                clone.style.margin = "0"
+                clone.style.willChange = "transform"
+                
+                clones.push(clone)
+            }
+
+            // Normalize Real Element to behave like a clone (controlled via transform only)
+            baseChild.style.position = "absolute"
+            baseChild.style.left = "0"
+            baseChild.style.top = "0"
+            baseChild.style.width = `${width}px`
+            baseChild.style.height = `${height}px`
+            baseChild.style.margin = "0"
+            baseChild.style.willChange = "transform"
+            
+            // Create positions for 2x2 grid
             repsX.forEach((offsetX) => {
                 repsY.forEach((offsetY) => {
-                    let element: HTMLElement
-
-                    if (offsetX === 0 && offsetY === 0) {
-                        // ORIGINAL ELEMENT (0,0 offset)
-                        // Keep the original, it already has CSS positioning from Framer
-                        element = baseChild
-                        baseElementRef = baseChild
-                    } else {
-                        // CLONED ELEMENTS (with offsets)
-                        // These need to appear at (baseX + parentWidth, baseY + parentHeight), etc.
-                        element = baseChild.cloneNode(true) as HTMLElement
-                        parentElement.appendChild(element)
-                        
-                        // Make clones absolutely positioned so they can be moved freely
-                        element.style.position = "absolute"
-                        element.style.left = "0"
-                        element.style.top = "0"
-                    }
-
-                    // STEP 5: Store element data for animation loop
-                    trackedElementsRef.current.push({
-                        el: element,
-                        x: baseX + offsetX, // Full position including tile offset
-                        y: baseY + offsetY, // Full position including tile offset
-                        width: rect.width,
-                        height: rect.height,
-                        extraX: 0, // For infinite wrapping
-                        extraY: 0, // For infinite wrapping
-                        ease: elementEase, // Same for all copies of this element
-                        isClone: !(offsetX === 0 && offsetY === 0),
-                        baseElement: baseElementRef || baseChild,
+                    positions.push({
+                        x: baseX + offsetX,
+                        y: baseY + offsetY,
+                        width,
+                        height,
+                        extraX: 0,
+                        extraY: 0,
+                        ease: elementEase,
+                        baseElement: baseChild
                     })
                 })
+            })
+
+            elementGroupsRef.current.push({
+                baseElement: baseChild,
+                realElement: baseChild,
+                clones,
+                positions,
+                lastActiveIndex: -1,
+                originalStyles
             })
         })
 
@@ -212,22 +254,7 @@ export default function InfiniteCanvas({
         scroll.current.target = { x: 0, y: 0 }
         scroll.current.last = { x: 0, y: 0 }
 
-        // Position elements: originals stay in place, clones are hidden initially
-        trackedElementsRef.current.forEach((item) => {
-            if (item.isClone) {
-                // Clones: hide initially (will show when wrapping)
-                item.el.style.opacity = "0"
-                item.el.style.pointerEvents = "none"
-            }
-            // Reset transforms
-            item.el.style.transform = ""
-            const firstChild = item.el.firstElementChild as HTMLElement
-            if (firstChild) {
-                firstChild.style.transform = ""
-            }
-        })
-
-        // Store doubled tile size for wrapping (like infinite-grid.js: this.tileSize.w *= 2)
+        // Store doubled tile size for wrapping
         const tileSizeW = parentWidth * 2
         const tileSizeH = parentHeight * 2
         parentDimensions.current = { 
@@ -259,13 +286,32 @@ export default function InfiniteCanvas({
         return () => {
             window.removeEventListener("resize", handleResize)
 
-            // Cleanup: Remove all cloned elements
-            trackedElementsRef.current.forEach((item) => {
-                if (item.isClone && item.el.parentNode) {
-                    item.el.parentNode.removeChild(item.el)
-                }
+            // Cleanup: Remove all cloned elements and restore original styles
+            elementGroupsRef.current.forEach((group) => {
+                // Remove clones
+                group.clones.forEach(clone => {
+                    if (clone.parentNode) {
+                        clone.parentNode.removeChild(clone)
+                    }
+                })
+
+                // Restore original element styles
+                const el = group.realElement
+                el.style.position = group.originalStyles.position
+                el.style.left = group.originalStyles.left
+                el.style.top = group.originalStyles.top
+                el.style.width = group.originalStyles.width
+                el.style.height = group.originalStyles.height
+                el.style.margin = group.originalStyles.margin
+                el.style.transform = group.originalStyles.transform
+                el.style.willChange = ""
+                el.style.opacity = ""
+                el.style.pointerEvents = ""
+                
+                const firstChild = el.firstElementChild as HTMLElement
+                if (firstChild) firstChild.style.transform = ""
             })
-            trackedElementsRef.current = []
+            elementGroupsRef.current = []
         }
     }, [])
 
@@ -386,21 +432,7 @@ export default function InfiniteCanvas({
 
     // Animation loop
     const render = () => {
-        // EARLY RETURN: If in canvas mode, don't run any animation logic
-        // Reset all elements to original positions and return immediately
-        // This ensures the canvas is completely untouched by the effect
         if (RenderTarget.current() === RenderTarget.canvas) return
-
-        // All animation logic below only runs in preview/live mode
-
-        // In preview/live mode, show original elements and manage clone visibility dynamically
-        trackedElementsRef.current.forEach((item) => {
-            if (!item.isClone) {
-                item.el.style.display = ""
-                item.el.style.opacity = ""
-            }
-            // Clone visibility is managed in the render loop
-        })
 
         // Smooth scroll interpolation
         scroll.current.current.x +=
@@ -431,112 +463,180 @@ export default function InfiniteCanvas({
         const dirY =
             scroll.current.current.y > scroll.current.last.y ? "down" : "up"
 
-        // Group elements by base element to calculate shared parallax
-        const elementsByBase = new Map<HTMLElement, TrackedElement[]>()
-        trackedElementsRef.current.forEach((item) => {
-            if (!elementsByBase.has(item.baseElement)) {
-                elementsByBase.set(item.baseElement, [])
-            }
-            elementsByBase.get(item.baseElement)!.push(item)
-        })
+        const scrollX = scroll.current.current.x
+        const scrollY = scroll.current.current.y
+        const parentW = parentDimensions.current.width
+        const parentH = parentDimensions.current.height
+        const tileW = parentDimensions.current.tileSizeW
+        const tileH = parentDimensions.current.tileSizeH
+        const centerX = winW.current / 2
+        const centerY = winH.current / 2
+        
+        // Mouse position in pixels (approximate)
+        const mousePX = mouse.current.x.t * winW.current
+        const mousePY = mouse.current.y.t * winH.current
 
-        // ANIMATION LOOP: Update each tracked element
-        trackedElementsRef.current.forEach((item) => {
-            // PARALLAX CALCULATION
-            // Find the original element in the same group
-            // All copies share the same parallax to move in sync
-            const group = elementsByBase.get(item.baseElement)!
-            const originalItem = group.find((i) => !i.isClone) || item
-            
-            // Parallax = scroll delta effect + mouse position effect
-            // Only apply if parallax is enabled
-            const parallaxMultiplier = parallax?.enabled ? (parallax.general ?? 1) : 0
-            const parallaxX =
-                5 * scroll.current.delta.x.c * originalItem.ease +
-                (mouse.current.x.c - 0.5) * originalItem.width * 0.6 * parallaxMultiplier
-            const parallaxY =
-                5 * scroll.current.delta.y.c * originalItem.ease +
-                (mouse.current.y.c - 0.5) * originalItem.height * 0.6 * parallaxMultiplier
+        // Get current parent position for correct collision detection
+        // We need to compare mouse (screen space) with items (parent space)
+        const parentElement = parentElementRef.current
+        if (!parentElement) return
+        const parentRect = parentElement.getBoundingClientRect()
+        const mouseRelX = mousePX - parentRect.left
+        const mouseRelY = mousePY - parentRect.top
 
-            // POSITION CALCULATION
-            const scrollX = scroll.current.current.x
-            const scrollY = scroll.current.current.y
-            
-            // Current position = base position + scroll + wrapping offset + parallax
-            const posX = item.x + scrollX + item.extraX + parallaxX
-            const posY = item.y + scrollY + item.extraY + parallaxY
+        // ANIMATION LOOP: Update each group
+        elementGroupsRef.current.forEach((group) => {
+            // 1. Calculate positions for all 4 instances (virtual items)
+            // We use a temporary array to store calculated styles/positions
+            const calculatedPositions: {
+                item: TrackedPosition,
+                finalX: number,
+                finalY: number,
+                distToCenter: number,
+                distToMouse: number,
+                isVisible: boolean
+            }[] = []
 
-            // INFINITE WRAPPING LOGIC
-            // When element exits one side, wrap it to the other side
-            const parentW = parentDimensions.current.width
-            const parentH = parentDimensions.current.height
-            
-            // Check if element has exited the viewport
-            const beforeX = posX > winW.current // Exited right
-            const afterX = posX + item.width < 0 // Exited left
-            const beforeY = posY > winH.current // Exited bottom
-            const afterY = posY + item.height < 0 // Exited top
+            group.positions.forEach((item) => {
+                // Parallax
+                const parallaxMultiplier = parallax?.enabled ? (parallax.general ?? 1) : 0
+                const parallaxX =
+                    5 * scroll.current.delta.x.c * item.ease +
+                    (mouse.current.x.c - 0.5) * item.width * 0.6 * parallaxMultiplier
+                const parallaxY =
+                    5 * scroll.current.delta.y.c * item.ease +
+                    (mouse.current.y.c - 0.5) * item.height * 0.6 * parallaxMultiplier
 
-            // Tile size for wrapping (2x parent size for 2x2 grid)
-            const tileW = parentDimensions.current.tileSizeW // parentWidth * 2
-            const tileH = parentDimensions.current.tileSizeH // parentHeight * 2
+                // Logic position
+                const posX = item.x + scrollX + item.extraX + parallaxX
+                const posY = item.y + scrollY + item.extraY + parallaxY
 
-            // Adjust extraX/extraY to wrap element to opposite side
-            if (dirX === "right" && beforeX) item.extraX -= tileW
-            if (dirX === "left" && afterX) item.extraX += tileW
-            if (dirY === "down" && beforeY) item.extraY -= tileH
-            if (dirY === "up" && afterY) item.extraY += tileH
+                // Wrapping logic
+                const beforeX = posX > winW.current
+                const afterX = posX + item.width < 0
+                const beforeY = posY > winH.current
+                const afterY = posY + item.height < 0
 
-            // FINAL POSITION (after potential wrapping)
-            const finalX = item.x + scrollX + item.extraX + parallaxX
-            const finalY = item.y + scrollY + item.extraY + parallaxY
+                if (dirX === "right" && beforeX) item.extraX -= tileW
+                if (dirX === "left" && afterX) item.extraX += tileW
+                if (dirY === "down" && beforeY) item.extraY -= tileH
+                if (dirY === "up" && afterY) item.extraY += tileH
 
-            // CLONE VISIBILITY
-            // Show clones with a buffer zone before they enter the viewport
-            // This prevents elements from popping in when already visible
-            if (item.isClone) {
-                const buffer = Math.max(item.width, item.height, 200) // Buffer zone in pixels
+                // Final position
+                const finalX = item.x + scrollX + item.extraX + parallaxX
+                const finalY = item.y + scrollY + item.extraY + parallaxY
+
+                // Metrics for "Smart Swap"
+                // Distance to center of screen (approximation)
+                // We use screen coordinates for this metric to be consistent
+                const absFinalX = finalX + parentRect.left
+                const absFinalY = finalY + parentRect.top
+                const cx = absFinalX + item.width / 2
+                const cy = absFinalY + item.height / 2
+                
+                const distToCenter = Math.pow(cx - centerX, 2) + Math.pow(cy - centerY, 2)
+                const distToMouse = Math.pow(cx - mousePX, 2) + Math.pow(cy - mousePY, 2)
+
+                // Visibility check
+                const buffer = Math.max(item.width, item.height) + 200
                 const isVisible = 
-                    (finalX >= -item.width - buffer && finalX <= winW.current + buffer) &&
-                    (finalY >= -item.height - buffer && finalY <= winH.current + buffer)
-                
-                item.el.style.opacity = isVisible ? "1" : "0"
-                item.el.style.pointerEvents = isVisible ? "auto" : "none"
-                
-                // CLONES: Apply full absolute position via transform
-                item.el.style.transform = `translate(${finalX}px, ${finalY}px)`
-            } else {
-                // ORIGINALS: Only apply offset from natural CSS position
-                // The element already has CSS positioning from Framer
-                // We only want to ADD the scroll/wrap/parallax offset
-                const offsetX = scrollX + item.extraX + parallaxX
-                const offsetY = scrollY + item.extraY + parallaxY
-                item.el.style.transform = `translate(${offsetX}px, ${offsetY}px)`
-            }
+                    (absFinalX >= -item.width - buffer && absFinalX <= winW.current + buffer) &&
+                    (absFinalY >= -item.height - buffer && absFinalY <= winH.current + buffer)
 
-            // Apply parallax scale effect on press
-            // parallax.child multiplies the effect intensity (0 = no effect, 1 = full effect)
-            // When parallax.child = 0, scale should be 1 (no scaling) and translate should be 0
-            const insideParallaxValue = parallax?.enabled ? (parallax.child ?? 1) : 0
-            const scale = 1 + 0.2 * mouse.current.press.c * item.ease * insideParallaxValue
-            
-            // Center the translate around zero by subtracting 0.5 from normalized mouse position
-            // mouse.x.c ranges from 0 to 1, so (mouse.x.c - 0.5) ranges from -0.5 to +0.5
-            // This allows translate to go both positive and negative, centered at zero
-            const generalParallax = parallax?.general ?? 1
-            const translateX = (0.5 - mouse.current.x.c) * item.ease * 20 * generalParallax * insideParallaxValue
-            const translateY = (0.5 - mouse.current.y.c) * item.ease * 20 * generalParallax * insideParallaxValue
+                calculatedPositions.push({
+                    item,
+                    finalX,
+                    finalY,
+                    distToCenter,
+                    distToMouse,
+                    isVisible
+                })
+            })
 
-            // Apply to first child if it exists (for nested content)
-            const firstChild = item.el.firstElementChild as HTMLElement
-            if (firstChild) {
-                // When parallax.child = 0 or parallax.enabled = false, apply no transform (identity)
-                if (insideParallaxValue === 0) {
-                    firstChild.style.transform = "none"
-                } else {
-                    firstChild.style.transform = `scale(${scale}) translate(${translateX}%, ${translateY}%)`
+            // 2. Determine which position gets the Real Element
+            // Priority: Mouse Hover > Last Active > Closest to Center
+            // Check if mouse is inside any item
+            let bestIndex = -1
+            let minMouseDist = Infinity
+
+            // Check for mouse intersection first
+            for (let i = 0; i < calculatedPositions.length; i++) {
+                const p = calculatedPositions[i]
+                // Intersection check using RELATIVE coordinates
+                // finalX/Y are relative to parent. mouseRelX/Y are relative to parent.
+                if (
+                    mouseRelX >= p.finalX && mouseRelX <= p.finalX + p.item.width &&
+                    mouseRelY >= p.finalY && mouseRelY <= p.finalY + p.item.height
+                ) {
+                    // Mouse inside this item. If multiple overlap, pick closest to mouse center
+                    if (p.distToMouse < minMouseDist) {
+                        minMouseDist = p.distToMouse
+                        bestIndex = i
+                    }
                 }
             }
+
+            // If no mouse hover, try to stick to last active index if visible
+            if (bestIndex === -1 && group.lastActiveIndex !== -1) {
+                const lastPos = calculatedPositions[group.lastActiveIndex]
+                // Keep it if it's still reasonably visible/valid
+                if (lastPos && lastPos.isVisible) {
+                    bestIndex = group.lastActiveIndex
+                }
+            }
+
+            // Fallback: If still no index, pick closest to screen center
+            if (bestIndex === -1) {
+                let minCenterDist = Infinity
+                for (let i = 0; i < calculatedPositions.length; i++) {
+                    if (calculatedPositions[i].distToCenter < minCenterDist) {
+                        minCenterDist = calculatedPositions[i].distToCenter
+                        bestIndex = i
+                    }
+                }
+            }
+
+            // Update last active index
+            group.lastActiveIndex = bestIndex
+
+            // 3. Assign Elements and Apply Styles
+            // We have [Real, Clone1, Clone2, Clone3]
+            const availableClones = [...group.clones]
+            
+            calculatedPositions.forEach((calc, index) => {
+                let el: HTMLElement
+                const isHovered = index === bestIndex
+
+                if (isHovered) {
+                    el = group.realElement
+                } else {
+                    el = availableClones.pop()!
+                }
+
+                // Apply Transform
+                el.style.transform = `translate(${calc.finalX}px, ${calc.finalY}px)`
+                
+                // Apply Visibility
+                el.style.opacity = calc.isVisible ? "1" : "0"
+                el.style.pointerEvents = calc.isVisible ? "auto" : "none"
+
+                // Apply Inner Parallax (only if enabled AND hovered)
+                // We only apply the parallax effect to the "hovered" (active) element
+                // to prevent other copies from moving distractingly
+                const insideParallaxValue = (parallax?.enabled && isHovered) ? (parallax.child ?? 1) : 0
+                const generalParallax = parallax?.general ?? 1
+                const translateX = (0.5 - mouse.current.x.c) * calc.item.ease * 20 * generalParallax * insideParallaxValue
+                const translateY = (0.5 - mouse.current.y.c) * calc.item.ease * 20 * generalParallax * insideParallaxValue
+
+                const firstChild = el.firstElementChild as HTMLElement
+                if (firstChild) {
+                    if (insideParallaxValue === 0) {
+                        firstChild.style.transform = "none"
+                    } else {
+                        firstChild.style.transform = `translate(${translateX}%, ${translateY}%)`
+                    }
+                }
+            })
         })
 
         scroll.current.last.x = scroll.current.current.x

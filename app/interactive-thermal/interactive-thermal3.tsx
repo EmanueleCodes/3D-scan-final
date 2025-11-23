@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 
 interface HeatmapProps {
+    bgColor?: string
     colors?: {
         paletteCount?: number
         color1?: string
@@ -14,7 +15,6 @@ interface HeatmapProps {
         color8?: string
         color9?: string
         color10?: string
-        bgColor?: string
     }
     speed?: number
     contour?: number
@@ -575,6 +575,7 @@ const toProcessedHeatmap = async (source: string): Promise<Blob> => {
  * @framerDisableUnlink
  */
 export default function HeatmapComponent({
+    bgColor,
     colors = {
         paletteCount: 7,
         color1: "#11206a",
@@ -584,7 +585,6 @@ export default function HeatmapComponent({
         color5: "#ffe679",
         color6: "#ff991e",
         color7: "#ff4c00",
-        bgColor: "#000000",
     },
     speed = 1,
     contour = 0.5,
@@ -611,7 +611,7 @@ export default function HeatmapComponent({
         buildColorUniformData(colors)
     )
     const bgColorRef = useRef<[number, number, number, number]>(
-        parseCssColor(colors?.bgColor || "#000000", "#000000")
+        parseCssColor(bgColor && typeof bgColor === "string" && bgColor.trim() ? bgColor : "rgba(0,0,0,0)", "rgba(0,0,0,0)")
     )
     const speedRef = useRef(speed)
     const paramsRef = useRef({
@@ -1076,10 +1076,10 @@ export default function HeatmapComponent({
         const gl = glRef.current
         const uniformLocs = uniformLocationsRef.current
         if (!gl || !uniformLocs || !uniformLocs.u_colorBack) return
-        const bg = parseCssColor(colors?.bgColor || "#000000", "#000000")
+        const bg = parseCssColor(bgColor && typeof bgColor === "string" && bgColor.trim() ? bgColor : "rgba(0,0,0,0)", "rgba(0,0,0,0)")
         bgColorRef.current = bg
         gl.uniform4f(uniformLocs.u_colorBack, bg[0], bg[1], bg[2], bg[3])
-    }, [colors?.bgColor, glReady])
+    }, [bgColor, glReady])
 
     const stampHeat = (nx: number, ny: number, aspect: number) => {
         const buffer = heatmapBufferRef.current
@@ -1192,7 +1192,7 @@ export default function HeatmapComponent({
                 height: "100%",
                 overflow: "hidden",
                 position: "relative",
-                background: colors?.bgColor || "#000000",
+                background: bgColor && typeof bgColor === "string" && bgColor.trim() ? bgColor : "transparent",
                 display: "block",
                 margin: 0,
                 padding: 0,
@@ -1317,6 +1317,12 @@ addPropertyControls(HeatmapComponent, {
         step: 0.1,
         defaultValue: 0.5,
     },
+    bgColor: {
+        type: ControlType.Color,
+        title: "Background",
+        optional: true,
+        defaultValue:"rgba(0,0,0,1)"
+    },
     colors: {
         type: ControlType.Object,
         title: "Colors",
@@ -1375,7 +1381,7 @@ addPropertyControls(HeatmapComponent, {
             color8: {
                 type: ControlType.Color,
                 title: "Color 8",
-                defaultValue: "#ff4c00",
+                defaultValue: "#FF0000",
                 hidden: (props: any) => (props?.paletteCount ?? 7) < 8,
             },
             color9: {
@@ -1389,11 +1395,6 @@ addPropertyControls(HeatmapComponent, {
                 title: "Color 10",
                 defaultValue: "#ff4c00",
                 hidden: (props: any) => (props?.paletteCount ?? 7) < 10,
-            },
-            bgColor: {
-                type: ControlType.Color,
-                title: "Background",
-                defaultValue: "#000000",
             },
         },
     },

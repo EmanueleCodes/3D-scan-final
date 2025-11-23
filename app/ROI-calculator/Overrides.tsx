@@ -111,6 +111,7 @@ export function withGMV<T extends OverrideProps>(
 ): ComponentType<T> {
     return (props: T) => {
         const [store, setStore] = useFormStore()
+        const [variantStore] = useVariantStore()
         const [localValue, setLocalValue] = useState("")
 
         // Initialize input value from store on mount
@@ -198,7 +199,11 @@ export function withGMV<T extends OverrideProps>(
             return () => clearInterval(interval)
         }, [localValue, store, setStore])
 
-        return <Component {...props} />
+        // Determine variant based on error state
+        const hasError = variantStore.showInputErrors && store.merchantGMV <= 0
+        const variant = hasError ? "Error" : undefined
+
+        return <Component {...props} variant={variant} />
     }
 }
 
@@ -208,6 +213,7 @@ export function withAOV<T extends OverrideProps>(
 ): ComponentType<T> {
     return (props: T) => {
         const [store, setStore] = useFormStore()
+        const [variantStore] = useVariantStore()
         const [localValue, setLocalValue] = useState("")
 
         // Initialize input value from store on mount
@@ -297,7 +303,11 @@ export function withAOV<T extends OverrideProps>(
             return () => clearInterval(interval)
         }, [localValue, store, setStore])
 
-        return <Component {...props} />
+        // Determine variant based on error state
+        const hasError = variantStore.showInputErrors && store.averageOrderValue <= 0
+        const variant = hasError ? "Error" : undefined
+
+        return <Component {...props} variant={variant} />
     }
 }
 
@@ -307,6 +317,7 @@ export function withLMN<T extends OverrideProps>(
 ): ComponentType<T> {
     return (props: T) => {
         const [store, setStore] = useFormStore()
+        const [variantStore] = useVariantStore()
         const [localValue, setLocalValue] = useState("")
 
         // Initialize input value from store on mount
@@ -397,7 +408,11 @@ export function withLMN<T extends OverrideProps>(
             return () => clearInterval(interval)
         }, [localValue, store, setStore])
 
-        return <Component {...props} />
+        // Determine variant based on error state
+        const hasError = variantStore.showInputErrors && store.lmnAttachRate <= 0
+        const variant = hasError ? "Error" : undefined
+
+        return <Component {...props} variant={variant} />
     }
 }
 
@@ -410,7 +425,7 @@ export function withTransactionVolume<T extends OverrideProps>(
         const [store, setStore] = useFormStore()
         const [displayValue, setDisplayValue] = useState("0")
 
-        // Initialize transaction volume to 0 on component mount
+        // Initialize transaction volume to 0 on component mount and make it non-focusable
         useEffect(() => {
             const input = document.querySelector(
                 'input[name="TransactionVolume"]'
@@ -419,6 +434,8 @@ export function withTransactionVolume<T extends OverrideProps>(
             if (input) {
                 configureNumericInput(input)
                 input.value = "0"
+                input.setAttribute("tabindex", "-1")
+                input.setAttribute("readonly", "true")
             }
         }, [])
 
@@ -464,6 +481,10 @@ export function withTransactionVolume<T extends OverrideProps>(
                 if (input.value !== formattedInput) {
                     input.value = formattedInput
                 }
+
+                // Ensure it remains non-focusable and readonly
+                input.setAttribute("tabindex", "-1")
+                input.setAttribute("readonly", "true")
             }
         }, [
             store.merchantGMV,
@@ -547,8 +568,6 @@ export function withROI<T extends OverrideProps>(
         return <Component {...props} text={displayValue} />
     }
 }
-
-
 
 // Helper function for form validation
 function validateForm(
@@ -723,6 +742,26 @@ function addErrorMessage(inputName: string, message: string): void {
     input.parentElement?.parentElement?.appendChild(errorEl)
 }
 
+// List of common personal email domains to reject
+const PERSONAL_DOMAINS = [
+    "gmail.com",
+    "gmail.co",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "icloud.com",
+    "aol.com",
+    "protonmail.com",
+    "mail.com",
+    "zoho.com",
+    "yandex.com",
+    "gmx.com",
+    "live.com",
+    "msn.com",
+    "me.com",
+    "mac.com",
+]
+
 // Utility function to validate work email
 // Returns true if email is valid and NOT from a personal domain
 function isWorkEmail(email: string): boolean {
@@ -732,30 +771,11 @@ function isWorkEmail(email: string): boolean {
         return false
     }
 
-    // List of common personal email domains to reject
-    const personalDomains = [
-        "gmail.com",
-        "yahoo.com",
-        "hotmail.com",
-        "outlook.com",
-        "icloud.com",
-        "aol.com",
-        "protonmail.com",
-        "mail.com",
-        "zoho.com",
-        "yandex.com",
-        "gmx.com",
-        "live.com",
-        "msn.com",
-        "me.com",
-        "mac.com",
-    ]
-
     // Extract domain from email
     const domain = email.split("@")[1]?.toLowerCase()
 
     // Check if domain is in the personal domains list
-    return !personalDomains.includes(domain)
+    return !PERSONAL_DOMAINS.includes(domain)
 }
 
 // 9. withWorkEmailCheck - Validates work email input
@@ -810,6 +830,15 @@ export function withWorkEmailCheck<T extends OverrideProps>(
                 // Validate email
                 const isValid = isWorkEmail(rawValue)
 
+                // Check if user started typing email
+                const emailStarted = rawValue.length > 0
+
+                // Check if inputs are invalid
+                const inputsInvalid =
+                    store.merchantGMV <= 0 ||
+                    store.averageOrderValue <= 0 ||
+                    store.lmnAttachRate <= 0
+
                 // Update store
                 if (
                     rawValue !== store.workEmail ||
@@ -829,16 +858,40 @@ export function withWorkEmailCheck<T extends OverrideProps>(
                         })
                     }
                 }
+
+                // Show input errors when user starts typing email and inputs are invalid
+                // Hide errors when all inputs are filled or email is cleared
+                const shouldShowInputErrors = emailStarted && inputsInvalid
+                
+                if (shouldShowInputErrors !== variantStore.showInputErrors) {
+                    setVariantStore({
+                        ...variantStore,
+                        showInputErrors: shouldShowInputErrors,
+                    })
+                }
             }, 100)
 
             return () => clearInterval(interval)
         }, [localValue, store, setStore, variantStore, setVariantStore])
 
-        return <Component {...props} />
+        const handleKeyDown = (e: React.KeyboardEvent) => {
+            if (e.key === "Enter") {
+                const target = e.target as HTMLInputElement
+                const val = target.value?.trim() || ""
+
+                // Check validity directly
+                if (!isWorkEmail(val)) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                }
+            }
+        }
+
+        return <Component {...props} onKeyDown={handleKeyDown} />
     }
 }
 
-// 10. withDisableEmailButton - Disables button when email is invalid
+// 10. withDisableEmailButton - Disables button when email is invalid or inputs are incomplete
 export function withDisableEmailButton<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
@@ -846,50 +899,57 @@ export function withDisableEmailButton<T extends OverrideProps>(
         const [formStore] = useFormStore()
         const [variantStore, setVariantStore] = useVariantStore()
 
-        const handleClick = (event: React.MouseEvent) => {
-            // If email is invalid, prevent default action and show error message
-            if (!formStore.isWorkEmailValid) {
-                event.preventDefault()
-                event.stopPropagation()
-                setVariantStore({
-                    ...variantStore,
-                    emailErrorVisible: true,
-                })
-                return
-            }
-            // If email is valid, allow the original onClick to proceed
-            if (props.onClick && typeof props.onClick === "function") {
-                ;(props.onClick as (event: React.MouseEvent) => void)(event)
-            }
-        }
+        // Check if inputs are invalid
+        const inputsInvalid =
+            formStore.merchantGMV <= 0 ||
+            formStore.averageOrderValue <= 0 ||
+            formStore.lmnAttachRate <= 0
 
-        // Determine button variant based on email validity
-        const isDisabled = !formStore.isWorkEmailValid
-        const buttonVariant = formStore.isWorkEmailValid ? "Default" : "Disabled"
+        // Determine button variant based on email validity and input validity
+        const isDisabled = !formStore.isWorkEmailValid || inputsInvalid
+        const buttonVariant = isDisabled ? "Disabled" : "Default"
 
         return (
-            <Component
+            <>
+
+            {isDisabled ?
+                <Component
                 {...props}
                 variant={buttonVariant}
-                onClick={handleClick}
                 style={{
                     ...props.style,
                     cursor: isDisabled ? "not-allowed" : "pointer",
                 }}
+                onClick={(e:Event)=>{e.preventDefault()}}
             />
+                :
+                <Component
+                {...props}
+                
+                style={{
+                    ...props.style,
+                }}
+            />
+            }
+            </>
+            
         )
     }
 }
 
-// 11. withShowErrorMessage - Shows error message when email is invalid
+// 11. withShowErrorMessage - Shows error message when email uses a personal domain
 export function withShowErrorMessage<T extends OverrideProps>(
     Component: ComponentType<T>
 ): ComponentType<T> {
     return (props: T) => {
-        const [variantStore] = useVariantStore()
+        const [store] = useFormStore()
 
-        // Show/hide error message based on store state
-        const shouldShow = variantStore.emailErrorVisible
+        // Check if current email uses a personal domain
+        const domain = store.workEmail.split("@")[1]?.toLowerCase()
+        const isPersonal = domain && PERSONAL_DOMAINS.includes(domain)
+
+        // Show error message ONLY if it's a personal email domain
+        const shouldShow = isPersonal
 
         return (
             <Component
@@ -903,3 +963,4 @@ export function withShowErrorMessage<T extends OverrideProps>(
         )
     }
 }
+
