@@ -126,32 +126,19 @@ export default function InfiniteCanvas({
         press: { t: 0, c: 0 },
     })
 
-    const winW = useRef(window.innerWidth)
-    const winH = useRef(window.innerHeight)
+    const winW = useRef(typeof window !== 'undefined' ? window.innerWidth : 1920)
+    const winH = useRef(typeof window !== 'undefined' ? window.innerHeight : 1080)
     const parentDimensions = useRef({ width: 0, height: 0, tileSizeW: 0, tileSizeH: 0 })
     const rafId = useRef<number | null>(null)
+    const resizeTimeoutId = useRef<number | null>(null)
 
-    // Find parent element and initialize tracked elements
-    useEffect(() => {
-
-        if (RenderTarget.current() === RenderTarget.canvas) return;
-
-        const container = containerRef.current
-        if (!container) return
-
-        // Find parent element 2 levels up (Framer wraps code components)
-        let parentElement: HTMLElement | null = container.parentElement
-        if (parentElement) {
-            parentElement = parentElement.parentElement
-        }
-
-        if (!parentElement) return
-
-        parentElementRef.current = parentElement
-
+    // Initialize the infinite canvas with element duplication
+    const initializeInfiniteCanvas = (parentElement: HTMLElement) => {
         // Store initial window dimensions
-        winW.current = window.innerWidth
-        winH.current = window.innerHeight
+        if (typeof window !== 'undefined') {
+            winW.current = window.innerWidth
+            winH.current = window.innerHeight
+        }
 
         // Get parent container dimensions for precise tiling
         const parentRect = parentElement.getBoundingClientRect()
@@ -160,7 +147,7 @@ export default function InfiniteCanvas({
 
         // Find all direct children of parent element (these are the base elements)
         const baseChildren = Array.from(parentElement.children).filter(
-            (child) => child !== container.parentElement
+            (child) => child !== containerRef.current?.parentElement
         ) as HTMLElement[]
 
         // Create 2x2 grid of duplicates (exactly like infinite-grid.js)
@@ -180,7 +167,7 @@ export default function InfiniteCanvas({
 
             // STEP 2: Generate random ease value (for parallax variation)
             const elementEase = Math.random() * 0.5 + 0.5
-            
+
             // STEP 3: Create clones and positions
             const clones: HTMLElement[] = []
             const positions: TrackedPosition[] = []
@@ -200,8 +187,8 @@ export default function InfiniteCanvas({
             // We will dynamically assign the Real Element to the most visible position
             for (let i = 0; i < 3; i++) {
                 const clone = baseChild.cloneNode(true) as HTMLElement
-                parentElement!.appendChild(clone)
-                
+                parentElement.appendChild(clone)
+
                 // Setup clone styles
                 clone.style.position = "absolute"
                 clone.style.left = "0"
@@ -210,7 +197,7 @@ export default function InfiniteCanvas({
                 clone.style.height = `${height}px`
                 clone.style.margin = "0"
                 clone.style.willChange = "transform"
-                
+
                 clones.push(clone)
             }
 
@@ -222,7 +209,7 @@ export default function InfiniteCanvas({
             baseChild.style.height = `${height}px`
             baseChild.style.margin = "0"
             baseChild.style.willChange = "transform"
-            
+
             // Create positions for 2x2 grid
             repsX.forEach((offsetX) => {
                 repsY.forEach((offsetY) => {
@@ -257,61 +244,115 @@ export default function InfiniteCanvas({
         // Store doubled tile size for wrapping
         const tileSizeW = parentWidth * 2
         const tileSizeH = parentHeight * 2
-        parentDimensions.current = { 
-            width: parentWidth, 
+        parentDimensions.current = {
+            width: parentWidth,
             height: parentHeight,
             tileSizeW,
             tileSizeH,
         }
+    }
+
+    // Cleanup function
+    const cleanupInfiniteCanvas = () => {
+        // Cleanup: Remove all cloned elements and restore original styles
+        elementGroupsRef.current.forEach((group) => {
+            // Remove clones
+            group.clones.forEach(clone => {
+                if (clone.parentNode) {
+                    clone.parentNode.removeChild(clone)
+                }
+            })
+
+            // Restore original element styles
+            const el = group.realElement
+            el.style.position = group.originalStyles.position
+            el.style.left = group.originalStyles.left
+            el.style.top = group.originalStyles.top
+            el.style.width = group.originalStyles.width
+            el.style.height = group.originalStyles.height
+            el.style.margin = group.originalStyles.margin
+            el.style.transform = group.originalStyles.transform
+            el.style.willChange = ""
+            el.style.opacity = ""
+            el.style.pointerEvents = ""
+
+            const firstChild = el.firstElementChild as HTMLElement
+            if (firstChild) firstChild.style.transform = ""
+        })
+        elementGroupsRef.current = []
+    }
+
+    // Find parent element and initialize tracked elements
+    useEffect(() => {
+
+        if (RenderTarget.current() === RenderTarget.canvas) return;
+
+        const container = containerRef.current
+        if (!container) return
+
+        // Find parent element 2 levels up (Framer wraps code components)
+        let parentElement: HTMLElement | null = container.parentElement
+        if (parentElement) {
+            parentElement = parentElement.parentElement
+        }
+
+        if (!parentElement) return
+
+        parentElementRef.current = parentElement
+
+        // Initialize the infinite canvas
+        initializeInfiniteCanvas(parentElement)
 
         // Handle window resize
-        const handleResize = () => {
-            winW.current = window.innerWidth
-            winH.current = window.innerHeight
-
-            // Update parent dimensions
-            if (parentElement) {
-                const rect = parentElement.getBoundingClientRect()
-                parentDimensions.current = { 
-                    width: rect.width, 
-                    height: rect.height,
-                    tileSizeW: rect.width * 2,
-                    tileSizeH: rect.height * 2,
-                }
+        const handleWindowResize = () => {
+            if (typeof window !== 'undefined') {
+                winW.current = window.innerWidth
+                winH.current = window.innerHeight
             }
         }
 
-        window.addEventListener("resize", handleResize)
+        // Handle parent element resize (debounced)
+        const handleParentResize = () => {
+            // Clear existing timeout
+            if (resizeTimeoutId.current !== null) {
+                clearTimeout(resizeTimeoutId.current)
+            }
+
+            // Set new timeout for 100ms debounce
+            resizeTimeoutId.current = window.setTimeout(() => {
+                if (parentElement) {
+                    // Cleanup existing elements
+                    cleanupInfiniteCanvas()
+                    // Re-initialize with new dimensions
+                    initializeInfiniteCanvas(parentElement)
+                }
+                resizeTimeoutId.current = null
+            }, 100)
+        }
+
+        // Set up ResizeObserver for parent element
+        let resizeObserver: ResizeObserver | null = null
+        if (typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(handleParentResize)
+            resizeObserver.observe(parentElement)
+        }
+
+        window.addEventListener("resize", handleWindowResize)
 
         return () => {
-            window.removeEventListener("resize", handleResize)
+            window.removeEventListener("resize", handleWindowResize)
 
-            // Cleanup: Remove all cloned elements and restore original styles
-            elementGroupsRef.current.forEach((group) => {
-                // Remove clones
-                group.clones.forEach(clone => {
-                    if (clone.parentNode) {
-                        clone.parentNode.removeChild(clone)
-                    }
-                })
+            if (resizeObserver) {
+                resizeObserver.disconnect()
+            }
 
-                // Restore original element styles
-                const el = group.realElement
-                el.style.position = group.originalStyles.position
-                el.style.left = group.originalStyles.left
-                el.style.top = group.originalStyles.top
-                el.style.width = group.originalStyles.width
-                el.style.height = group.originalStyles.height
-                el.style.margin = group.originalStyles.margin
-                el.style.transform = group.originalStyles.transform
-                el.style.willChange = ""
-                el.style.opacity = ""
-                el.style.pointerEvents = ""
-                
-                const firstChild = el.firstElementChild as HTMLElement
-                if (firstChild) firstChild.style.transform = ""
-            })
-            elementGroupsRef.current = []
+            // Clear any pending resize timeout
+            if (resizeTimeoutId.current !== null) {
+                clearTimeout(resizeTimeoutId.current)
+                resizeTimeoutId.current = null
+            }
+
+            cleanupInfiniteCanvas()
         }
     }, [])
 
@@ -512,9 +553,9 @@ export default function InfiniteCanvas({
                 const posY = item.y + scrollY + item.extraY + parallaxY
 
                 // Wrapping logic
-                const beforeX = posX > winW.current
+                const beforeX = posX > parentW
                 const afterX = posX + item.width < 0
-                const beforeY = posY > winH.current
+                const beforeY = posY > parentH
                 const afterY = posY + item.height < 0
 
                 if (dirX === "right" && beforeX) item.extraX -= tileW
@@ -538,7 +579,7 @@ export default function InfiniteCanvas({
                 const distToMouse = Math.pow(cx - mousePX, 2) + Math.pow(cy - mousePY, 2)
 
                 // Visibility check
-                const buffer = Math.max(item.width, item.height) + 200
+                const buffer = 1000
                 const isVisible = 
                     (absFinalX >= -item.width - buffer && absFinalX <= winW.current + buffer) &&
                     (absFinalY >= -item.height - buffer && absFinalY <= winH.current + buffer)
@@ -736,8 +777,8 @@ addPropertyControls(InfiniteCanvas, {
                 min: 0,
                 max: 1,
                 step: 0.1,
-                defaultValue: 1,
-                description: "Controls the parallax effect intensity on inner elements (0 = no effect, 1 = full effect)",
+                defaultValue: 0,
+                description: "Controls the parallax effect intensity on inner elements",
             },
         },
         defaultValue: {

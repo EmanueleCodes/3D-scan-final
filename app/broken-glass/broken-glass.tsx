@@ -24,9 +24,12 @@ interface BrokenGlassProps {
 }
 
 // Helper function to resolve image source from various formats
-const resolveImageSource = (input?: string | ResponsiveImage): string | null => {
+const resolveImageSource = (
+    input?: string | ResponsiveImage
+): string | null => {
     if (!input) return null
-    if (typeof input === "string" && input.trim().length > 0) return input.trim()
+    if (typeof input === "string" && input.trim().length > 0)
+        return input.trim()
     if (typeof input === "object") {
         const possibleSources: Array<unknown> = [
             input.src,
@@ -42,10 +45,13 @@ const resolveImageSource = (input?: string | ResponsiveImage): string | null => 
                     .filter(Boolean)[0]
             )
         } else if (Array.isArray(input.srcSet)) {
-            possibleSources.push(input.srcSet.map((entry) => entry?.src).filter(Boolean)[0])
+            possibleSources.push(
+                input.srcSet.map((entry) => entry?.src).filter(Boolean)[0]
+            )
         }
         const resolved = possibleSources.find(
-            (value): value is string => typeof value === "string" && value.trim().length > 0
+            (value): value is string =>
+                typeof value === "string" && value.trim().length > 0
         )
         if (resolved) return resolved.trim()
     }
@@ -79,9 +85,14 @@ export default function BrokenGlass({
     const imageReadyRef = useRef(false)
     const [isBroken, setIsBroken] = useState(false)
     const isBrokenRef = useRef(false)
-    
+
     // Track canvas size changes to trigger resize
-    const lastCanvasSizeRef = useRef<{ w: number; h: number; aspect: number; ts: number }>({
+    const lastCanvasSizeRef = useRef<{
+        w: number
+        h: number
+        aspect: number
+        ts: number
+    }>({
         w: 0,
         h: 0,
         aspect: 0,
@@ -122,7 +133,7 @@ export default function BrokenGlass({
 
     // Canvas scale: how much larger the canvas is compared to the container
     const canvasScale = 1.3
-    
+
     // Inner scale: image fills the container exactly when distance = 0
     const innerScale = 1.0
 
@@ -130,7 +141,7 @@ export default function BrokenGlass({
     const vertexShader = `
         precision mediump float;
         varying vec2 vUv;
-        attribute vec2 a_position;
+        attribute vec f2 a_position;
 
         void main() {
             vUv = .5 * (a_position + 1.);
@@ -384,25 +395,21 @@ export default function BrokenGlass({
         gl.linkProgram(program)
 
         if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-            console.error(
-                "Program link error:",
-                gl.getProgramInfoLog(program)
-            )
+            console.error("Program link error:", gl.getProgramInfoLog(program))
             return false
         }
 
         gl.useProgram(program)
 
         // Get all uniform locations
-        const uniformCount = gl.getProgramParameter(
-            program,
-            gl.ACTIVE_UNIFORMS
-        )
+        const uniformCount = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS)
         for (let i = 0; i < uniformCount; i++) {
             const uniformInfo = gl.getActiveUniform(program, i)
             if (uniformInfo) {
-                uniformsRef.current[uniformInfo.name] =
-                    gl.getUniformLocation(program, uniformInfo.name)
+                uniformsRef.current[uniformInfo.name] = gl.getUniformLocation(
+                    program,
+                    uniformInfo.name
+                )
             }
         }
 
@@ -426,7 +433,10 @@ export default function BrokenGlass({
         if (!gl || !uniforms) return
 
         if (uniforms.u_click_randomizer) {
-            gl.uniform1f(uniforms.u_click_randomizer, clickRandomizerRef.current)
+            gl.uniform1f(
+                uniforms.u_click_randomizer,
+                clickRandomizerRef.current
+            )
         }
         if (uniforms.u_effect) {
             gl.uniform1f(uniforms.u_effect, distanceRef.current)
@@ -468,11 +478,11 @@ export default function BrokenGlass({
         const width = container.clientWidth || container.offsetWidth || 1
         const height = container.clientHeight || container.offsetHeight || 1
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
-        
+
         // Device-pixel backing store for crisp rendering with overscan
         canvas.width = Math.max(2, Math.round(width * canvasScale * dpr))
         canvas.height = Math.max(2, Math.round(height * canvasScale * dpr))
-        
+
         // CSS pixels for layout/centering (same as liquidHover)
         const cssW = width * canvasScale
         const cssH = height * canvasScale
@@ -499,7 +509,7 @@ export default function BrokenGlass({
             setIsBroken(false) // Reset broken state when image changes
             return
         }
-        
+
         // Reset broken state when image changes
         setIsBroken(false)
 
@@ -548,10 +558,10 @@ export default function BrokenGlass({
 
             resizeCanvas()
             updateUniforms()
-            
+
             // Initial render (no continuous loop needed since effect is static)
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-            
+
             setImageReady(true)
             imageReadyRef.current = true
         }
@@ -565,33 +575,65 @@ export default function BrokenGlass({
         img.src = resolvedImageUrl
 
         // Resize handling - only run polling when preview is ON in canvas mode
-        const resizeCleanup = (isCanvas && preview)
-            ? (() => {
-                // Canvas mode with preview ON: Use polling to detect resize
-                let rafId = 0
-                const TICK_MS = 100 // Check every 100ms for responsive resizing
-                const EPS_ASPECT = 0.001
-                
-                const tick = (now?: number) => {
-                    const container = containerRef.current
-                    if (container) {
-                        const cw = container.clientWidth || container.offsetWidth || 1
-                        const ch = container.clientHeight || container.offsetHeight || 1
-                        const aspect = cw / ch
-                        
-                        const timeOk = !lastCanvasSizeRef.current.ts || 
-                            (now || performance.now()) - lastCanvasSizeRef.current.ts >= TICK_MS
-                        const aspectChanged = Math.abs(aspect - lastCanvasSizeRef.current.aspect) > EPS_ASPECT
-                        const sizeChanged = Math.abs(cw - lastCanvasSizeRef.current.w) > 1 || 
-                            Math.abs(ch - lastCanvasSizeRef.current.h) > 1
-                        
-                        if (timeOk && (aspectChanged || sizeChanged)) {
-                            lastCanvasSizeRef.current = {
-                                w: cw,
-                                h: ch,
-                                aspect,
-                                ts: now || performance.now(),
-                            }
+        const resizeCleanup =
+            isCanvas && preview
+                ? (() => {
+                      // Canvas mode with preview ON: Use polling to detect resize
+                      let rafId = 0
+                      const TICK_MS = 100 // Check every 100ms for responsive resizing
+                      const EPS_ASPECT = 0.001
+
+                      const tick = (now?: number) => {
+                          const container = containerRef.current
+                          if (container) {
+                              const cw =
+                                  container.clientWidth ||
+                                  container.offsetWidth ||
+                                  1
+                              const ch =
+                                  container.clientHeight ||
+                                  container.offsetHeight ||
+                                  1
+                              const aspect = cw / ch
+
+                              const timeOk =
+                                  !lastCanvasSizeRef.current.ts ||
+                                  (now || performance.now()) -
+                                      lastCanvasSizeRef.current.ts >=
+                                      TICK_MS
+                              const aspectChanged =
+                                  Math.abs(
+                                      aspect - lastCanvasSizeRef.current.aspect
+                                  ) > EPS_ASPECT
+                              const sizeChanged =
+                                  Math.abs(cw - lastCanvasSizeRef.current.w) >
+                                      1 ||
+                                  Math.abs(ch - lastCanvasSizeRef.current.h) > 1
+
+                              if (timeOk && (aspectChanged || sizeChanged)) {
+                                  lastCanvasSizeRef.current = {
+                                      w: cw,
+                                      h: ch,
+                                      aspect,
+                                      ts: now || performance.now(),
+                                  }
+                                  resizeCanvas()
+                                  // Force a render after resize
+                                  if (gl && imageReadyRef.current) {
+                                      updateUniforms()
+                                      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+                                  }
+                              }
+                          }
+                          rafId = requestAnimationFrame(tick)
+                      }
+                      rafId = requestAnimationFrame(tick)
+                      return () => cancelAnimationFrame(rafId)
+                  })()
+                : !isCanvas
+                  ? (() => {
+                        // Live preview: Use standard resize event
+                        const handleResize = () => {
                             resizeCanvas()
                             // Force a render after resize
                             if (gl && imageReadyRef.current) {
@@ -599,30 +641,14 @@ export default function BrokenGlass({
                                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
                             }
                         }
-                    }
-                    rafId = requestAnimationFrame(tick)
-                }
-                rafId = requestAnimationFrame(tick)
-                return () => cancelAnimationFrame(rafId)
-            })()
-            : !isCanvas
-            ? (() => {
-                // Live preview: Use standard resize event
-                const handleResize = () => {
-                    resizeCanvas()
-                    // Force a render after resize
-                    if (gl && imageReadyRef.current) {
-                        updateUniforms()
-                        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                    }
-                }
-                window.addEventListener("resize", handleResize)
-                return () => window.removeEventListener("resize", handleResize)
-            })()
-            : (() => {
-                // Canvas mode with preview OFF: No resize detection needed
-                return () => {}
-            })()
+                        window.addEventListener("resize", handleResize)
+                        return () =>
+                            window.removeEventListener("resize", handleResize)
+                    })()
+                  : (() => {
+                        // Canvas mode with preview OFF: No resize detection needed
+                        return () => {}
+                    })()
 
         return () => {
             resizeCleanup()
@@ -651,15 +677,15 @@ export default function BrokenGlass({
                 const rect = canvas.getBoundingClientRect()
                 const x = (e.clientX - rect.left) / rect.width
                 const y = (e.clientY - rect.top) / rect.height
-                
+
                 pointerRef.current = { x, y }
                 clickRandomizerRef.current = Math.random()
-                
+
                 // Update ref immediately for instant WebGL render (performance optimization)
                 isBrokenRef.current = true
                 updateUniforms()
                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                
+
                 // Update state for React consistency (happens after visual update)
                 setIsBroken(true)
             } else {
@@ -668,7 +694,7 @@ export default function BrokenGlass({
                 isBrokenRef.current = false
                 updateUniforms()
                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                
+
                 // Update state for React consistency
                 setIsBroken(false)
             }
@@ -678,15 +704,15 @@ export default function BrokenGlass({
                 const rect = canvas.getBoundingClientRect()
                 const x = (e.clientX - rect.left) / rect.width
                 const y = (e.clientY - rect.top) / rect.height
-                
+
                 pointerRef.current = { x, y }
                 clickRandomizerRef.current = Math.random()
-                
+
                 // Update ref immediately for instant WebGL render (performance optimization)
                 isBrokenRef.current = true
                 updateUniforms()
                 gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-                
+
                 // Update state for React consistency (happens after visual update)
                 setIsBroken(true)
             }
@@ -702,7 +728,7 @@ export default function BrokenGlass({
             clickRandomizerRef.current = Math.random()
             isBrokenRef.current = true
             setIsBroken(true)
-            
+
             // Force immediate render
             if (glRef.current) {
                 updateUniforms()
@@ -772,7 +798,6 @@ export default function BrokenGlass({
                 width: "100%",
                 height: "100%",
                 overflow: "visible",
-                cursor: (!breakAgain && isBroken) ? "default" : "pointer",
             }}
         >
             <canvas
@@ -816,18 +841,18 @@ addPropertyControls(BrokenGlass, {
         min: 0,
         max: 1,
         step: 0.01,
-        defaultValue: 0.5,
+        defaultValue: 0.1,
     },
     edgeThickness: {
         type: ControlType.Number,
-        title: "Edge Thickness",
+        title: "Edge",
         min: 0,
         max: 1,
         step: 0.01,
-        defaultValue: 0.5,
-        description: "More components at [Framer University](https://frameruni.link/cc).",
+        defaultValue: 0.3,
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
     },
 })
 
 BrokenGlass.displayName = "Broken Glass"
-
