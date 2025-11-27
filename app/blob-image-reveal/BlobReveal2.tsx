@@ -44,43 +44,18 @@ interface BlobReveal2Props {
     startAlign: "top" | "center" | "bottom"
     animationDuration: number
     animationDelay: number
+    blobCount: number
     // Style (always last)
     style?: React.CSSProperties
 }
 
-const resolveImageSource = (input?: ResponsiveImageSource): string | undefined => {
+// Simple image source resolution - just use the src property
+const resolveImageSource = (
+    input?: ResponsiveImageSource
+): string | undefined => {
     if (!input) return undefined
-
-    if (typeof input === "string") {
-        const trimmed = input.trim()
-        if (trimmed.length > 0) return trimmed
-        return undefined
-    }
-
-    const candidates: string[] = []
-
-    const pushCandidate = (value?: string | null) => {
-        if (value && value.trim().length > 0) {
-            candidates.push(value.trim())
-        }
-    }
-
-    pushCandidate(input.src)
-    pushCandidate(input.url)
-    pushCandidate(input.default)
-    pushCandidate(input.asset?.url)
-
-    if (typeof input.srcSet === "string") {
-        const first = input.srcSet
-            .split(",")
-            .map((entry) => entry.trim().split(" ")[0])
-            .filter(Boolean)[0]
-        pushCandidate(first)
-    } else if (Array.isArray(input.srcSet)) {
-        input.srcSet.forEach((entry) => pushCandidate(entry?.src))
-    }
-
-    return candidates[0]
+    if (typeof input === "string") return input.trim() || undefined
+    return input.src || undefined
 }
 
 // ============================================================================
@@ -116,7 +91,9 @@ uniform float uProgress;      // Animation progress [0..1]
 uniform vec2 uSize;           // Container size in pixels
 uniform vec2 uImageSize;      // Image dimensions for aspect ratio
 uniform sampler2D uTexture;   // The image texture
+uniform int uBlobCount;
 #define PI 3.1415926538
+#define TWO_PI 6.28318530718
 
 // Creates wavy noise based on angle - adds organic feel to blob edges
 float noise(vec2 point) {
@@ -186,23 +163,40 @@ void main() {
 
     // Apply easing to progress for natural animation curve
     float t = pow(uProgress, 2.5);
-    float radius = uSize.x / 2.0;
-    float rad = t * radius;
+    // Use diagonal to ensure full coverage - need at least half diagonal to cover rectangle
+    // Add extra margin to account for noise distortion
+    float maxDim = sqrt(uSize.x * uSize.x + uSize.y * uSize.y);
+    float rad = t * maxDim * 1.0;
     
-    // Create main center circle
+    // Create main center circle (always present)
     float c1 = circleSDF(coords - center, rad);
-
-    // Create radial satellite circles at different distances
-    vec2 p = (vUv - 0.5) * uSize;
-    float r1 = radialCircles(p, 0.2 * uSize.x, 3.0);
-    float r2 = radialCircles(p, 0.25 * uSize.x, 3.0);
-    float r3 = radialCircles(p, 0.45 * uSize.x, 5.0);
-
-    // Blend all circles together using smooth minimum
-    float k = 50.0 / uSize.x;
-    float circle = softMin(c1, r1, k);
-    circle = softMin(circle, r2, k);
-    circle = softMin(circle, r3, k);
+    float k = 50.0 / max(uSize.x, uSize.y);
+    float circle = c1;
+    
+    // Add extra blobs only if blobCount > 1
+    int extraBlobs = uBlobCount - 1;
+    for (int i = 0; i < 10; i++) {
+        if (i >= extraBlobs) break;
+        
+        float idx = float(i);
+        float total = float(extraBlobs);
+        
+        // Distribute evenly around the center with pseudo-random offset
+        float baseAngle = idx * TWO_PI / max(total, 1.0);
+        float jitter = fract(sin(idx * 127.1 + 311.7) * 43758.5453) * 0.5 - 0.25;
+        float angle = baseAngle + jitter;
+        
+        // Position at varying distances from center
+        float distRatio = 0.25 + 0.2 * fract(sin(idx * 43.3) * 12345.6);
+        vec2 offset = vec2(cos(angle), sin(angle)) * distRatio * min(uSize.x, uSize.y);
+        
+        // Each extra blob is a simple circle
+        float blobDist = length(coords - center - offset);
+        float blobNoise = noise(coords - center - offset) * rad * 0.4;
+        float blob = blobDist + blobNoise;
+        
+        circle = softMin(circle, blob, k);
+    }
 
     // Create sharp edge at the blob boundary
     circle = step(circle, rad);
@@ -223,7 +217,7 @@ void main() {
 function calculateCameraDistance(height: number, fov: number): number {
     const safeHeight = Math.max(height, 1)
     const radians = (fov * Math.PI) / 360
-    return (safeHeight / 2) / Math.tan(radians) || 1
+    return safeHeight / 2 / Math.tan(radians) || 1
 }
 
 /**
@@ -249,7 +243,7 @@ function configureCameraForSize(
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
  * @framerSupportedLayoutHeight any-prefer-fixed
- * @framerIntrinsicWidth 400
+ * @framerIntrinsicWidth 600
  * @framerIntrinsicHeight 400
  * @framerDisableUnlink
  */
@@ -261,6 +255,7 @@ export default function BlobReveal2({
     startAlign = "top",
     animationDuration = 2.0,
     animationDelay = 0,
+    blobCount = 3,
     style,
 }: BlobReveal2Props) {
     // Refs for Three.js objects
@@ -270,12 +265,12 @@ export default function BlobReveal2({
     const rendererRef = useRef<any>(null)
     const cameraRef = useRef<any>(null)
     const meshRef = useRef<any>(null)
-    
+
     // Refs for resize detection
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lastSizeRef = useRef({ width: 0, height: 0, zoom: 0 })
     const animationFrameRef = useRef<number | null>(null)
-    
+
     // State for animation triggering
     const [isInView, setIsInView] = useState(false)
     const [hasTriggered, setHasTriggered] = useState(false)
@@ -305,7 +300,12 @@ export default function BlobReveal2({
         sceneRef.current = scene
 
         // Create camera
-        const camera = new PerspectiveCamera(CAMERA_FOV, width / height, 0.1, 2000)
+        const camera = new PerspectiveCamera(
+            CAMERA_FOV,
+            width / height,
+            0.1,
+            2000
+        )
         configureCameraForSize(camera, width, height)
         cameraRef.current = camera
 
@@ -320,7 +320,12 @@ export default function BlobReveal2({
         rendererRef.current = renderer
 
         // Create plane geometry and shader material
-        const geometry = new PlaneGeometry(width, height, PLANE_SEGMENTS, PLANE_SEGMENTS)
+        const geometry = new PlaneGeometry(
+            width,
+            height,
+            PLANE_SEGMENTS,
+            PLANE_SEGMENTS
+        )
         const material = new ShaderMaterial({
             vertexShader,
             fragmentShader,
@@ -329,6 +334,7 @@ export default function BlobReveal2({
                 uSize: new Uniform(new Vector2(width, height)),
                 uImageSize: new Uniform(new Vector2(1, 1)),
                 uTexture: new Uniform(null),
+                uBlobCount: new Uniform(3),
             },
             transparent: true,
         })
@@ -356,17 +362,22 @@ export default function BlobReveal2({
             if (!meshRef.current?.material) return
 
             const material = meshRef.current.material
-            
+
             // Store image dimensions for aspect ratio calculations in shader
             if (texture.image) {
                 const imgWidth = texture.image.width || 1
                 const imgHeight = texture.image.height || 1
                 material.uniforms.uImageSize.value.set(imgWidth, imgHeight)
             }
-            
+
             material.uniforms.uTexture.value = texture
+
+            // Render immediately after texture loads (especially important when preview is off)
+            if (rendererRef.current && sceneRef.current && cameraRef.current) {
+                rendererRef.current.render(sceneRef.current, cameraRef.current)
+            }
         })
-    }, [resolvedImageUrl])
+    }, [resolvedImageUrl, image])
 
     // ========================================================================
     // RESIZE HANDLING
@@ -376,11 +387,12 @@ export default function BlobReveal2({
      * Updates renderer, camera, and mesh geometry when container size changes
      */
     const updateSize = useCallback((width: number, height: number) => {
-        if (!cameraRef.current || !rendererRef.current || !meshRef.current) return
+        if (!cameraRef.current || !rendererRef.current || !meshRef.current)
+            return
 
         // Update camera
         configureCameraForSize(cameraRef.current, width, height)
-        
+
         // Update renderer
         rendererRef.current.setSize(width, height)
         rendererRef.current.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -406,7 +418,8 @@ export default function BlobReveal2({
     const isAnimatingRef = useRef(false)
 
     const renderFrame = useCallback(() => {
-        if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return
+        if (!rendererRef.current || !sceneRef.current || !cameraRef.current)
+            return
         rendererRef.current.render(sceneRef.current, cameraRef.current)
     }, [])
 
@@ -441,12 +454,14 @@ export default function BlobReveal2({
     // Reset animation when image changes
     useEffect(() => {
         if (!hasContent) return
-        
+
         setHasTriggered(false)
-        
+
         // In canvas mode, show full image; otherwise start hidden
         if (meshRef.current?.material) {
-            meshRef.current.material.uniforms.uProgress.value = isCanvas ? 1.0 : 0.0
+            meshRef.current.material.uniforms.uProgress.value = isCanvas
+                ? 1.0
+                : 0.0
         }
     }, [hasContent, resolvedImageUrl, isCanvas])
 
@@ -470,7 +485,7 @@ export default function BlobReveal2({
             if (rendererRef.current) {
                 rendererRef.current.dispose()
             }
-            
+
             if (sceneRef.current) {
                 sceneRef.current.clear()
             }
@@ -487,7 +502,8 @@ export default function BlobReveal2({
             const height = container.clientHeight || container.offsetHeight || 1
             const last = lastSizeRef.current
             const sizeChanged =
-                Math.abs(width - last.width) > 1 || Math.abs(height - last.height) > 1
+                Math.abs(width - last.width) > 1 ||
+                Math.abs(height - last.height) > 1
             if (sizeChanged) {
                 last.width = width
                 last.height = height
@@ -502,7 +518,8 @@ export default function BlobReveal2({
         resizeObserver.observe(container)
 
         const zoomMonitor = setInterval(() => {
-            const probeWidth = zoomProbeRef.current?.getBoundingClientRect().width ?? 20
+            const probeWidth =
+                zoomProbeRef.current?.getBoundingClientRect().width ?? 20
             const last = lastSizeRef.current
             if (Math.abs(probeWidth - last.zoom) > 0.5) {
                 last.zoom = probeWidth
@@ -518,6 +535,13 @@ export default function BlobReveal2({
         return cleanup
     }, [updateSize])
 
+    useEffect(() => {
+        if (!meshRef.current?.material) return
+        const material = meshRef.current.material
+        const normalizedCount = Math.min(10, Math.max(1, Math.round(blobCount)))
+        material.uniforms.uBlobCount.value = normalizedCount
+    }, [blobCount])
+
     // Update scroll alignment state for the on-scroll trigger
     useEffect(() => {
         if (triggerMode !== "scroll" || isCanvas) return
@@ -532,11 +556,10 @@ export default function BlobReveal2({
                 startAlign === "center"
                     ? viewportHeight / 2
                     : startAlign === "bottom"
-                    ? viewportHeight
-                    : 0
+                      ? viewportHeight
+                      : 0
 
-            const isAligned =
-                rect.top <= alignPoint && rect.bottom >= 0
+            const isAligned = rect.top <= alignPoint && rect.bottom >= 0
             setIsInView(isAligned)
         }
 
@@ -572,7 +595,7 @@ export default function BlobReveal2({
     // GSAP animation - only runs in preview/published mode
     useGSAP(() => {
         if (isCanvas || !hasTriggered || !meshRef.current?.material) return
-        
+
         const material = meshRef.current.material
         startRenderLoop()
         const tween = gsap.to(material.uniforms.uProgress, {
@@ -642,6 +665,8 @@ export default function BlobReveal2({
         stopRenderLoop,
         animationDelay,
         animationDuration,
+        blobCount,
+        image,
     ])
 
     // ========================================================================
@@ -714,7 +739,7 @@ addPropertyControls(BlobReveal2, {
     preview: {
         type: ControlType.Boolean,
         title: "Preview",
-        defaultValue: false,
+        defaultValue: true,
         enabledTitle: "On",
         disabledTitle: "Off",
     },
@@ -743,16 +768,13 @@ addPropertyControls(BlobReveal2, {
         segmentedControlDirection: "horizontal",
         hidden: (props) => props.triggerMode !== "scroll",
     },
-    // Last control includes Framer University link
-    animationDuration: {
+    blobCount: {
         type: ControlType.Number,
-        title: "Duration",
-        min: 0.5,
-        max: 5.0,
-        step: 0.1,
-        defaultValue: 2.0,
-        unit: "s",
-        description: "More components at [Framer University](https://frameruni.link/cc).",
+        title: "Blob Count",
+        min: 1,
+        max: 10,
+        step: 1,
+        defaultValue: 3,
     },
     animationDelay: {
         type: ControlType.Number,
@@ -765,6 +787,18 @@ addPropertyControls(BlobReveal2, {
         description: "Only applies when Trigger = On Appear.",
         hidden: (props) => props.triggerMode !== "appear",
     },
+    // Last control includes Framer University link
+    animationDuration: {
+        type: ControlType.Number,
+        title: "Duration",
+        min: 0.5,
+        max: 10.0,
+        step: 0.1,
+        defaultValue: 2.0,
+        unit: "s",
+        description:
+            "More components at [Framer University](https://frameruni.link/cc).",
+    },
 })
 
 // ============================================================================
@@ -772,4 +806,3 @@ addPropertyControls(BlobReveal2, {
 // ============================================================================
 
 BlobReveal2.displayName = "Blob Image Reveal"
-
