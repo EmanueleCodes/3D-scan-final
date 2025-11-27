@@ -270,15 +270,30 @@ export default function BlobReveal2({
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lastSizeRef = useRef({ width: 0, height: 0, zoom: 0 })
     const animationFrameRef = useRef<number | null>(null)
+    const triggerModeRef = useRef(triggerMode)
+    const mountKeyRef = useRef(0)
 
     // State for animation triggering
     const [isInView, setIsInView] = useState(false)
     const [hasTriggered, setHasTriggered] = useState(false)
+    const [textureLoaded, setTextureLoaded] = useState(false)
 
     // Detect if we're in Framer canvas (editor) vs preview/published
     const resolvedImageUrl = resolveImageSource(image)
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
     const hasContent = !!resolvedImageUrl
+
+    // Keep triggerMode ref in sync
+    useEffect(() => {
+        triggerModeRef.current = triggerMode
+    }, [triggerMode])
+
+    // Reset state on mount (handles Framer preview reloads)
+    useEffect(() => {
+        mountKeyRef.current += 1
+        setHasTriggered(false)
+        setTextureLoaded(false)
+    }, [])
 
     // ========================================================================
     // SCENE SETUP
@@ -355,29 +370,45 @@ export default function BlobReveal2({
      * Loads the image as a Three.js texture and sets up image size uniform
      */
     const loadTexture = useCallback(() => {
-        if (!resolvedImageUrl || !meshRef.current) return
+        if (!resolvedImageUrl || !meshRef.current) {
+            setTextureLoaded(false)
+            return
+        }
+
+        // Reset texture loaded state when loading new texture
+        setTextureLoaded(false)
 
         const textureLoader = new TextureLoader()
-        textureLoader.load(resolvedImageUrl, (texture: any) => {
-            if (!meshRef.current?.material) return
+        textureLoader.load(
+            resolvedImageUrl,
+            (texture: any) => {
+                if (!meshRef.current?.material) return
 
-            const material = meshRef.current.material
+                const material = meshRef.current.material
 
-            // Store image dimensions for aspect ratio calculations in shader
-            if (texture.image) {
-                const imgWidth = texture.image.width || 1
-                const imgHeight = texture.image.height || 1
-                material.uniforms.uImageSize.value.set(imgWidth, imgHeight)
+                // Store image dimensions for aspect ratio calculations in shader
+                if (texture.image) {
+                    const imgWidth = texture.image.width || 1
+                    const imgHeight = texture.image.height || 1
+                    material.uniforms.uImageSize.value.set(imgWidth, imgHeight)
+                }
+
+                material.uniforms.uTexture.value = texture
+                setTextureLoaded(true)
+
+                // Render immediately after texture loads (especially important when preview is off)
+                if (rendererRef.current && sceneRef.current && cameraRef.current) {
+                    rendererRef.current.render(sceneRef.current, cameraRef.current)
+                }
+            },
+            undefined,
+            (error: any) => {
+                // Handle texture loading errors
+                console.error("Texture loading error:", error)
+                setTextureLoaded(false)
             }
-
-            material.uniforms.uTexture.value = texture
-
-            // Render immediately after texture loads (especially important when preview is off)
-            if (rendererRef.current && sceneRef.current && cameraRef.current) {
-                rendererRef.current.render(sceneRef.current, cameraRef.current)
-            }
-        })
-    }, [resolvedImageUrl, image])
+        )
+    }, [resolvedImageUrl])
 
     // ========================================================================
     // RESIZE HANDLING
@@ -453,9 +484,15 @@ export default function BlobReveal2({
 
     // Reset animation when image changes
     useEffect(() => {
-        if (!hasContent) return
+        if (!hasContent) {
+            setHasTriggered(false)
+            setTextureLoaded(false)
+            return
+        }
 
+        // Reset trigger state when image URL changes
         setHasTriggered(false)
+        setTextureLoaded(false)
 
         // In canvas mode, show full image; otherwise start hidden
         if (meshRef.current?.material) {
@@ -467,30 +504,56 @@ export default function BlobReveal2({
 
     // Initialize Three.js scene
     useEffect(() => {
-        if (!hasContent) return
+        if (!hasContent) {
+            // Cleanup if no content
+            stopRenderLoop()
+            if (rendererRef.current) {
+                rendererRef.current.dispose()
+                rendererRef.current = null
+            }
+            if (sceneRef.current) {
+                sceneRef.current.clear()
+                sceneRef.current = null
+            }
+            if (meshRef.current) {
+                meshRef.current = null
+            }
+            return
+        }
 
         // Setup scene
         setupScene()
-        loadTexture()
-        renderFrame()
+        // Initial render with empty texture
+        if (rendererRef.current && sceneRef.current && cameraRef.current) {
+            renderFrame()
+        }
+        
+        // Load texture after scene is set up
+        // Use a small delay to ensure scene is fully initialized
+        const textureTimeout = setTimeout(() => {
+            loadTexture()
+        }, 0)
 
-        // In canvas mode, show full image immediately
+        // In canvas mode, show full image immediately after texture loads
         if (isCanvas && meshRef.current?.material) {
             meshRef.current.material.uniforms.uProgress.value = 1.0
         }
 
         // Cleanup on unmount
         return () => {
+            clearTimeout(textureTimeout)
             stopRenderLoop()
             if (rendererRef.current) {
                 rendererRef.current.dispose()
+                rendererRef.current = null
             }
 
             if (sceneRef.current) {
                 sceneRef.current.clear()
+                sceneRef.current = null
             }
         }
-    }, [hasContent, isCanvas, setupScene, loadTexture, renderFrame])
+    }, [hasContent, isCanvas, setupScene, loadTexture, stopRenderLoop])
 
     // Continuous size monitoring (handles Framer canvas zoom and resize)
     useEffect(() => {
@@ -581,20 +644,32 @@ export default function BlobReveal2({
         }
     }, [triggerMode, startAlign, isCanvas])
 
-    // Handle trigger conditions
+    // Handle trigger conditions - only trigger after texture is loaded
     useEffect(() => {
-        if (!hasContent || isCanvas) return
+        if (!hasContent || isCanvas || !textureLoaded) return
 
+        // In appear mode, trigger immediately when texture loads
         if (triggerMode === "appear" && !hasTriggered) {
-            setHasTriggered(true)
+            // Use a small delay to ensure all state is settled
+            const triggerTimeout = setTimeout(() => {
+                setHasTriggered(true)
+            }, 10)
+            return () => clearTimeout(triggerTimeout)
         } else if (triggerMode === "scroll" && isInView && !hasTriggered) {
             setHasTriggered(true)
         }
-    }, [triggerMode, isInView, hasTriggered, hasContent, isCanvas])
+    }, [triggerMode, isInView, hasTriggered, hasContent, isCanvas, textureLoaded])
 
-    // GSAP animation - only runs in preview/published mode
+    // GSAP animation - only runs in preview/published mode after texture is loaded
     useGSAP(() => {
-        if (isCanvas || !hasTriggered || !meshRef.current?.material) return
+        if (
+            isCanvas ||
+            !hasTriggered ||
+            !textureLoaded ||
+            !meshRef.current?.material ||
+            !meshRef.current.material.uniforms.uTexture.value
+        )
+            return
 
         const material = meshRef.current.material
         startRenderLoop()
@@ -616,7 +691,10 @@ export default function BlobReveal2({
         }
     }, [
         hasTriggered,
+        textureLoaded,
         animationDuration,
+        animationDelay,
+        triggerMode,
         isCanvas,
         renderFrame,
         startRenderLoop,
