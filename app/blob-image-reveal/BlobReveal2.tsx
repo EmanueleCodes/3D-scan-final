@@ -40,13 +40,16 @@ interface BlobReveal2Props {
     // Main content
     image?: ResponsiveImageSource
     // Animation settings
-    triggerMode: "appear" | "scroll"
-    startAlign: "top" | "center" | "bottom"
-    animationDuration: number
-    animationDelay: number
     blobCount: number
     // Style (always last)
     style?: React.CSSProperties
+    borderRadius: number
+    animation: {
+        triggerMode: "appear" | "scroll"
+        startAlign: "top" | "center" | "bottom"
+        animationDuration: number
+        animationDelay: number
+    }
 }
 
 // Simple image source resolution - just use the src property
@@ -251,12 +254,15 @@ function configureCameraForSize(
 export default function BlobReveal2({
     preview = false,
     image,
-    triggerMode = "appear",
-    startAlign = "top",
-    animationDuration = 2.0,
-    animationDelay = 0,
+    animation = {
+        triggerMode: "appear",
+        startAlign: "top",
+        animationDuration: 2.0,
+        animationDelay: 0,
+    },
     blobCount = 3,
     style,
+    borderRadius = 0,
 }: BlobReveal2Props) {
     // Refs for Three.js objects
     const containerRef = useRef<HTMLDivElement>(null)
@@ -265,6 +271,8 @@ export default function BlobReveal2({
     const rendererRef = useRef<any>(null)
     const cameraRef = useRef<any>(null)
     const meshRef = useRef<any>(null)
+
+    const { triggerMode, startAlign, animationDuration, animationDelay } = animation
 
     // Refs for resize detection
     const zoomProbeRef = useRef<HTMLDivElement>(null)
@@ -761,6 +769,7 @@ export default function BlobReveal2({
                     height: "100%",
                     minWidth: 0,
                     minHeight: 0,
+                    borderRadius: `${borderRadius}px`,
                 }}
                 title="Blob Image Reveal"
                 subtitle="Add an image to see the blob reveal effect"
@@ -780,6 +789,7 @@ export default function BlobReveal2({
                 display: "block",
                 margin: 0,
                 padding: 0,
+                borderRadius: `${borderRadius}px`,
             }}
         >
             {/* Zoom probe for detecting Framer canvas zoom level */}
@@ -826,26 +836,7 @@ addPropertyControls(BlobReveal2, {
         type: ControlType.ResponsiveImage,
         title: "Image",
     },
-    // Animation settings
-    triggerMode: {
-        type: ControlType.Enum,
-        title: "Trigger",
-        options: ["appear", "scroll"],
-        optionTitles: ["On Appear", "On Scroll"],
-        defaultValue: "appear",
-        displaySegmentedControl: true,
-        segmentedControlDirection: "vertical",
-    },
-    startAlign: {
-        type: ControlType.Enum,
-        title: "Start At",
-        options: ["top", "center", "bottom"],
-        optionTitles: ["Top", "Center", "Bottom"],
-        defaultValue: "top",
-        displaySegmentedControl: true,
-        segmentedControlDirection: "horizontal",
-        hidden: (props) => props.triggerMode !== "scroll",
-    },
+    
     blobCount: {
         type: ControlType.Number,
         title: "Blob Count",
@@ -854,29 +845,66 @@ addPropertyControls(BlobReveal2, {
         step: 1,
         defaultValue: 3,
     },
-    animationDelay: {
+    borderRadius:{
         type: ControlType.Number,
-        title: "Delay",
+        title: "Radius",
         min: 0,
-        max: 5,
-        step: 0.1,
+        max: 100,
+        step: 1,
         defaultValue: 0,
-        unit: "s",
-        description: "Only applies when Trigger = On Appear.",
-        hidden: (props) => props.triggerMode !== "appear",
+        unit: "px",
     },
-    // Last control includes Framer University link
-    animationDuration: {
-        type: ControlType.Number,
-        title: "Duration",
-        min: 0.5,
-        max: 10.0,
-        step: 0.1,
-        defaultValue: 2.0,
-        unit: "s",
+    animation:{
+        type: ControlType.Object,
+        title: "Animation",
         description:
-            "More components at [Framer University](https://frameruni.link/cc).",
-    },
+        "More components at [Framer University](https://frameruni.link/cc).",
+        controls: {
+            // Animation settings
+            triggerMode: {
+                type: ControlType.Enum,
+                title: "Trigger",
+                options: ["appear", "scroll"],
+                optionTitles: ["Appear", "Layer in View"],
+                defaultValue: "appear",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "vertical",
+            },
+            startAlign: {
+                type: ControlType.Enum,
+                title: "Start At",
+                options: ["top", "center", "bottom"],
+                optionTitles: ["Top", "Center", "Bottom"],
+                defaultValue: "top",
+                displaySegmentedControl: true,
+                segmentedControlDirection: "horizontal",
+                hidden: (props) => props.triggerMode !== "scroll",
+            },
+            animationDuration: {
+                type: ControlType.Number,
+                title: "Duration",
+                min: 0.5,
+                max: 10.0,
+                step: 0.1,
+                defaultValue: 2.0,
+                unit: "s",
+                
+            },
+            animationDelay: {
+                type: ControlType.Number,
+                title: "Delay",
+                min: 0,
+                max: 5,
+                step: 0.1,
+                defaultValue: 0,
+                unit: "s",
+                hidden: (props) => props.triggerMode !== "appear",
+            },
+        },
+    }
+    
+   
+    
 })
 
 // ============================================================================

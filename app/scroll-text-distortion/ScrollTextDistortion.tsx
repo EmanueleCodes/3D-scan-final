@@ -162,7 +162,7 @@ void main() {
     }
     // Preset 2: Glitch/Channel split
     else if (uPreset == 2) {
-        float offset = speed * 0.02;
+        float offset = speed * 0.06;
         vec4 r = texture2D(uTexture, uv + vec2(offset, 0.0));
         vec4 g = texture2D(uTexture, uv);
         vec4 b = texture2D(uTexture, uv - vec2(offset, 0.0));
@@ -174,7 +174,7 @@ void main() {
     else if (uPreset == 3) {
         vec2 center = vec2(0.5, 0.5);
         float dist = distance(uv, center);
-        float amplitude = speed * 0.02;
+        float amplitude = speed * 0.1;
         float frequency = 10.0;
         float offset = sin(dist * frequency - uTime * 3.0) * amplitude * (1.0 - dist);
         vec2 dir = normalize(uv - center);
@@ -184,7 +184,7 @@ void main() {
     else if (uPreset == 4) {
         float shakeX = noise(vec2(uTime * 50.0, 0.0)) * 2.0 - 1.0;
         float shakeY = noise(vec2(0.0, uTime * 50.0)) * 2.0 - 1.0;
-        float intensity = speed * 0.015;
+        float intensity = speed * 0.09;
         uv += vec2(shakeX, shakeY) * intensity;
     }
     
@@ -208,7 +208,6 @@ const configureCameraForSize = (camera: any, width: number, height: number) => {
     camera.position.set(0, 0, distance)
 }
 
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -216,8 +215,8 @@ const configureCameraForSize = (camera: any, width: number, height: number) => {
 /**
  * @framerSupportedLayoutWidth any-prefer-fixed
  * @framerSupportedLayoutHeight any-prefer-fixed
- * @framerIntrinsicWidth 400
- * @framerIntrinsicHeight 120
+ * @framerIntrinsicWidth 240
+ * @framerIntrinsicHeight 64
  * @framerDisableUnlink
  */
 export default function ScrollTextDistortion({
@@ -250,11 +249,17 @@ export default function ScrollTextDistortion({
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
 
     // Convert preset string to number for shader
-    const presetIndex = ["liquid", "wave", "glitch", "ripple", "shake"].indexOf(preset)
+    const presetIndex = ["liquid", "wave", "glitch", "ripple", "shake"].indexOf(
+        preset
+    )
 
     // Extract font properties
     const fontFamily = font.fontFamily || "system-ui, -apple-system, sans-serif"
     const fontWeight = font.fontWeight || "400"
+
+    useEffect(() => {
+        console.log(font)
+    }, [font])
 
     // ========================================================================
     // TEXT TEXTURE CREATION
@@ -280,8 +285,16 @@ export default function ScrollTextDistortion({
             ctx.clearRect(0, 0, canvas.width, canvas.height)
 
             // Use font size from font prop, or calculate to fit width
-            let fontSize = font.fontSize
-            if (typeof fontSize === "number") {
+            // Parse fontSize - Framer returns it as string like "47px"
+            let fontSize: number | undefined
+            if (typeof font.fontSize === "number") {
+                fontSize = font.fontSize
+            } else if (typeof font.fontSize === "string") {
+                // Extract numeric value from string (e.g., "47px" -> 47)
+                fontSize = parseFloat(font.fontSize) || undefined
+            }
+
+            if (fontSize !== undefined && fontSize > 0) {
                 fontSize = fontSize * 2 // Scale for higher resolution canvas
             } else {
                 // Calculate font size to fit width (approximately 80% of width)
@@ -306,7 +319,7 @@ export default function ScrollTextDistortion({
 
             return new CanvasTexture(canvas)
         },
-        [text, font, color]
+        [text, font, color, fontFamily, fontWeight]
     )
 
     // ========================================================================
@@ -325,7 +338,12 @@ export default function ScrollTextDistortion({
         sceneRef.current = scene
 
         // Create camera
-        const camera = new PerspectiveCamera(CAMERA_FOV, width / height, 0.1, 2000)
+        const camera = new PerspectiveCamera(
+            CAMERA_FOV,
+            width / height,
+            0.1,
+            2000
+        )
         configureCameraForSize(camera, width, height)
         cameraRef.current = camera
 
@@ -343,7 +361,12 @@ export default function ScrollTextDistortion({
         const texture = createTextTexture(width, height)
 
         // Create plane geometry and shader material
-        const geometry = new PlaneGeometry(width, height, PLANE_SEGMENTS, PLANE_SEGMENTS)
+        const geometry = new PlaneGeometry(
+            width,
+            height,
+            PLANE_SEGMENTS,
+            PLANE_SEGMENTS
+        )
         const material = new ShaderMaterial({
             vertexShader,
             fragmentShader,
@@ -368,16 +391,24 @@ export default function ScrollTextDistortion({
 
     const updateSize = useCallback(
         (width: number, height: number) => {
-            if (!cameraRef.current || !rendererRef.current || !meshRef.current) return
+            if (!cameraRef.current || !rendererRef.current || !meshRef.current)
+                return
 
             configureCameraForSize(cameraRef.current, width, height)
             rendererRef.current.setSize(width, height)
-            rendererRef.current.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+            rendererRef.current.setPixelRatio(
+                Math.min(window.devicePixelRatio, 2)
+            )
 
             // Update geometry
             if (meshRef.current.geometry) {
                 meshRef.current.geometry.dispose()
-                meshRef.current.geometry = new PlaneGeometry(width, height, PLANE_SEGMENTS, PLANE_SEGMENTS)
+                meshRef.current.geometry = new PlaneGeometry(
+                    width,
+                    height,
+                    PLANE_SEGMENTS,
+                    PLANE_SEGMENTS
+                )
             }
 
             // Update uniforms
@@ -403,14 +434,26 @@ export default function ScrollTextDistortion({
     const lerp = (a: number, b: number, n: number) => (1 - n) * a + n * b
 
     // Linear equation utility (matching reference implementation)
-    const lineEq = (y2: number, y1: number, x2: number, x1: number, currentVal: number) => {
+    const lineEq = (
+        y2: number,
+        y1: number,
+        x2: number,
+        x1: number,
+        currentVal: number
+    ) => {
         const m = (y2 - y1) / (x2 - x1)
         const q = y1 - m * x1
         return m * currentVal + q
     }
 
     const renderLoop = useCallback(() => {
-        if (!rendererRef.current || !sceneRef.current || !cameraRef.current || !meshRef.current) return
+        if (
+            !rendererRef.current ||
+            !sceneRef.current ||
+            !cameraRef.current ||
+            !meshRef.current
+        )
+            return
 
         const material = meshRef.current.material
         if (!material?.uniforms) return
@@ -448,7 +491,11 @@ export default function ScrollTextDistortion({
 
             // Smooth transition with lerp (easeFactor from reference: 0.05-0.35)
             const easeFactor = 0.1
-            scrollSpeedRef.current = lerp(scrollSpeedRef.current, targetIntensity, easeFactor)
+            scrollSpeedRef.current = lerp(
+                scrollSpeedRef.current,
+                targetIntensity,
+                easeFactor
+            )
 
             material.uniforms.uTime.value = timeRef.current
             material.uniforms.uScrollSpeed.value = scrollSpeedRef.current
@@ -550,13 +597,36 @@ export default function ScrollTextDistortion({
                 minWidth: 0,
                 minHeight: 0,
                 ...style,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
             }}
         >
+            <div
+                style={{
+                    fontSize: font.fontSize,
+                    fontWeight: font.fontWeight,
+                    fontFamily: font.fontFamily,
+                    color: "transparent",
+                    height: "fitContent",
+                    position: "relative",
+                    width: "fitContent",
+                    zIndex: 2,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                }}
+            >
+                {" "}
+                {text}{" "}
+            </div>
             <canvas
                 ref={canvasRef}
                 style={{
                     position: "absolute",
-                    inset: 0,
+                    left: "0%",
+                    top: "0%",
+
                     width: "100%",
                     height: "100%",
                 }}
@@ -587,6 +657,7 @@ addPropertyControls(ScrollTextDistortion, {
         title: "Font",
         controls: "extended",
         defaultFontType: "sans-serif",
+        fontSize: 48,
         defaultValue: {
             fontSize: 48,
             //@ts-ignore
@@ -594,8 +665,8 @@ addPropertyControls(ScrollTextDistortion, {
             fontFamily: "system-ui, -apple-system, sans-serif",
         },
     },
-    sensitivity:{
-        type:ControlType.Number,
+    sensitivity: {
+        type: ControlType.Number,
         title: "Sensitivity",
         min: 0.1,
         max: 1,
@@ -619,4 +690,3 @@ addPropertyControls(ScrollTextDistortion, {
 })
 
 ScrollTextDistortion.displayName = "Scroll Text Distortion"
-
