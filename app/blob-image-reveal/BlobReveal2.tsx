@@ -49,6 +49,7 @@ interface BlobReveal2Props {
         startAlign: "top" | "center" | "bottom"
         animationDuration: number
         animationDelay: number
+        replay: boolean
     }
 }
 
@@ -259,6 +260,7 @@ export default function BlobReveal2({
         startAlign: "top",
         animationDuration: 2.0,
         animationDelay: 0,
+        replay: true,
     },
     blobCount = 3,
     style,
@@ -272,7 +274,7 @@ export default function BlobReveal2({
     const cameraRef = useRef<any>(null)
     const meshRef = useRef<any>(null)
 
-    const { triggerMode, startAlign, animationDuration, animationDelay } = animation
+    const { triggerMode, startAlign, animationDuration, animationDelay, replay } = animation
 
     // Refs for resize detection
     const zoomProbeRef = useRef<HTMLDivElement>(null)
@@ -283,6 +285,7 @@ export default function BlobReveal2({
 
     // State for animation triggering
     const [isInView, setIsInView] = useState(false)
+    const [isOutOfView, setIsOutOfView] = useState(false)
     const [hasTriggered, setHasTriggered] = useState(false)
     const [textureLoaded, setTextureLoaded] = useState(false)
 
@@ -623,15 +626,28 @@ export default function BlobReveal2({
             if (!containerRef.current) return
             const rect = containerRef.current.getBoundingClientRect()
             const viewportHeight = window.innerHeight || 0
-            const alignPoint =
-                startAlign === "center"
-                    ? viewportHeight / 2
-                    : startAlign === "bottom"
-                      ? viewportHeight
-                      : 0
+            const viewportBottom = viewportHeight
 
-            const isAligned = rect.top <= alignPoint && rect.bottom >= 0
+            // Calculate which part of the element to check based on startAlign
+            let elementPoint: number
+            if (startAlign === "top") {
+                // Top of element touches bottom of viewport
+                elementPoint = rect.top
+            } else if (startAlign === "center") {
+                // Center of element touches bottom of viewport
+                elementPoint = rect.top + rect.height / 2
+            } else {
+                // Bottom of element touches bottom of viewport
+                elementPoint = rect.bottom
+            }
+
+            // Element is in view when the specified point has crossed the bottom of viewport
+            const isAligned = elementPoint <= viewportBottom && rect.bottom >= 0
             setIsInView(isAligned)
+            
+            // Check if element is completely out of view below the viewport
+            const completelyOutOfView = rect.top > viewportHeight
+            setIsOutOfView(completelyOutOfView)
         }
 
         const handleScroll = () => {
@@ -652,26 +668,24 @@ export default function BlobReveal2({
         }
     }, [triggerMode, startAlign, isCanvas])
 
-    // Handle trigger conditions - only trigger after texture is loaded
+    // Handle trigger conditions for appear mode only
     useEffect(() => {
         if (!hasContent || isCanvas || !textureLoaded) return
 
         // In appear mode, trigger immediately when texture loads
         if (triggerMode === "appear" && !hasTriggered) {
-            // Use a small delay to ensure all state is settled
             const triggerTimeout = setTimeout(() => {
                 setHasTriggered(true)
             }, 10)
             return () => clearTimeout(triggerTimeout)
-        } else if (triggerMode === "scroll" && isInView && !hasTriggered) {
-            setHasTriggered(true)
         }
-    }, [triggerMode, isInView, hasTriggered, hasContent, isCanvas, textureLoaded])
+    }, [triggerMode, hasTriggered, hasContent, isCanvas, textureLoaded])
 
-    // GSAP animation - only runs in preview/published mode after texture is loaded
+    // GSAP animation for appear mode
     useGSAP(() => {
         if (
             isCanvas ||
+            triggerMode !== "appear" ||
             !hasTriggered ||
             !textureLoaded ||
             !meshRef.current?.material ||
@@ -685,7 +699,7 @@ export default function BlobReveal2({
             value: 1.0,
             duration: animationDuration,
             ease: "power2.out",
-            delay: triggerMode === "appear" ? animationDelay : 0,
+            delay: animationDelay,
             onUpdate: renderFrame,
             onComplete: () => {
                 renderFrame()
@@ -702,6 +716,75 @@ export default function BlobReveal2({
         textureLoaded,
         animationDuration,
         animationDelay,
+        triggerMode,
+        isCanvas,
+        renderFrame,
+        startRenderLoop,
+        stopRenderLoop,
+    ])
+
+    // Ref to track current scroll animation tween
+    const scrollTweenRef = useRef<any>(null)
+
+    // GSAP animation for scroll mode - animates based on isInView
+    useEffect(() => {
+        if (
+            isCanvas ||
+            triggerMode !== "scroll" ||
+            !textureLoaded ||
+            !meshRef.current?.material ||
+            !meshRef.current.material.uniforms.uTexture.value
+        )
+            return
+
+        const material = meshRef.current.material
+        const currentProgress = material.uniforms.uProgress.value
+
+        // Kill any existing animation first
+        if (scrollTweenRef.current) {
+            scrollTweenRef.current.kill()
+            scrollTweenRef.current = null
+            stopRenderLoop()
+        }
+
+        // When completely out of view below viewport with replay enabled, instantly reset
+        if (isOutOfView) {
+            if (replay && currentProgress > 0.01) {
+                material.uniforms.uProgress.value = 0.0
+                renderFrame()
+            }
+            return
+        }
+
+        // When in view (crossed trigger point), animate to reveal (only if not already at 1.0)
+        if (isInView && currentProgress < 0.99) {
+            startRenderLoop()
+            scrollTweenRef.current = gsap.to(material.uniforms.uProgress, {
+                value: 1.0,
+                duration: animationDuration,
+                ease: "power2.out",
+                onUpdate: renderFrame,
+                onComplete: () => {
+                    renderFrame()
+                    stopRenderLoop()
+                    scrollTweenRef.current = null
+                },
+            })
+        }
+
+        return () => {
+            if (scrollTweenRef.current) {
+                scrollTweenRef.current.kill()
+                scrollTweenRef.current = null
+            }
+            stopRenderLoop()
+        }
+    }, [
+        isInView,
+        isOutOfView,
+        replay,
+        textureLoaded,
+        animationDuration,
         triggerMode,
         isCanvas,
         renderFrame,
@@ -899,6 +982,12 @@ addPropertyControls(BlobReveal2, {
                 defaultValue: 0,
                 unit: "s",
                 hidden: (props) => props.triggerMode !== "appear",
+            },
+            replay: {
+                type: ControlType.Boolean,
+                title: "Replay",
+                defaultValue: true,
+                hidden: (props) => props.triggerMode !== "scroll",
             },
         },
     }
