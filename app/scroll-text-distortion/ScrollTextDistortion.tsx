@@ -312,10 +312,17 @@ export default function ScrollTextDistortion({
             ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`
             ctx.fillStyle = color
             ctx.textAlign = "center"
-            ctx.textBaseline = "middle"
+            ctx.textBaseline = "alphabetic"
 
-            // Draw text centered
-            ctx.fillText(text, canvas.width / 2, canvas.height / 2)
+            // Calculate vertical center using actual text metrics
+            const metrics = ctx.measureText(text)
+            const ascent = metrics.actualBoundingBoxAscent
+            const descent = metrics.actualBoundingBoxDescent
+            const textHeight = ascent + descent
+            // Position so visual center of text is at canvas center
+            const y = canvas.height / 2 + textHeight / 2 - descent
+
+            ctx.fillText(text, canvas.width / 2, y)
 
             return new CanvasTexture(canvas)
         },
@@ -593,42 +600,32 @@ export default function ScrollTextDistortion({
                 position: "relative",
                 width: "100%",
                 height: "100%",
-                overflow: "hidden",
-                minWidth: 0,
-                minHeight: 0,
-                ...style,
+                overflow: "visible",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
             }}
         >
+            {/* Text element determines the intrinsic size */}
             <div
                 style={{
                     fontSize: font.fontSize,
                     fontWeight: font.fontWeight,
                     fontFamily: font.fontFamily,
-                    color: "transparent",
-                    height: "fitContent",
+                    color:"transparent",
+                    whiteSpace: "nowrap",
                     position: "relative",
-                    width: "fitContent",
                     zIndex: 2,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
                 }}
             >
-                {" "}
-                {text}{" "}
+                &nbsp;{text}&nbsp;
             </div>
+            {/* Canvas covers full container including padding */}
             <canvas
                 ref={canvasRef}
                 style={{
                     position: "absolute",
-                    left: "0%",
-                    top: "0%",
-
-                    width: "100%",
-                    height: "100%",
+                    inset: 0,
                 }}
             />
         </div>
