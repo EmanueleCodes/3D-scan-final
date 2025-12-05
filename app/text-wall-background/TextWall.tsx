@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from "react"
+import React, { useRef, useEffect, useMemo, useState, useCallback } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
 import { gsap } from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/word-random-reveal.js"
 
@@ -9,13 +9,12 @@ import { gsap } from "https://cdn.jsdelivr.net/gh/framer-university/components/n
 interface TextWallProps {
     preview: boolean
     words: string[]
-    numLines: number
-    charsPerLine: number
-    wordsPerLine: number
+    emptyLines: number
     textColor: string
     backgroundColor: string
-    fontSize: number
+    font: React.CSSProperties
     gap: number
+    padding: string
     animationDuration: number
     stagger: number
     loop: boolean
@@ -52,6 +51,33 @@ function mapValue(
     return ((value - inMin) / (inMax - inMin)) * (outMax - outMin) + outMin
 }
 
+// Parse CSS padding string to extract pixel values
+function parsePadding(padding: string): { top: number; right: number; bottom: number; left: number } {
+    // Remove any extra whitespace and split by space
+    const parts = padding.trim().split(/\s+/)
+    
+    // Extract numeric values (remove "px" or other units)
+    const values = parts.map((part) => {
+        const num = parseFloat(part)
+        return isNaN(num) ? 0 : num
+    })
+
+    // Handle different padding formats
+    if (values.length === 1) {
+        // Single value: applies to all sides
+        return { top: values[0], right: values[0], bottom: values[0], left: values[0] }
+    } else if (values.length === 2) {
+        // Two values: top/bottom, left/right
+        return { top: values[0], right: values[1], bottom: values[0], left: values[1] }
+    } else if (values.length === 4) {
+        // Four values: top, right, bottom, left
+        return { top: values[0], right: values[1], bottom: values[2], left: values[3] }
+    }
+    
+    // Fallback: default to 0
+    return { top: 0, right: 0, bottom: 0, left: 0 }
+}
+
 // ------------------------------------------------------------ //
 // LINE DATA GENERATOR
 // ------------------------------------------------------------ //
@@ -64,45 +90,64 @@ interface WordPosition {
 
 interface LineData {
     wordPositions: WordPosition[]
-    // Pre-generated random chars for settled state (unique per line)
-    settledChars: string[]
 }
 
-// Generate word positions and settled chars for a line
-function generateLineData(
+// Generate word positions for a line with one or more words
+function generateLineDataForWords(
     words: string[],
-    totalChars: number,
-    maxWords: number
+    totalChars: number
 ): LineData {
     const wordPositions: WordPosition[] = []
-    const numWords = randomInt(1, Math.min(maxWords, 5))
-    let currentEnd = 0
+    const usedRanges: Array<{ start: number; end: number }> = []
 
-    for (let i = 0; i < numWords; i++) {
-        const word = randomItem(words)
+    // Place each word at a random position, avoiding overlaps
+    for (const word of words) {
         const wordLen = word.length
 
-        // Check if there's room
-        if (currentEnd + wordLen >= totalChars - 3) break
+        // Check if there's enough room for this word
+        if (wordLen >= totalChars - 3) continue
 
-        // Pick a random start after current end
-        const maxStart = Math.min(currentEnd + 20, totalChars - 3 - wordLen)
-        if (maxStart <= currentEnd) break
+        // Try to find a valid random position (attempt multiple times)
+        let placed = false
+        let attempts = 0
+        const maxAttempts = 50
 
-        const start = randomInt(currentEnd, maxStart)
-        const end = start + wordLen
+        while (!placed && attempts < maxAttempts) {
+            // Pick a random start position anywhere in the line
+            const maxStart = totalChars - wordLen - 3
+            if (maxStart < 0) break
 
-        wordPositions.push({ word, start, end })
-        currentEnd = end
+            const start = randomInt(0, maxStart)
+            const end = start + wordLen
+
+            // Check if this position overlaps with any existing word
+            let overlaps = false
+            for (const used of usedRanges) {
+                if (
+                    (start >= used.start && start < used.end) ||
+                    (end > used.start && end <= used.end) ||
+                    (start <= used.start && end >= used.end)
+                ) {
+                    overlaps = true
+                    break
+                }
+            }
+
+            if (!overlaps) {
+                // Valid position found
+                wordPositions.push({ word, start, end })
+                usedRanges.push({ start, end })
+                placed = true
+            }
+
+            attempts++
+        }
     }
 
-    // Pre-generate random chars for this line's settled state
-    const settledChars: string[] = []
-    for (let i = 0; i < totalChars; i++) {
-        settledChars.push(ALL_CHARS[randomInt(0, ALL_CHARS.length - 1)])
-    }
+    // Sort by start position for consistent rendering
+    wordPositions.sort((a, b) => a.start - b.start)
 
-    return { wordPositions, settledChars }
+    return { wordPositions }
 }
 
 // ------------------------------------------------------------ //
@@ -119,37 +164,154 @@ function generateLineData(
 export default function TextWall({
     preview = false,
     words = ["Home", "About", "Contact", "Blog", "News", "Shop"],
-    numLines = 30,
-    charsPerLine = 80,
-    wordsPerLine = 3,
+    emptyLines = 6,
     textColor = "#FFFFFF",
     backgroundColor = "#000000",
-    fontSize = 12,
+    font = {},
     gap = 6,
+    padding = '8px',
     animationDuration = 1,
     stagger = 0.1,
     loop = true,
     style,
 }: TextWallProps) {
+    // Extract fontSize from font prop for calculations
+    const fontSize = useMemo(() => {
+        return typeof font.fontSize === "number" 
+            ? font.fontSize 
+            : typeof font.fontSize === "string" 
+            ? parseFloat(String(font.fontSize).replace(/px|rem|pt|em/g, "")) || 12
+            : 12
+    }, [font.fontSize])
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
     const shouldAnimate = !isCanvas || preview
     const containerRef = useRef<HTMLDivElement>(null)
     const lineRefs = useRef<(HTMLDivElement | null)[]>([])
     const tweensRef = useRef<ReturnType<typeof gsap.to>[]>([])
 
-    // Generate stable line data - each line gets unique positions and chars
+    // Container dimensions - calculated dynamically
+    const [charsPerLine, setCharsPerLine] = useState(80)
+    const [numLines, setNumLines] = useState(30)
+
+    // Measure character width to calculate chars per line
+    const measureCharWidth = useCallback(() => {
+        // Create a temporary span element to measure actual rendered width
+        const tempSpan = document.createElement("span")
+        tempSpan.textContent = "M" // Use a typical character
+        tempSpan.style.position = "absolute"
+        tempSpan.style.visibility = "hidden"
+        tempSpan.style.whiteSpace = "pre"
+        tempSpan.style.fontSize = `${fontSize}px`
+        tempSpan.style.fontFamily = font.fontFamily || "'Source Code Pro', 'SF Mono', 'Monaco', 'Consolas', monospace"
+        tempSpan.style.letterSpacing = font.letterSpacing ? String(font.letterSpacing) : "0.02em"
+        tempSpan.style.lineHeight = "1"
+        tempSpan.style.padding = "0"
+        tempSpan.style.margin = "0"
+
+        document.body.appendChild(tempSpan)
+        const width = tempSpan.offsetWidth
+        document.body.removeChild(tempSpan)
+
+        return width || fontSize * 0.6 // Fallback
+    }, [fontSize, font.fontFamily, font.letterSpacing])
+
+    // Calculate dimensions based on container size
+    const calculateDimensions = useCallback(() => {
+        if (!containerRef.current) return
+
+        const container = containerRef.current
+        const width = container.clientWidth || container.offsetWidth || 600
+        const height = container.clientHeight || container.offsetHeight || 400
+
+        // Parse padding values
+        const paddingValues = parsePadding(padding)
+
+        // Calculate character width
+        const charWidth = measureCharWidth()
+        if (charWidth > 0) {
+            // Calculate chars per line (account for container padding on both sides)
+            const availableWidth = width - paddingValues.left - paddingValues.right
+            const calculatedCharsPerLine = Math.floor(availableWidth / charWidth)
+            setCharsPerLine(Math.max(20, calculatedCharsPerLine))
+        }
+
+        // Calculate number of lines that fit
+        const lineHeight = fontSize + gap
+        const availableHeight = height - paddingValues.top - paddingValues.bottom
+        const calculatedNumLines = Math.floor(availableHeight / lineHeight)
+        setNumLines(Math.max(5, calculatedNumLines))
+    }, [fontSize, gap, padding, measureCharWidth])
+
+    // Generate stable line data - distribute words evenly across lines (excluding empty lines at top/bottom)
     const linesData = useMemo(() => {
-        return Array.from({ length: numLines }, () =>
-            generateLineData(words, charsPerLine, wordsPerLine)
-        )
-    }, [words, numLines, charsPerLine, wordsPerLine])
+        if (charsPerLine === 0 || numLines === 0) return []
+        
+        // Filter out empty words (empty strings, whitespace-only strings)
+        const validWords = words.filter(word => word && word.trim().length > 0)
+        
+        if (validWords.length === 0) return []
+        
+        const linesWithWords: LineData[] = []
+        const numWords = validWords.length
+        
+        // Calculate available range for words (excluding empty lines at top and bottom)
+        // emptyLines is a percentage (0-50), so calculate actual empty line count
+        const emptyLineCount = Math.floor((emptyLines / 100) * numLines)
+        const startLine = emptyLineCount
+        const endLine = numLines - emptyLineCount
+        const availableLines = Math.max(0, endLine - startLine)
+        
+        // If no available lines, return all empty
+        if (availableLines <= 0) {
+            return Array(numLines).fill(null).map(() => ({ wordPositions: [] }))
+        }
+        
+        // Create assignment array - words per line (allowing multiple words per line)
+        const wordsPerLine: string[][] = Array(numLines).fill(null).map(() => [])
+        
+        // Distribute words evenly across available lines
+        // First word on first available line, last word on last available line
+        validWords.forEach((word, wordIndex) => {
+            let targetLine: number
+            
+            if (numWords === 1) {
+                // Single word: place in the middle of available range
+                targetLine = startLine + Math.floor(availableLines / 2)
+            } else {
+                // Multiple words: spread evenly from first to last available line
+                // Formula: first word at startLine, last word at endLine - 1
+                // Words in between are evenly distributed
+                targetLine = startLine + Math.floor((wordIndex * (availableLines - 1)) / (numWords - 1))
+            }
+            
+            // Ensure target is within bounds
+            const clampedTarget = Math.max(startLine, Math.min(endLine - 1, targetLine))
+            
+            // Add word to the target line (allows multiple words per line if needed)
+            wordsPerLine[clampedTarget].push(word)
+        })
+        
+        // Generate line data for each line
+        for (let i = 0; i < numLines; i++) {
+            const wordsForThisLine = wordsPerLine[i]
+            if (wordsForThisLine.length > 0) {
+                // Line has one or more words - generate positions for all of them
+                linesWithWords.push(generateLineDataForWords(wordsForThisLine, charsPerLine))
+            } else {
+                // Empty line
+                linesWithWords.push({ wordPositions: [] })
+            }
+        }
+        
+        return linesWithWords
+    }, [words, numLines, charsPerLine, emptyLines])
 
     // Build a line's text content based on animation progress
     const buildLineContent = (
         lineData: LineData,
         totalChars: number,
-        revealProgress: number, // 0-1, how many chars revealed
-        settleProgress: number // 0-1, how many chars "settled"
+        revealProgress: number,
+        settleProgress: number
     ): string => {
         const numChars = Math.floor(mapValue(revealProgress, 0, 1, 0, totalChars))
         const settledChars = Math.floor(mapValue(settleProgress, 0, 1, 0, totalChars))
@@ -157,7 +319,7 @@ export default function TextWall({
         let result = ""
 
         for (let i = 0; i < numChars; i++) {
-            // Check if this char is part of a word
+            // Check if this position is part of a word
             let isWordChar = false
             for (const pos of lineData.wordPositions) {
                 if (i >= pos.start && i < pos.end) {
@@ -168,13 +330,13 @@ export default function TextWall({
             }
 
             if (!isWordChar) {
-                // Not a word - show random char if past settle point, else use line's settled char
+                // Not a word position
                 if (i >= settledChars) {
-                    // Scrambling - generate random char each frame
+                    // Past settle point: show scrambling random char
                     result += ALL_CHARS[randomInt(0, ALL_CHARS.length - 1)]
                 } else {
-                    // Settled - use pre-generated char for this line
-                    result += lineData.settledChars[i]
+                    // Before settle point: hide (show space)
+                    result += " "
                 }
             }
         }
@@ -182,13 +344,38 @@ export default function TextWall({
         return result
     }
 
+    // ResizeObserver to recalculate when container size changes
+    useEffect(() => {
+        const container = containerRef.current
+        if (!container) return
+
+        // Initial calculation
+        calculateDimensions()
+
+        // Watch for resize
+        const resizeObserver = new ResizeObserver(() => {
+            calculateDimensions()
+        })
+
+        resizeObserver.observe(container)
+
+        return () => {
+            resizeObserver.disconnect()
+        }
+    }, [calculateDimensions])
+
+    // Recalculate when fontSize (from font), gap, or padding changes
+    useEffect(() => {
+        calculateDimensions()
+    }, [fontSize, gap, padding, calculateDimensions])
+
     // GSAP animation
     useEffect(() => {
         // Kill previous tweens
         tweensRef.current.forEach((tween) => tween.kill())
         tweensRef.current = []
 
-        if (!shouldAnimate) {
+        if (!shouldAnimate || linesData.length === 0) {
             // Show final state immediately
             lineRefs.current.forEach((el, index) => {
                 if (el && linesData[index]) {
@@ -213,7 +400,6 @@ export default function TextWall({
             const state = lineStates[index]
             const duration = animationDuration
 
-            // Update function called on each frame
             const updateLine = () => {
                 lineEl.textContent = buildLineContent(
                     lineData,
@@ -223,7 +409,7 @@ export default function TextWall({
                 )
             }
 
-            // Reveal animation (rate A)
+            // Reveal animation
             const revealTween = gsap.to(state, {
                 revealProgress: 1,
                 duration: duration,
@@ -233,7 +419,7 @@ export default function TextWall({
             })
             tweensRef.current.push(revealTween)
 
-            // Settle animation (rate B) - starts at 75% through reveal
+            // Settle animation
             const settleTween = gsap.to(state, {
                 settleProgress: 1,
                 duration: duration,
@@ -242,10 +428,8 @@ export default function TextWall({
                 onUpdate: updateLine,
                 onComplete: () => {
                     if (loop) {
-                        // After settle completes, wait then hide
                         const hideDelay = 2
 
-                        // Hide settle first
                         const hideSettleTween = gsap.to(state, {
                             settleProgress: 0,
                             duration: duration,
@@ -255,7 +439,6 @@ export default function TextWall({
                         })
                         tweensRef.current.push(hideSettleTween)
 
-                        // Hide reveal after
                         const hideRevealTween = gsap.to(state, {
                             revealProgress: 0,
                             duration: duration,
@@ -263,7 +446,6 @@ export default function TextWall({
                             ease: "expo.out",
                             onUpdate: updateLine,
                             onComplete: () => {
-                                // Restart animation
                                 animateLine(index)
                             },
                         })
@@ -299,6 +481,7 @@ export default function TextWall({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
+                padding
             }}
         >
             <div
@@ -308,6 +491,7 @@ export default function TextWall({
                     alignItems: "flex-start",
                     justifyContent: "flex-start",
                     gap: gap,
+                    width: "100%",
                 }}
             >
                 {linesData.map((_, index) => (
@@ -317,14 +501,12 @@ export default function TextWall({
                             lineRefs.current[index] = el
                         }}
                         style={{
-                            fontSize: fontSize,
+                            ...font,
                             color: textColor,
                             whiteSpace: "pre",
-                            fontFamily:
-                                "'Source Code Pro', 'SF Mono', 'Monaco', 'Consolas', monospace",
-                            lineHeight: 1,
-                            letterSpacing: "0.02em",
+                            fontFamily: font.fontFamily || "'Source Code Pro', 'SF Mono', 'Monaco', 'Consolas', monospace",
                             minHeight: fontSize,
+                            width: "100%",
                         }}
                     />
                 ))}
@@ -342,6 +524,13 @@ addPropertyControls(TextWall, {
         type: ControlType.Boolean,
         title: "Preview",
         defaultValue: false,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+    },
+    loop: {
+        type: ControlType.Boolean,
+        title: "Loop",
+        defaultValue: true,
         enabledTitle: "On",
         disabledTitle: "Off",
     },
@@ -370,29 +559,15 @@ addPropertyControls(TextWall, {
             "404",
         ],
     },
-    numLines: {
+    emptyLines: {
         type: ControlType.Number,
-        title: "Lines",
-        min: 5,
-        max: 100,
+        title: "Empty Lines",
+        min: 0,
+        max: 50,
         step: 1,
-        defaultValue: 30,
-    },
-    charsPerLine: {
-        type: ControlType.Number,
-        title: "Chars/Line",
-        min: 20,
-        max: 200,
-        step: 10,
-        defaultValue: 80,
-    },
-    wordsPerLine: {
-        type: ControlType.Number,
-        title: "Words/Line",
-        min: 1,
-        max: 10,
-        step: 1,
-        defaultValue: 3,
+        defaultValue: 20,
+        unit: "%",
+        description: "Percentage of empty lines at top and bottom",
     },
     textColor: {
         type: ControlType.Color,
@@ -404,13 +579,16 @@ addPropertyControls(TextWall, {
         title: "Background",
         defaultValue: "#000000",
     },
-    fontSize: {
-        type: ControlType.Number,
-        title: "Font Size",
-        min: 8,
-        max: 24,
-        step: 1,
-        defaultValue: 12,
+    font: {
+        //@ts-ignore - Framer supports Font control type
+        type: ControlType.Font,
+        title: "Font",
+        defaultFontType: "monospace",
+        controls: "extended",
+        defaultValue: {
+            fontSize: 12,
+            letterSpacing: "0.02em",
+        },
     },
     gap: {
         type: ControlType.Number,
@@ -419,6 +597,12 @@ addPropertyControls(TextWall, {
         max: 20,
         step: 1,
         defaultValue: 6,
+    },
+    padding: {
+        //@ts-ignore - Framer supports Padding control type
+        type: ControlType.Padding,
+        title: "Padding",
+        defaultValue: "8px",
     },
     animationDuration: {
         type: ControlType.Number,
@@ -435,13 +619,6 @@ addPropertyControls(TextWall, {
         max: 0.5,
         step: 0.01,
         defaultValue: 0.1,
-    },
-    loop: {
-        type: ControlType.Boolean,
-        title: "Loop",
-        defaultValue: true,
-        enabledTitle: "On",
-        disabledTitle: "Off",
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
