@@ -11,7 +11,8 @@ interface TextWallProps {
     words: string[]
     emptyLines: number
     textColor: string
-    backgroundColor: string
+    wordsColor: string
+    backgroundColor?: string
     font: React.CSSProperties
     gap: number
     padding: string
@@ -50,6 +51,13 @@ function mapValue(
     if (value <= inMin) return outMin
     if (value >= inMax) return outMax
     return ((value - inMin) / (inMax - inMin)) * (outMax - outMin) + outMin
+}
+
+// Escape HTML entities
+function escapeHtml(text: string): string {
+    const div = document.createElement("div")
+    div.textContent = text
+    return div.innerHTML
 }
 
 // Parse CSS padding string to extract pixel values
@@ -106,7 +114,7 @@ function generateLineDataForWords(
         const wordLen = word.length
 
         // Check if there's enough room for this word
-        if (wordLen >= totalChars - 3) continue
+        if (wordLen >= totalChars) continue
 
         // Try to find a valid random position (attempt multiple times)
         let placed = false
@@ -115,7 +123,8 @@ function generateLineDataForWords(
 
         while (!placed && attempts < maxAttempts) {
             // Pick a random start position anywhere in the line
-            const maxStart = totalChars - wordLen - 3
+            // Allow words to be placed all the way to the end
+            const maxStart = totalChars - wordLen
             if (maxStart < 0) break
 
             const start = randomInt(0, maxStart)
@@ -167,7 +176,8 @@ export default function TextWall({
     words = ["Home", "About", "Contact", "Blog", "News", "Shop"],
     emptyLines = 6,
     textColor = "#FFFFFF",
-    backgroundColor = "#000000",
+    wordsColor = "#00FF00",
+    backgroundColor,
     font = {},
     gap = 6,
     padding = '8px',
@@ -188,8 +198,17 @@ export default function TextWall({
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
     const shouldAnimate = !isCanvas || preview
     const containerRef = useRef<HTMLDivElement>(null)
+    const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lineRefs = useRef<(HTMLDivElement | null)[]>([])
     const tweensRef = useRef<ReturnType<typeof gsap.to>[]>([])
+    const lastRef = useRef<{
+        w: number
+        h: number
+        aspect: number
+        zoom: number
+        ts: number
+    }>({ w: 0, h: 0, aspect: 0, zoom: 0, ts: 0 })
+    const [animationResetKey, setAnimationResetKey] = useState(0)
 
     // Container dimensions - calculated dynamically
     const [charsPerLine, setCharsPerLine] = useState(80)
@@ -198,8 +217,10 @@ export default function TextWall({
     // Measure character width to calculate chars per line
     const measureCharWidth = useCallback(() => {
         // Create a temporary span element to measure actual rendered width
+        // Use multiple characters for more accurate average (avoids rounding errors)
+        const testString = "MMMMMMMMMMMMMMMMMMMM" // 20 characters
         const tempSpan = document.createElement("span")
-        tempSpan.textContent = "M" // Use a typical character
+        tempSpan.textContent = testString
         tempSpan.style.position = "absolute"
         tempSpan.style.visibility = "hidden"
         tempSpan.style.whiteSpace = "pre"
@@ -211,10 +232,12 @@ export default function TextWall({
         tempSpan.style.margin = "0"
 
         document.body.appendChild(tempSpan)
-        const width = tempSpan.offsetWidth
+        // Use getBoundingClientRect for subpixel accuracy
+        const rect = tempSpan.getBoundingClientRect()
         document.body.removeChild(tempSpan)
 
-        return width || fontSize * 0.6 // Fallback
+        // Return average character width
+        return rect.width / testString.length || fontSize * 0.6
     }, [fontSize, font.fontFamily, font.letterSpacing])
 
     // Calculate dimensions based on container size
@@ -308,8 +331,8 @@ export default function TextWall({
         return linesWithWords
     }, [words, numLines, charsPerLine, emptyLines])
 
-    // Build a line's text content based on animation progress
-    const buildLineContent = (
+    // Build a line's HTML content with color spans based on animation progress
+    const buildLineContent = useCallback((
         lineData: LineData,
         totalChars: number,
         revealProgress: number,
@@ -318,14 +341,16 @@ export default function TextWall({
         const numChars = Math.floor(mapValue(revealProgress, 0, 1, 0, totalChars))
         const settledChars = Math.floor(mapValue(settleProgress, 0, 1, 0, totalChars))
 
-        let result = ""
+        let html = ""
 
         for (let i = 0; i < numChars; i++) {
             // Check if this position is part of a word
             let isWordChar = false
+            let char = ""
+            
             for (const pos of lineData.wordPositions) {
                 if (i >= pos.start && i < pos.end) {
-                    result += pos.word[i - pos.start]
+                    char = pos.word[i - pos.start]
                     isWordChar = true
                     break
                 }
@@ -335,18 +360,32 @@ export default function TextWall({
                 // Not a word position
                 if (i >= settledChars) {
                     // Past settle point: show scrambling random char
-                    result += ALL_CHARS[randomInt(0, ALL_CHARS.length - 1)]
+                    char = ALL_CHARS[randomInt(0, ALL_CHARS.length - 1)]
                 } else {
-                    // Before settle point: hide (show space)
-                    result += " "
+                    // Before settle point: hide (use non-breaking space to maintain width)
+                    char = "\u00A0"
                 }
+            }
+
+            // Wrap character in span with appropriate color
+            if (isWordChar) {
+                html += `<span style="color: ${wordsColor}">${escapeHtml(char)}</span>`
+            } else {
+                html += `<span style="color: ${textColor}">${escapeHtml(char)}</span>`
             }
         }
 
-        return result
-    }
+        // Pad to full width with non-breaking spaces (scrambled color)
+        let charCount = numChars
+        while (charCount < totalChars) {
+            html += `<span style="color: ${textColor}">\u00A0</span>`
+            charCount++
+        }
 
-    // ResizeObserver to recalculate when container size changes
+        return html
+    }, [wordsColor, textColor])
+
+    // Debounced resize detection with zoom probe (similar to wavePrism)
     useEffect(() => {
         const container = containerRef.current
         if (!container) return
@@ -354,15 +393,74 @@ export default function TextWall({
         // Initial calculation
         calculateDimensions()
 
-        // Watch for resize
-        const resizeObserver = new ResizeObserver(() => {
-            calculateDimensions()
-        })
+        // In Framer Canvas: watch aspect ratio changes only; ignore pure zoom changes
+        if (RenderTarget.current() === RenderTarget.canvas) {
+            let rafId = 0
+            const TICK_MS = 250
+            const EPSPECT = 0.001
+            const EPSZOOM = 0.001
+            const tick = (now?: number) => {
+                const container = containerRef.current
+                const probe = zoomProbeRef.current
+                if (container && probe) {
+                    const cw = container.clientWidth || container.offsetWidth || 1
+                    const ch = container.clientHeight || container.offsetHeight || 1
+                    const aspect = cw / ch
+                    const zoom = probe.getBoundingClientRect().width / 20
 
-        resizeObserver.observe(container)
+                    const timeOk =
+                        !lastRef.current.ts ||
+                        (now || performance.now()) - lastRef.current.ts >= TICK_MS
+                    const aspectChanged =
+                        Math.abs(aspect - lastRef.current.aspect) > EPSPECT
+                    const zoomChanged =
+                        Math.abs(zoom - lastRef.current.zoom) > EPSZOOM
+                    const sizeChanged =
+                        Math.abs(cw - lastRef.current.w) > 1 ||
+                        Math.abs(ch - lastRef.current.h) > 1
 
-        return () => {
-            resizeObserver.disconnect()
+                    if (timeOk) {
+                        // Update tracking for zoom changes (don't trigger reset)
+                        if (zoomChanged && !aspectChanged && !sizeChanged) {
+                            lastRef.current = {
+                                ...lastRef.current,
+                                zoom,
+                                ts: now || performance.now(),
+                            }
+                        }
+                        // Only recalculate and reset on actual dimension/aspect changes
+                        else if (aspectChanged || sizeChanged) {
+                            lastRef.current = {
+                                w: cw,
+                                h: ch,
+                                aspect,
+                                zoom,
+                                ts: now || performance.now(),
+                            }
+                            // Recalculate dimensions
+                            calculateDimensions()
+                            // Trigger animation reset
+                            setAnimationResetKey(prev => prev + 1)
+                        }
+                    }
+                }
+                rafId = requestAnimationFrame(tick)
+            }
+            rafId = requestAnimationFrame(tick)
+            return () => cancelAnimationFrame(rafId)
+        } else {
+            // Live mode: use ResizeObserver
+            const resizeObserver = new ResizeObserver(() => {
+                calculateDimensions()
+                // Trigger animation reset
+                setAnimationResetKey(prev => prev + 1)
+            })
+
+            resizeObserver.observe(container)
+
+            return () => {
+                resizeObserver.disconnect()
+            }
         }
     }, [calculateDimensions])
 
@@ -373,15 +471,22 @@ export default function TextWall({
 
     // GSAP animation
     useEffect(() => {
-        // Kill previous tweens
+        // Kill previous tweens and immediately reset all lines to empty state
         tweensRef.current.forEach((tween) => tween.kill())
         tweensRef.current = []
+        
+        // Immediately clear all line content to prevent frozen states
+        lineRefs.current.forEach((el) => {
+            if (el) {
+                el.innerHTML = ""
+            }
+        })
 
         if (!shouldAnimate || linesData.length === 0) {
             // Show final state immediately
             lineRefs.current.forEach((el, index) => {
                 if (el && linesData[index]) {
-                    el.textContent = buildLineContent(linesData[index], charsPerLine, 1, 1)
+                    el.innerHTML = buildLineContent(linesData[index], charsPerLine, 1, 1)
                 }
             })
             return
@@ -403,7 +508,7 @@ export default function TextWall({
             const lineData = linesData[index]
             if (!lineEl || !lineData) return
             
-            lineEl.textContent = buildLineContent(
+            lineEl.innerHTML = buildLineContent(
                 lineData,
                 charsPerLine,
                 lineStates[index].revealProgress,
@@ -505,8 +610,15 @@ export default function TextWall({
             
             tweensRef.current.forEach((tween) => tween.kill())
             tweensRef.current = []
+            
+            // Immediately clear all line content when cleaning up
+            lineRefs.current.forEach((el) => {
+                if (el) {
+                    el.innerHTML = ""
+                }
+            })
         }
-    }, [shouldAnimate, linesData, charsPerLine, animationDuration, stagger, pause, loop])
+    }, [shouldAnimate, linesData, charsPerLine, animationDuration, stagger, pause, loop, animationResetKey, buildLineContent])
 
     return (
         <div
@@ -516,11 +628,22 @@ export default function TextWall({
                 position: "relative",
                 width: "100%",
                 height: "100%",
-                backgroundColor: backgroundColor,
+                backgroundColor: backgroundColor  || "transparent",
                 overflow: "hidden",
                 padding
             }}
         >
+            {/* Hidden 20x20 probe to detect editor zoom level in canvas */}
+            <div
+                ref={zoomProbeRef}
+                style={{
+                    position: "absolute",
+                    width: 20,
+                    height: 20,
+                    opacity: 0,
+                    pointerEvents: "none",
+                }}
+            />
             <div
                 style={{
                     display: "flex",
@@ -540,7 +663,6 @@ export default function TextWall({
                         }}
                         style={{
                             ...font,
-                            color: textColor,
                             whiteSpace: "pre",
                             fontFamily: font.fontFamily || "'Source Code Pro', 'SF Mono', 'Monaco', 'Consolas', monospace",
                             minHeight: fontSize,
@@ -613,10 +735,16 @@ addPropertyControls(TextWall, {
         title: "Text Color",
         defaultValue: "#FFFFFF",
     },
+    wordsColor: {
+        type: ControlType.Color,
+        title: "Words",
+        defaultValue: "#00FF00",
+    },
     backgroundColor: {
         type: ControlType.Color,
         title: "Background",
         defaultValue: "#000000",
+        optional:true,
     },
     font: {
         //@ts-ignore - Framer supports Font control type
