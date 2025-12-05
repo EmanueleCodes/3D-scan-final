@@ -17,6 +17,7 @@ interface TextWallProps {
     padding: string
     animationDuration: number
     stagger: number
+    pause: number
     loop: boolean
     style?: React.CSSProperties
 }
@@ -172,6 +173,7 @@ export default function TextWall({
     padding = '8px',
     animationDuration = 1,
     stagger = 0.1,
+    pause = 1,
     loop = true,
     style,
 }: TextWallProps) {
@@ -391,81 +393,120 @@ export default function TextWall({
             settleProgress: 0,
         }))
 
-        // Create animation for each line
-        const animateLine = (index: number) => {
+        const numLines = linesData.length
+        const duration = animationDuration
+        const holdDuration = pause // Time to hold before reversing/restarting
+
+        // Update function for a line
+        const updateLine = (index: number) => {
             const lineEl = lineRefs.current[index]
             const lineData = linesData[index]
             if (!lineEl || !lineData) return
-
-            const state = lineStates[index]
-            const duration = animationDuration
-
-            const updateLine = () => {
-                lineEl.textContent = buildLineContent(
-                    lineData,
-                    charsPerLine,
-                    state.revealProgress,
-                    state.settleProgress
-                )
-            }
-
-            // Reveal animation
-            const revealTween = gsap.to(state, {
-                revealProgress: 1,
-                duration: duration,
-                delay: index * stagger,
-                ease: "expo.out",
-                onUpdate: updateLine,
-            })
-            tweensRef.current.push(revealTween)
-
-            // Settle animation
-            const settleTween = gsap.to(state, {
-                settleProgress: 1,
-                duration: duration,
-                delay: index * stagger + duration * 0.75,
-                ease: "expo.inOut",
-                onUpdate: updateLine,
-                onComplete: () => {
-                    if (loop) {
-                        const hideDelay = 2
-
-                        const hideSettleTween = gsap.to(state, {
-                            settleProgress: 0,
-                            duration: duration,
-                            delay: hideDelay,
-                            ease: "expo.inOut",
-                            onUpdate: updateLine,
-                        })
-                        tweensRef.current.push(hideSettleTween)
-
-                        const hideRevealTween = gsap.to(state, {
-                            revealProgress: 0,
-                            duration: duration,
-                            delay: hideDelay + duration * 0.75,
-                            ease: "expo.out",
-                            onUpdate: updateLine,
-                            onComplete: () => {
-                                animateLine(index)
-                            },
-                        })
-                        tweensRef.current.push(hideRevealTween)
-                    }
-                },
-            })
-            tweensRef.current.push(settleTween)
+            
+            lineEl.textContent = buildLineContent(
+                lineData,
+                charsPerLine,
+                lineStates[index].revealProgress,
+                lineStates[index].settleProgress
+            )
         }
 
-        // Start animation for all lines
-        linesData.forEach((_, index) => {
-            animateLine(index)
-        })
+        // Run the full animation cycle (forward + reverse)
+        const runAnimationCycle = () => {
+            // Offset between first and second animation in each phase
+            // This creates the scramble effect: chars appear scrambled, then settle
+            const phaseOffset = duration * 0.5
+            
+            // Calculate total animation time for one direction (last line's second anim complete)
+            const lastLineDelay = (numLines - 1) * stagger
+            const totalPhaseTime = lastLineDelay + phaseOffset + duration
+
+            // PHASE 1: Forward animation (reveal first, then settle)
+            linesData.forEach((_, index) => {
+                const lineDelay = index * stagger
+
+                // Reveal animation (characters appear with scramble)
+                const revealTween = gsap.to(lineStates[index], {
+                    revealProgress: 1,
+                    duration: duration,
+                    delay: lineDelay,
+                    ease: "expo.inOut",
+                    onUpdate: () => updateLine(index),
+                })
+                tweensRef.current.push(revealTween)
+
+                // Settle animation (scrambled chars disappear, words remain)
+                const settleTween = gsap.to(lineStates[index], {
+                    settleProgress: 1,
+                    duration: duration,
+                    delay: lineDelay + phaseOffset,
+                    ease: "expo.inOut",
+                    onUpdate: () => updateLine(index),
+                })
+                tweensRef.current.push(settleTween)
+            })
+
+            // PHASE 2: Reverse animation (un-settle first, then un-reveal) - mirror of forward
+            if (loop) {
+                const reverseStartDelay = totalPhaseTime + holdDuration
+
+                linesData.forEach((_, index) => {
+                    const lineDelay = index * stagger
+
+                    // Un-settle animation (scrambled chars re-appear)
+                    const hideSettleTween = gsap.to(lineStates[index], {
+                        settleProgress: 0,
+                        duration: duration,
+                        delay: reverseStartDelay + lineDelay,
+                        ease: "expo.inOut",
+                        onUpdate: () => updateLine(index),
+                    })
+                    tweensRef.current.push(hideSettleTween)
+
+                    // Un-reveal animation (all characters disappear)
+                    const hideRevealTween = gsap.to(lineStates[index], {
+                        revealProgress: 0,
+                        duration: duration,
+                        delay: reverseStartDelay + lineDelay + phaseOffset,
+                        ease: "expo.inOut",
+                        onUpdate: () => updateLine(index),
+                    })
+                    tweensRef.current.push(hideRevealTween)
+                })
+
+                // Calculate total cycle time (forward + hold + reverse + hold)
+                const totalCycleTime = totalPhaseTime + holdDuration + totalPhaseTime + holdDuration
+
+                // Schedule next cycle after all reverse animations complete + hold
+                const loopTimeout = setTimeout(() => {
+                    // Reset all states
+                    lineStates.forEach(state => {
+                        state.revealProgress = 0
+                        state.settleProgress = 0
+                    })
+                    // Clear tweens and start new cycle
+                    tweensRef.current.forEach(tween => tween.kill())
+                    tweensRef.current = []
+                    runAnimationCycle()
+                }, totalCycleTime * 1000)
+
+                // Store timeout reference for cleanup
+                ;(tweensRef.current as any).loopTimeout = loopTimeout
+            }
+        }
+
+        // Start the animation cycle
+        runAnimationCycle()
 
         return () => {
+            // Clear loop timeout if exists
+            const loopTimeout = (tweensRef.current as any).loopTimeout
+            if (loopTimeout) clearTimeout(loopTimeout)
+            
             tweensRef.current.forEach((tween) => tween.kill())
             tweensRef.current = []
         }
-    }, [shouldAnimate, linesData, charsPerLine, animationDuration, stagger, loop])
+    }, [shouldAnimate, linesData, charsPerLine, animationDuration, stagger, pause, loop])
 
     return (
         <div
@@ -477,10 +518,6 @@ export default function TextWall({
                 height: "100%",
                 backgroundColor: backgroundColor,
                 overflow: "hidden",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
                 padding
             }}
         >
@@ -492,6 +529,7 @@ export default function TextWall({
                     justifyContent: "flex-start",
                     gap: gap,
                     width: "100%",
+                    height: "100%",
                 }}
             >
                 {linesData.map((_, index) => (
@@ -507,6 +545,7 @@ export default function TextWall({
                             fontFamily: font.fontFamily || "'Source Code Pro', 'SF Mono', 'Monaco', 'Consolas', monospace",
                             minHeight: fontSize,
                             width: "100%",
+                            textAlign: "left",
                         }}
                     />
                 ))}
@@ -561,13 +600,13 @@ addPropertyControls(TextWall, {
     },
     emptyLines: {
         type: ControlType.Number,
-        title: "Empty Lines",
+        title: "Empty",
         min: 0,
         max: 50,
         step: 1,
-        defaultValue: 20,
+        defaultValue: 25,
         unit: "%",
-        description: "Percentage of empty lines at top and bottom",
+        description: "Lines with no words at top and bottom",
     },
     textColor: {
         type: ControlType.Color,
@@ -611,6 +650,7 @@ addPropertyControls(TextWall, {
         max: 5,
         step: 0.1,
         defaultValue: 1,
+        unit: "s",
     },
     stagger: {
         type: ControlType.Number,
@@ -619,6 +659,16 @@ addPropertyControls(TextWall, {
         max: 0.5,
         step: 0.01,
         defaultValue: 0.1,
+        unit: "s",
+    },
+    pause: {
+        type: ControlType.Number,
+        title: "Pause",
+        min: 0,
+        max: 5,
+        step: 0.1,
+        defaultValue: 1,
+        unit: "s",
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
