@@ -21,12 +21,6 @@ import {
     Vector2,
     EdgesGeometry,
     LineSegments,
-    TubeGeometry,
-    CatmullRomCurve3,
-    Vector3,
-    CircleGeometry,
-    CylinderGeometry,
-    ShaderMaterial,
 } from "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js"
 import {
     geoEquirectangular,
@@ -61,8 +55,7 @@ interface Marker {
 interface MarkerConfig {
     markers: Marker[]
     color: string
-    size: number
-    shape?: "ball" | "disk"
+    radius: number
 }
 
 interface GlobeProps {
@@ -81,34 +74,11 @@ interface GlobeProps {
     outlineColor?: string
     dotColor?: string
     graticuleColor?: string
-    outlineWidth?: number
-    gridWidth?: number
-    dragSpeed?: number
     style?: React.CSSProperties
-}
-
-// CSS variable token and color parsing (hex/rgba/var())
-const cssVariableRegex =
-    /var\s*\(\s*(--[\w-]+)(?:\s*,\s*((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*))?\s*\)/
-
-function extractDefaultValue(cssVar: string): string {
-    if (!cssVar || !cssVar.startsWith("var(")) return cssVar
-    const match = cssVariableRegex.exec(cssVar)
-    if (!match) return cssVar
-    const fallback = (match[2] || "").trim()
-    if (fallback.startsWith("var(")) return extractDefaultValue(fallback)
-    return fallback || cssVar
-}
-
-function resolveTokenColor(input: any): any {
-    if (typeof input !== "string") return input
-    if (!input.startsWith("var(")) return input
-    return extractDefaultValue(input)
 }
 
 // Color parsing function to extract RGB and alpha
 // Returns transparent if input is empty/undefined
-// Supports hex, rgba, and CSS variables (Framer color tokens)
 function parseColorToRgba(input: string | undefined): {
     r: number
     g: number
@@ -246,23 +216,20 @@ function latLngToPosition(
  */
 export default function Globe({
     preview = false,
-    speed = 0.1,
-    smoothing = 1,
-    density = 0.8,
-    dotSize = 0.4,
-    scale = 0.9,
-    stopOnHover = true,
-    markerConfig = { markers: [], color: "#ffffff", size: 0.4, shape: "ball" },
+    speed = 0.5,
+    smoothing = 0.5,
+    density = 0.5,
+    dotSize = 0.5,
+    scale = 0.5,
+    stopOnHover = false,
+    markerConfig = { markers: [], color: "#ffffff", radius: 0.5 },
     rotationDirection = "clockwise",
-    initialLatitude = 42,
-    initialLongitude = -15,
-    oceanColor = "#000000",
-    outlineColor = "#ffffff",
-    dotColor = "#ffffff",
-    graticuleColor = "#616161",
-    outlineWidth = 1,
-    gridWidth = 1,
-    dragSpeed = 0.5,
+    initialLatitude = 0,
+    initialLongitude = 0,
+    oceanColor,
+    outlineColor,
+    dotColor,
+    graticuleColor,
     style,
 }: GlobeProps) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -281,15 +248,12 @@ export default function Globe({
     const dotSpacing = mapDensityUiToSpacing(density)
     const dotSizeMultiplier = mapDotSizeUiToMultiplier(dotSize)
     const markerRadiusMultiplier = mapMarkerDotSizeUiToMultiplier(
-        markerConfig.size
+        markerConfig.radius
     )
     const scaleMultiplier = mapScaleUiToMultiplier(scale)
 
     useEffect(() => {
         if (!containerRef.current) return
-
-        // Note: Line2/LineMaterial for thick lines is not available via CDN imports
-        // Using regular Line/LineBasicMaterial (linewidth won't work in WebGL2, but won't crash)
 
         const container = containerRef.current
         const containerWidth =
@@ -329,24 +293,18 @@ export default function Globe({
         canvas.style.display = "block"
         container.appendChild(canvas)
 
-        // Resolve color tokens (CSS variables) and parse colors for opacity
-        const resolvedOceanColor = resolveTokenColor(oceanColor)
-        const resolvedOutlineColor = resolveTokenColor(outlineColor)
-        const resolvedDotColor = resolveTokenColor(dotColor)
-        const resolvedMarkerColor = resolveTokenColor(markerConfig.color)
-        const resolvedGraticuleColor = resolveTokenColor(graticuleColor)
-
-        const oceanRgba = parseColorToRgba(resolvedOceanColor)
-        const outlineRgba = parseColorToRgba(resolvedOutlineColor)
-        const dotRgba = parseColorToRgba(resolvedDotColor)
-        const markerRgba = parseColorToRgba(resolvedMarkerColor)
-        const graticuleRgba = parseColorToRgba(resolvedGraticuleColor)
+        // Parse colors for opacity
+        const oceanRgba = parseColorToRgba(oceanColor)
+        const outlineRgba = parseColorToRgba(outlineColor)
+        const dotRgba = parseColorToRgba(dotColor)
+        const markerRgba = parseColorToRgba(markerConfig.color)
+        const graticuleRgba = parseColorToRgba(graticuleColor)
 
         // Create ocean sphere (globe background)
-        // Use Color constructor with resolved color for proper sRGB handling
+        // Use Color constructor with original string for proper sRGB handling
         const oceanGeometry = new SphereGeometry(globeRadius, 64, 64)
-        const oceanColorObj = resolvedOceanColor
-            ? new Color(resolvedOceanColor)
+        const oceanColorObj = oceanColor
+            ? new Color(oceanColor)
             : new Color(0, 0, 0)
         const oceanMaterial = new MeshBasicMaterial({
             color: oceanColorObj,
@@ -356,48 +314,24 @@ export default function Globe({
         const oceanMesh = new Mesh(oceanGeometry, oceanMaterial)
         scene.add(oceanMesh)
 
-        // Create globe outside outline - a simple circle around the sphere
-        // This creates a clean outline around the globe (not the continent edges)
+        // Create outline around the globe sphere (similar to 3D-globe-source.tsx)
+        // COMMENTED OUT: EdgesGeometry creates a grid pattern from sphere faces
+        // Using EdgesGeometry on a 64x64 sphere creates all the edges, which looks like a grid
+        // If you want a simple sphere outline, we'd need to create a single circle instead
         let globeOutlineMesh: any = null
+        /*
         if (outlineColor && outlineRgba.a > 0) {
-            // Create a circle geometry for the outline
-            const outlinePositions: number[] = []
-            const segments = 128 // High resolution for smooth circle
-            for (let i = 0; i <= segments; i++) {
-                const angle = (i / segments) * Math.PI * 2
-                // Create a circle in the XY plane (equatorial view)
-                const x = Math.cos(angle) * globeRadius
-                const y = Math.sin(angle) * globeRadius
-                const z = 0
-                outlinePositions.push(x, y, z)
-            }
-            
-            // Convert to Vector3 points for TubeGeometry
-            const outlinePoints: any[] = []
-            for (let i = 0; i < outlinePositions.length; i += 3) {
-                outlinePoints.push(
-                    new Vector3(outlinePositions[i], outlinePositions[i + 1], outlinePositions[i + 2])
-                )
-            }
-            
-            if (outlinePoints.length >= 2) {
-                // Close the circle
-                outlinePoints.push(outlinePoints[0].clone())
-                
-                const outlineColorObj = new Color(resolvedOutlineColor)
-                const outlineMaterial = new MeshBasicMaterial({
-                    color: outlineColorObj,
-                    transparent: outlineRgba.a < 1,
-                    opacity: outlineRgba.a,
-                })
-                
-                // Create tube geometry for thick outline
-                const curve = new CatmullRomCurve3(outlinePoints)
-                const radius = (outlineWidth / 10) * 0.01
-                const tubeGeometry = new TubeGeometry(curve, outlinePoints.length * 2, radius, 8, false)
-                globeOutlineMesh = new Mesh(tubeGeometry, outlineMaterial)
-            }
+            const outlineGeometry = new EdgesGeometry(oceanGeometry)
+            const outlineColorObj = new Color(outlineColor)
+            const outlineMaterial = new LineBasicMaterial({
+                color: outlineColorObj,
+                transparent: outlineRgba.a < 1,
+                opacity: outlineRgba.a,
+                linewidth: 2, // Note: linewidth only works with WebGL1, but we'll set it anyway
+            })
+            globeOutlineMesh = new LineSegments(outlineGeometry, outlineMaterial)
         }
+        */
 
         // Continent outlines will be created from GeoJSON data in loadWorldData
         const continentOutlineGroup = new Group()
@@ -405,13 +339,12 @@ export default function Globe({
         // Create simple graticule - circles for parallels, lines for meridians, every 15 degrees
         const graticuleGroup = new Group()
 
-        if (resolvedGraticuleColor && graticuleRgba.a > 0) {
-            const graticuleColorObj = resolvedGraticuleColor
-                ? new Color(resolvedGraticuleColor)
+        if (graticuleColor && graticuleRgba.a > 0) {
+            const graticuleColorObj = graticuleColor
+                ? new Color(graticuleColor)
                 : new Color(1, 1, 1)
-            
-            // Use MeshBasicMaterial for TubeGeometry (thick lines)
-            const graticuleMaterial = new MeshBasicMaterial({
+
+            const graticuleMaterial = new LineBasicMaterial({
                 color: graticuleColorObj,
                 transparent: graticuleRgba.a < 1 || graticuleRgba.a === 0,
                 opacity: graticuleRgba.a,
@@ -433,27 +366,13 @@ export default function Globe({
                     )
                 }
 
-                // Use TubeGeometry to create thick lines (actually works in WebGL2!)
-                if (positions && positions.length >= 6) {
-                    // Convert positions array to Vector3 points
-                    const points: any[] = []
-                    for (let i = 0; i < positions.length; i += 3) {
-                        points.push(
-                            new Vector3(positions[i], positions[i + 1], positions[i + 2])
-                        )
-                    }
-                    
-                    if (points.length >= 2) {
-                        // Create a curve from the points
-                        const curve = new CatmullRomCurve3(points)
-                        // Create tube geometry with thickness based on gridWidth
-                        // Convert gridWidth (0.5-10) to a reasonable radius (0.001-0.01)
-                        const radius = (gridWidth / 10) * 0.01
-                        const tubeGeometry = new TubeGeometry(curve, points.length * 2, radius, 8, false)
-                        const tubeMesh = new Mesh(tubeGeometry, graticuleMaterial)
-                        graticuleGroup.add(tubeMesh)
-                    }
-                }
+                const lineGeometry = new BufferGeometry()
+                lineGeometry.setAttribute(
+                    "position",
+                    new Float32BufferAttribute(positions, 3)
+                )
+                const line = new Line(lineGeometry, graticuleMaterial)
+                graticuleGroup.add(line)
             }
 
             // Create meridians (longitude lines) - vertical lines from pole to pole
@@ -470,27 +389,13 @@ export default function Globe({
                     )
                 }
 
-                // Use TubeGeometry to create thick lines (actually works in WebGL2!)
-                if (positions && positions.length >= 6) {
-                    // Convert positions array to Vector3 points
-                    const points: any[] = []
-                    for (let i = 0; i < positions.length; i += 3) {
-                        points.push(
-                            new Vector3(positions[i], positions[i + 1], positions[i + 2])
-                        )
-                    }
-                    
-                    if (points.length >= 2) {
-                        // Create a curve from the points
-                        const curve = new CatmullRomCurve3(points)
-                        // Create tube geometry with thickness based on gridWidth
-                        // Convert gridWidth (0.5-10) to a reasonable radius (0.001-0.01)
-                        const radius = (gridWidth / 10) * 0.01
-                        const tubeGeometry = new TubeGeometry(curve, points.length * 2, radius, 8, false)
-                        const tubeMesh = new Mesh(tubeGeometry, graticuleMaterial)
-                        graticuleGroup.add(tubeMesh)
-                    }
-                }
+                const lineGeometry = new BufferGeometry()
+                lineGeometry.setAttribute(
+                    "position",
+                    new Float32BufferAttribute(positions, 3)
+                )
+                const line = new Line(lineGeometry, graticuleMaterial)
+                graticuleGroup.add(line)
             }
         }
 
@@ -515,18 +420,18 @@ export default function Globe({
                 // Create continent outlines from GeoJSON features
                 // Clear existing outlines
                 while (continentOutlineGroup.children.length > 0) {
-                    continentOutlineGroup.remove(continentOutlineGroup.children[0])
+                    continentOutlineGroup.remove(
+                        continentOutlineGroup.children[0]
+                    )
                 }
 
                 if (outlineColor && outlineRgba.a > 0) {
-                    const outlineColorObj = new Color(resolvedOutlineColor)
-                    // Use MeshBasicMaterial for TubeGeometry (thick lines)
-                    const outlineMaterial = new MeshBasicMaterial({
+                    const outlineColorObj = new Color(outlineColor)
+                    const outlineMaterial = new LineBasicMaterial({
                         color: outlineColorObj,
                         transparent: outlineRgba.a < 1,
                         opacity: outlineRgba.a,
-                        depthTest: true,
-                        depthWrite: true,
+                        linewidth: 1,
                     })
 
                     // Use d3's geoPath to extract only the actual boundaries (like the source file does)
@@ -537,12 +442,15 @@ export default function Globe({
                     // Process each land feature - only draw the actual boundaries
                     let processedCount = 0
                     let skippedCount = 0
-                    
+
                     landFeatures.features.forEach((feature: any) => {
                         // Skip any features that might be grid-related
-                        const featureType = feature.properties?.featurecla || feature.properties?.type || ""
+                        const featureType =
+                            feature.properties?.featurecla ||
+                            feature.properties?.type ||
+                            ""
                         const featureName = feature.properties?.name || ""
-                        
+
                         // More aggressive filtering - skip anything that might be a grid
                         if (
                             featureType.toLowerCase().includes("graticule") ||
@@ -555,7 +463,7 @@ export default function Globe({
                             skippedCount++
                             return
                         }
-                        
+
                         processedCount++
 
                         // Use d3's path generator to get the path string, then extract coordinates
@@ -593,7 +501,7 @@ export default function Globe({
                         // Process only the outer ring of polygons (the actual boundaries)
                         const processRing = (ring: number[][]) => {
                             if (ring.length < 2) return
-                            
+
                             const positions: number[] = []
                             ring.forEach((coord: number[]) => {
                                 const [lng, lat] = coord
@@ -605,51 +513,43 @@ export default function Globe({
                                 )
                             })
 
-                            if (positions && positions.length >= 6) {
-                                // Use TubeGeometry to create thick lines (actually works in WebGL2!)
-                                // Convert positions array to Vector3 points
-                                const points: any[] = []
-                                for (let i = 0; i < positions.length; i += 3) {
-                                    points.push(
-                                        new Vector3(positions[i], positions[i + 1], positions[i + 2])
-                                    )
-                                }
-                                
-                                // Close the loop by adding the first point at the end
-                                if (points.length > 0 && points[0].distanceTo(points[points.length - 1]) > 0.001) {
-                                    points.push(points[0].clone())
-                                }
-                                
-                                if (points.length >= 2) {
-                                    // Create a curve from the points
-                                    const curve = new CatmullRomCurve3(points)
-                                    // Create tube geometry with thickness based on outlineWidth
-                                    // Convert outlineWidth (0.5-10) to a reasonable radius (0.001-0.01)
-                                    const radius = (outlineWidth / 10) * 0.01
-                                    const tubeGeometry = new TubeGeometry(curve, points.length * 2, radius, 8, false)
-                                    const tubeMesh = new Mesh(tubeGeometry, outlineMaterial)
-                                    // Set lower render order so outlines render before markers
-                                    tubeMesh.renderOrder = 0
-                                    continentOutlineGroup.add(tubeMesh)
-                                }
+                            if (positions.length >= 6) {
+                                const lineGeometry = new BufferGeometry()
+                                lineGeometry.setAttribute(
+                                    "position",
+                                    new Float32BufferAttribute(positions, 3)
+                                )
+                                // Use LineLoop for closed rings (continent boundaries)
+                                const line = new LineLoop(
+                                    lineGeometry,
+                                    outlineMaterial
+                                )
+                                continentOutlineGroup.add(line)
                             }
                         }
 
                         // Handle Polygon - only outer ring (index 0)
-                        if (geometry.type === "Polygon" && geometry.coordinates.length > 0) {
+                        if (
+                            geometry.type === "Polygon" &&
+                            geometry.coordinates.length > 0
+                        ) {
                             processRing(geometry.coordinates[0])
                         }
                         // Handle MultiPolygon - only outer ring of each polygon
                         else if (geometry.type === "MultiPolygon") {
-                            geometry.coordinates.forEach((polygon: number[][][]) => {
-                                if (polygon.length > 0) {
-                                    processRing(polygon[0])
+                            geometry.coordinates.forEach(
+                                (polygon: number[][][]) => {
+                                    if (polygon.length > 0) {
+                                        processRing(polygon[0])
+                                    }
                                 }
-                            })
+                            )
                         }
                     })
-                    
-                    console.log(`[Globe] Processed ${processedCount} land features, skipped ${skippedCount} grid features`)
+
+                    console.log(
+                        `[Globe] Processed ${processedCount} land features, skipped ${skippedCount} grid features`
+                    )
 
                     // Render after adding continent outlines
                     renderer.render(scene, camera)
@@ -744,8 +644,8 @@ export default function Globe({
                         4
                     )
 
-                    const dotColorObj = resolvedDotColor
-                        ? new Color(resolvedDotColor)
+                    const dotColorObj = dotColor
+                        ? new Color(dotColor)
                         : new Color(0.6, 0.6, 0.6)
                     const dotMaterial = new MeshBasicMaterial({
                         color: dotColorObj,
@@ -791,57 +691,12 @@ export default function Globe({
 
             if (markerConfig.markers && markerConfig.markers.length > 0) {
                 const markerSize = 0.01 * markerRadiusMultiplier
-                const markerShape = markerConfig.shape || "ball"
-                const markerColorObj = resolvedMarkerColor
-                    ? new Color(resolvedMarkerColor)
+                const markerGeometry = new SphereGeometry(markerSize, 16, 16)
+                const markerColorObj = markerConfig.color
+                    ? new Color(markerConfig.color)
                     : new Color(1, 1, 1)
-                
-                // For disk markers, use basic material
-                const diskMaterial = new MeshBasicMaterial({
+                const markerMaterial = new MeshBasicMaterial({
                     color: markerColorObj,
-                    side: 2, // DoubleSide for disk
-                    depthTest: false,
-                    depthWrite: false,
-                })
-
-                // For ball markers, use custom shader material that attenuates opacity inside globe
-                const ballVertexShader = `
-                    varying vec3 vWorldPosition;
-                    void main() {
-                        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-                        vWorldPosition = worldPosition.xyz;
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                    }
-                `
-                
-                const ballFragmentShader = `
-                    uniform vec3 uColor;
-                    uniform float uGlobeRadius;
-                    uniform float uOceanOpacity;
-                    varying vec3 vWorldPosition;
-                    
-                    void main() {
-                        // Calculate distance from center (0,0,0) to fragment world position
-                        float distFromCenter = length(vWorldPosition);
-                        
-                        // If fragment is inside the globe, use ocean opacity, else full opacity
-                        float opacity = distFromCenter < uGlobeRadius ? uOceanOpacity : 1.0;
-                        
-                        gl_FragColor = vec4(uColor, opacity);
-                    }
-                `
-                
-                const ballMaterial = new ShaderMaterial({
-                    uniforms: {
-                        uColor: { value: new Vector3(markerColorObj.r, markerColorObj.g, markerColorObj.b) },
-                        uGlobeRadius: { value: globeRadius },
-                        uOceanOpacity: { value: oceanRgba.a },
-                    },
-                    vertexShader: ballVertexShader,
-                    fragmentShader: ballFragmentShader,
-                    transparent: true,
-                    depthTest: true,
-                    depthWrite: false,
                 })
 
                 markerConfig.markers.forEach((marker) => {
@@ -853,42 +708,15 @@ export default function Globe({
                         return
 
                     const pos = latLngToPosition(marker.lat, marker.lng)
-                    const radiusVector = new Vector3(pos.x, pos.y, pos.z).normalize()
-                    
-                    let markerMesh: any
-                    
-                    if (markerShape === "disk") {
-                        // DISK: Flat disk sitting on top of the surface (tangent to sphere)
-                        // Use CircleGeometry for a true flat disk
-                        const diskGeometry = new CircleGeometry(markerSize, 32)
-                        markerMesh = new Mesh(diskGeometry, diskMaterial.clone())
-                        
-                        // Position disk slightly above surface to ensure it's visible above outlines
-                        const diskOffset = 0.0001
-                        markerMesh.position.set(
-                            pos.x * (globeRadius + diskOffset),
-                            pos.y * (globeRadius + diskOffset),
-                            pos.z * (globeRadius + diskOffset)
-                        )
-                        
-                        // Orient disk to be tangent to sphere (perpendicular to radius)
-                        // CircleGeometry's normal is +Z, so we want +Z to point along radius (outward)
-                        const center = new Vector3(0, 0, 0)
-                        markerMesh.lookAt(center) // Makes -Z point toward center, so +Z points outward
-                    } else {
-                        // BALL: Sphere at surface with opacity attenuation inside globe
-                        const ballGeometry = new SphereGeometry(markerSize, 16, 16)
-                        markerMesh = new Mesh(ballGeometry, ballMaterial.clone())
-                        markerMesh.position.set(
-                            pos.x * globeRadius,
-                            pos.y * globeRadius,
-                            pos.z * globeRadius
-                        )
-                    }
-                    
-                    // Set render order to ensure markers appear above outlines
-                    markerMesh.renderOrder = 100
-                    
+                    const markerMesh = new Mesh(
+                        markerGeometry,
+                        markerMaterial.clone()
+                    )
+                    markerMesh.position.set(
+                        pos.x * globeRadius,
+                        pos.y * globeRadius,
+                        pos.z * globeRadius
+                    )
                     globeGroup.add(markerMesh)
                     markerMeshes.push(markerMesh)
                 })
@@ -936,21 +764,6 @@ export default function Globe({
                 animationFrameId = null
                 return
             }
-
-            // Update LineMaterial resolution for proper thick line rendering
-            const currentResolution = new Vector2(containerWidth, containerHeight)
-            if (resolvedGraticuleColor && graticuleRgba.a > 0) {
-                graticuleGroup.children.forEach((child: any) => {
-                    if (child.material && child.material.resolution) {
-                        child.material.resolution.copy(currentResolution)
-                    }
-                })
-            }
-            continentOutlineGroup.children.forEach((child: any) => {
-                if (child.material && child.material.resolution) {
-                    child.material.resolution.copy(currentResolution)
-                }
-            })
 
             let needsRender = false
             const threshold = 0.01
@@ -1053,8 +866,7 @@ export default function Globe({
                 // Use proper spherical coordinate rotation
                 // Horizontal drag rotates around Y-axis (longitude)
                 // Vertical drag rotates around X-axis (latitude)
-                // Map dragSpeed (0-1) to sensitivity (0.001-0.02)
-                const sensitivity = mapLinear(dragSpeed, 0, 1, 0.001, 0.02)
+                const sensitivity = 0.01
                 const dx = moveEvent.clientX - lastMouseX
                 const dy = moveEvent.clientY - lastMouseY
 
@@ -1125,21 +937,6 @@ export default function Globe({
             camera.updateProjectionMatrix()
             renderer.setSize(newWidth, newHeight)
 
-            // Update LineMaterial resolution for thick lines
-            const newResolution = new Vector2(newWidth, newHeight)
-            if (resolvedGraticuleColor && graticuleRgba.a > 0) {
-                graticuleGroup.children.forEach((child: any) => {
-                    if (child.material && child.material.resolution) {
-                        child.material.resolution.copy(newResolution)
-                    }
-                })
-            }
-            continentOutlineGroup.children.forEach((child: any) => {
-                if (child.material && child.material.resolution) {
-                    child.material.resolution.copy(newResolution)
-                }
-            })
-
             // Update camera distance based on scale
             const newCameraDistance = 2.5 / scaleMultiplier
             camera.position.set(0, 0, newCameraDistance)
@@ -1183,8 +980,6 @@ export default function Globe({
         outlineColor,
         dotColor,
         graticuleColor,
-        outlineWidth,
-        gridWidth,
         rotationSpeed,
         dotSpacing,
         dotSizeMultiplier,
@@ -1250,7 +1045,6 @@ addPropertyControls(Globe, {
         max: 1,
         step: 0.1,
         defaultValue: 0.1,
-        description: "0 -> Disable auto-rotation",
     },
     smoothing: {
         type: ControlType.Number,
@@ -1258,7 +1052,7 @@ addPropertyControls(Globe, {
         min: 0,
         max: 1,
         step: 0.1,
-        defaultValue: 1,
+        defaultValue: 0.5,
     },
     scale: {
         type: ControlType.Number,
@@ -1271,7 +1065,7 @@ addPropertyControls(Globe, {
     stopOnHover: {
         type: ControlType.Boolean,
         title: "On Hover",
-        defaultValue: true,
+        defaultValue: false,
         enabledTitle: "Stop",
         disabledTitle: "Rotate",
     },
@@ -1281,7 +1075,7 @@ addPropertyControls(Globe, {
         min: -90,
         max: 90,
         step: 1,
-        defaultValue: 42,
+        defaultValue: 0,
     },
     initialLongitude: {
         type: ControlType.Number,
@@ -1289,7 +1083,7 @@ addPropertyControls(Globe, {
         min: -180,
         max: 180,
         step: 1,
-        defaultValue: -15,
+        defaultValue: 0,
     },
     density: {
         type: ControlType.Number,
@@ -1297,7 +1091,7 @@ addPropertyControls(Globe, {
         min: 0.1,
         max: 1,
         step: 0.1,
-        defaultValue: 0.8,
+        defaultValue: 0.7,
     },
     dotSize: {
         type: ControlType.Number,
@@ -1347,33 +1141,26 @@ addPropertyControls(Globe, {
                 title: "Color",
                 defaultValue: "#ffffff",
             },
-            size: {
+            radius: {
                 type: ControlType.Number,
-                title: "Size",
+                title: "Radius",
                 min: 0,
                 max: 100,
                 step: 0.1,
-                defaultValue: 40,
-            },
-            shape: {
-                type: ControlType.Enum,
-                title: "Shape",
-                options: ["ball", "disk"],
-                optionTitles: ["Ball", "Disk"],
-                defaultValue: "ball",
+                defaultValue: 50,
             },
         },
     },
     dotColor: {
         type: ControlType.Color,
         title: "Dots",
-        defaultValue: "#ffffff",
+        defaultValue: "#5E5E5E",
     },
     oceanColor: {
         type: ControlType.Color,
         title: "Ocean",
         optional: true,
-        defaultValue: "#000000",
+        defaultValue: "rgba(0,0,0,0.8)",
     },
     outlineColor: {
         type: ControlType.Color,
@@ -1381,37 +1168,11 @@ addPropertyControls(Globe, {
         optional: true,
         defaultValue: "#ffffff",
     },
-    outlineWidth: {
-        type: ControlType.Number,
-        title: "Outline Width",
-        min: 0.5,
-        max: 10,
-        step: 0.5,
-        defaultValue: 1,
-        hidden: (props: GlobeProps) => !props.outlineColor,
-    },
     graticuleColor: {
         type: ControlType.Color,
         title: "Grid",
         optional: true,
-        defaultValue: "#616161",
-    },
-    gridWidth: {
-        type: ControlType.Number,
-        title: "Grid Width",
-        min: 0.5,
-        max: 10,
-        step: 0.5,
-        defaultValue: 1,
-        hidden: (props: GlobeProps) => !props.graticuleColor,
-    },
-    dragSpeed: {
-        type: ControlType.Number,
-        title: "Drag Speed",
-        min: 0,
-        max: 1,
-        step: 0.1,
-        defaultValue: 0.5,
+        defaultValue: "rgba(255,255,255,0.15)",
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
