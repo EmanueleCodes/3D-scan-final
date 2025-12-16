@@ -12,7 +12,6 @@ import {
     MeshBasicMaterial,
     Texture,
     Vector3,
-    Vector2,
     Bone,
     Skeleton,
     Float32BufferAttribute,
@@ -22,7 +21,6 @@ import {
     SRGBColorSpace,
     RGBAFormat,
     Color,
-    Raycaster,
 } from "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js"
 
 // GSAP import from CDN
@@ -208,8 +206,6 @@ export default function Sticker({
     const loadedImageRef = useRef<HTMLImageElement | null>(null)
     const animatedCurlRef = useRef({ amount: curlAmount }) // Animated curl value for GSAP
     const isHoveringRef = useRef(false) // Track if currently hovering over sticker
-    const raycasterRef = useRef<any>(null) // Raycaster for mouse detection
-    const mouseRef = useRef(new Vector2()) // Mouse position in normalized coordinates
 
     // State
     const [textureLoaded, setTextureLoaded] = useState(false)
@@ -557,63 +553,43 @@ export default function Sticker({
 
     // Check if mouse is over non-transparent part of sticker
     const checkMouseOverSticker = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-        if (!canvasRef.current || !meshRef.current || !cameraRef.current || !rendererRef.current) {
+        if (!canvasRef.current || !containerRef.current || !loadedImageRef.current) {
             return false
         }
 
         const canvas = canvasRef.current
+        const container = containerRef.current
+        const img = loadedImageRef.current
         const rect = canvas.getBoundingClientRect()
         
-        // Calculate mouse position in normalized device coordinates (-1 to +1)
-        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-        const y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+        // Get container dimensions (actual sticker size)
+        const containerWidth = container.clientWidth || container.offsetWidth || 1
+        const containerHeight = container.clientHeight || container.offsetHeight || 1
         
-        mouseRef.current.set(x, y)
+        // Calculate mouse position relative to canvas
+        const canvasX = event.clientX - rect.left
+        const canvasY = event.clientY - rect.top
         
-        // Use raycasting to check if mouse intersects with mesh
-        if (!raycasterRef.current) {
-            raycasterRef.current = new Raycaster()
-        }
+        // Account for canvas scale offset (canvas is larger than container)
+        const offsetX = (rect.width - containerWidth) / 2
+        const offsetY = (rect.height - containerHeight) / 2
         
-        raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current)
-        const intersects = raycasterRef.current.intersectObject(meshRef.current, true)
+        // Convert to container-relative coordinates
+        const containerX = canvasX - offsetX
+        const containerY = canvasY - offsetY
         
-        if (intersects.length === 0) {
+        // Check if mouse is within container bounds
+        if (containerX < 0 || containerX > containerWidth || containerY < 0 || containerY > containerHeight) {
             return false
         }
         
-        const intersection = intersects[0]
-        const faceIndex = intersection.faceIndex
-        if (faceIndex === undefined || !intersection.uv) {
-            return false
-        }
-        
-        // Get the material for the intersected face
-        // BoxGeometry: each face has 2 triangles, so face = Math.floor(faceIndex / 2)
-        // Face mapping: 0=right, 1=left, 2=top, 3=bottom, 4=front, 5=back
-        const faceMaterialIndex = Math.floor(faceIndex / 2)
-        const materials = meshRef.current.material as any[]
-        if (!Array.isArray(materials) || !materials[faceMaterialIndex]) {
-            return false
-        }
-        
-        const material = materials[faceMaterialIndex]
-        if (!material.map || !material.map.image) {
-            return false
-        }
-        
-        // Check pixel transparency at UV coordinates
-        const texture = material.map
-        const uv = intersection.uv
-        const img = texture.image
-        
-        // Convert UV to pixel coordinates
-        const pixelX = Math.floor(uv.x * img.width)
-        const pixelY = Math.floor((1 - uv.y) * img.height)
+        // Map container coordinates to image coordinates
+        const imageX = Math.floor((containerX / containerWidth) * img.width)
+        const imageY = Math.floor((containerY / containerHeight) * img.height)
         
         // Clamp coordinates to image bounds
-        const clampedX = Math.max(0, Math.min(img.width - 1, pixelX))
-        const clampedY = Math.max(0, Math.min(img.height - 1, pixelY))
+        const clampedX = Math.max(0, Math.min(img.width - 1, imageX))
+        const clampedY = Math.max(0, Math.min(img.height - 1, imageY))
         
         // Create temporary canvas to read pixel data
         const tempCanvas = document.createElement('canvas')
