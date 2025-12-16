@@ -21,6 +21,9 @@ import {
     Vector2,
     EdgesGeometry,
     LineSegments,
+    TubeGeometry,
+    CatmullRomCurve3,
+    Vector3,
 } from "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js"
 import {
     geoEquirectangular,
@@ -55,7 +58,7 @@ interface Marker {
 interface MarkerConfig {
     markers: Marker[]
     color: string
-    radius: number
+    size: number
 }
 
 interface GlobeProps {
@@ -76,6 +79,8 @@ interface GlobeProps {
     graticuleColor?: string
     outlineWidth?: number
     gridWidth?: number
+    dragSpeed?: number
+    detail?: number
     style?: React.CSSProperties
 }
 
@@ -206,6 +211,47 @@ function mapMarkerDotSizeUiToMultiplier(ui: number): number {
     return mapLinear(clamped, 0, 100, 0.1, 2.5)
 }
 
+// Detail: UI [0.1..1] → point sampling step [10..1] (higher detail = smaller step = more points)
+function mapDetailToStepSize(ui: number): number {
+    const clamped = Math.max(0.1, Math.min(1, ui))
+    // detail = 1 → step = 1 (use all points)
+    // detail = 0.1 → step = 10 (use every 10th point)
+    return mapLinear(clamped, 0.1, 1.0, 10, 1)
+}
+
+// Simplify coordinate ring by sampling points based on detail level
+// Always keeps first and last point to maintain closed loops
+function simplifyRing(ring: number[][], detail: number): number[][] {
+    if (ring.length < 2) return ring
+    if (detail >= 1) return ring // No simplification at max detail
+
+    const stepSize = Math.max(1, Math.floor(mapDetailToStepSize(detail)))
+    const simplified: number[][] = []
+
+    // Always include first point
+    simplified.push(ring[0])
+
+    // Sample points at step intervals
+    for (let i = stepSize; i < ring.length - 1; i += stepSize) {
+        const idx = Math.min(i, ring.length - 1)
+        simplified.push(ring[idx])
+    }
+
+    // Always include last point (if different from first)
+    const lastPoint = ring[ring.length - 1]
+    const firstPoint = ring[0]
+    const isClosed =
+        Math.abs(lastPoint[0] - firstPoint[0]) < 0.0001 &&
+        Math.abs(lastPoint[1] - firstPoint[1]) < 0.0001
+
+    if (!isClosed) {
+        simplified.push(lastPoint)
+    }
+
+    // Ensure we have at least 2 points
+    return simplified.length >= 2 ? simplified : ring
+}
+
 // Convert lat/lng to 3D position on unit sphere
 // Standard geographic to 3D conversion:
 // - lat: -90 (south pole) to +90 (north pole)
@@ -238,22 +284,24 @@ function latLngToPosition(
  */
 export default function Globe({
     preview = false,
-    speed = 0.5,
-    smoothing = 0.5,
-    density = 0.5,
-    dotSize = 0.5,
-    scale = 0.5,
-    stopOnHover = false,
-    markerConfig = { markers: [], color: "#ffffff", radius: 0.5 },
+    speed = 0.1,
+    smoothing = 1,
+    density = 0.8,
+    dotSize = 0.4,
+    scale = 0.9,
+    stopOnHover = true,
+    markerConfig = { markers: [], color: "#ffffff", size: 0.4 },
     rotationDirection = "clockwise",
-    initialLatitude = 0,
-    initialLongitude = 0,
-    oceanColor,
-    outlineColor,
-    dotColor,
-    graticuleColor,
+    initialLatitude = 42,
+    initialLongitude = -15,
+    oceanColor = "#000000",
+    outlineColor = "#ffffff",
+    dotColor = "#ffffff",
+    graticuleColor = "#616161",
     outlineWidth = 1,
     gridWidth = 1,
+    dragSpeed = 0.5,
+    detail = 1,
     style,
 }: GlobeProps) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -272,7 +320,7 @@ export default function Globe({
     const dotSpacing = mapDensityUiToSpacing(density)
     const dotSizeMultiplier = mapDotSizeUiToMultiplier(dotSize)
     const markerRadiusMultiplier = mapMarkerDotSizeUiToMultiplier(
-        markerConfig.radius
+        markerConfig.size
     )
     const scaleMultiplier = mapScaleUiToMultiplier(scale)
 
@@ -315,6 +363,11 @@ export default function Globe({
         canvas.style.width = "100%"
         canvas.style.height = "100%"
         canvas.style.display = "block"
+        // Hide canvas until all data is loaded (only in preview mode, not in canvas)
+        if (!isCanvas) {
+            canvas.style.opacity = "0"
+            canvas.style.visibility = "hidden"
+        }
         container.appendChild(canvas)
 
         // Resolve color tokens (CSS variables) and parse colors for opacity
@@ -344,24 +397,52 @@ export default function Globe({
         const oceanMesh = new Mesh(oceanGeometry, oceanMaterial)
         scene.add(oceanMesh)
 
-        // Create outline around the globe sphere (similar to 3D-globe-source.tsx)
-        // COMMENTED OUT: EdgesGeometry creates a grid pattern from sphere faces
-        // Using EdgesGeometry on a 64x64 sphere creates all the edges, which looks like a grid
-        // If you want a simple sphere outline, we'd need to create a single circle instead
+        // Create globe outside outline - a simple circle around the sphere with tube geometry
         let globeOutlineMesh: any = null
-        /*
         if (outlineColor && outlineRgba.a > 0) {
-            const outlineGeometry = new EdgesGeometry(oceanGeometry)
-            const outlineColorObj = new Color(resolvedOutlineColor)
-            const outlineMaterial = new LineBasicMaterial({
-                color: outlineColorObj,
-                transparent: outlineRgba.a < 1,
-                opacity: outlineRgba.a,
-                linewidth: outlineWidth, // Outline thickness control
-            })
-            globeOutlineMesh = new LineSegments(outlineGeometry, outlineMaterial)
+            const outlinePositions: number[] = []
+            const segments = 128
+            for (let i = 0; i <= segments; i++) {
+                const angle = (i / segments) * Math.PI * 2
+                const x = Math.cos(angle) * globeRadius
+                const y = Math.sin(angle) * globeRadius
+                const z = 0
+                outlinePositions.push(x, y, z)
+            }
+
+            const outlinePoints: any[] = []
+            for (let i = 0; i < outlinePositions.length; i += 3) {
+                outlinePoints.push(
+                    new Vector3(
+                        outlinePositions[i],
+                        outlinePositions[i + 1],
+                        outlinePositions[i + 2]
+                    )
+                )
+            }
+
+            if (outlinePoints.length >= 2) {
+                outlinePoints.push(outlinePoints[0].clone())
+
+                const outlineColorObj = new Color(resolvedOutlineColor)
+                const outlineMaterial = new MeshBasicMaterial({
+                    color: outlineColorObj,
+                    transparent: outlineRgba.a < 1,
+                    opacity: outlineRgba.a,
+                })
+
+                const curve = new CatmullRomCurve3(outlinePoints)
+                const radius = (outlineWidth / 10) * 0.01
+                const tubeGeometry = new TubeGeometry(
+                    curve,
+                    outlinePoints.length * 2,
+                    radius,
+                    8,
+                    false
+                )
+                globeOutlineMesh = new Mesh(tubeGeometry, outlineMaterial)
+            }
         }
-        */
 
         // Continent outlines will be created from GeoJSON data in loadWorldData
         const continentOutlineGroup = new Group()
@@ -373,12 +454,11 @@ export default function Globe({
             const graticuleColorObj = resolvedGraticuleColor
                 ? new Color(resolvedGraticuleColor)
                 : new Color(1, 1, 1)
-            
-            const graticuleMaterial = new LineBasicMaterial({
+
+            const graticuleMaterial = new MeshBasicMaterial({
                 color: graticuleColorObj,
                 transparent: graticuleRgba.a < 1 || graticuleRgba.a === 0,
                 opacity: graticuleRgba.a,
-                linewidth: gridWidth, // Grid thickness control
             })
 
             const gridSpacing = 15 // 15 degrees spacing
@@ -397,13 +477,36 @@ export default function Globe({
                     )
                 }
 
-                const lineGeometry = new BufferGeometry()
-                lineGeometry.setAttribute(
-                    "position",
-                    new Float32BufferAttribute(positions, 3)
-                )
-                const line = new Line(lineGeometry, graticuleMaterial)
-                graticuleGroup.add(line)
+                if (positions && positions.length >= 6) {
+                    const points: any[] = []
+                    for (let i = 0; i < positions.length; i += 3) {
+                        points.push(
+                            new Vector3(
+                                positions[i],
+                                positions[i + 1],
+                                positions[i + 2]
+                            )
+                        )
+                    }
+
+                    if (points.length >= 2) {
+                        const curve = new CatmullRomCurve3(points)
+                        const radius = (gridWidth / 10) * 0.01
+                        const tubeGeometry = new TubeGeometry(
+                            curve,
+                            points.length * 2,
+                            radius,
+                            8,
+                            false
+                        )
+                        const tubeMesh = new Mesh(
+                            tubeGeometry,
+                            graticuleMaterial
+                        )
+                        tubeMesh.renderOrder = 0
+                        graticuleGroup.add(tubeMesh)
+                    }
+                }
             }
 
             // Create meridians (longitude lines) - vertical lines from pole to pole
@@ -420,13 +523,36 @@ export default function Globe({
                     )
                 }
 
-                const lineGeometry = new BufferGeometry()
-                lineGeometry.setAttribute(
-                    "position",
-                    new Float32BufferAttribute(positions, 3)
-                )
-                const line = new Line(lineGeometry, graticuleMaterial)
-                graticuleGroup.add(line)
+                if (positions && positions.length >= 6) {
+                    const points: any[] = []
+                    for (let i = 0; i < positions.length; i += 3) {
+                        points.push(
+                            new Vector3(
+                                positions[i],
+                                positions[i + 1],
+                                positions[i + 2]
+                            )
+                        )
+                    }
+
+                    if (points.length >= 2) {
+                        const curve = new CatmullRomCurve3(points)
+                        const radius = (gridWidth / 10) * 0.01
+                        const tubeGeometry = new TubeGeometry(
+                            curve,
+                            points.length * 2,
+                            radius,
+                            8,
+                            false
+                        )
+                        const tubeMesh = new Mesh(
+                            tubeGeometry,
+                            graticuleMaterial
+                        )
+                        tubeMesh.renderOrder = 0
+                        graticuleGroup.add(tubeMesh)
+                    }
+                }
             }
         }
 
@@ -451,16 +577,19 @@ export default function Globe({
                 // Create continent outlines from GeoJSON features
                 // Clear existing outlines
                 while (continentOutlineGroup.children.length > 0) {
-                    continentOutlineGroup.remove(continentOutlineGroup.children[0])
+                    continentOutlineGroup.remove(
+                        continentOutlineGroup.children[0]
+                    )
                 }
 
                 if (outlineColor && outlineRgba.a > 0) {
                     const outlineColorObj = new Color(resolvedOutlineColor)
-                    const outlineMaterial = new LineBasicMaterial({
+                    const outlineMaterial = new MeshBasicMaterial({
                         color: outlineColorObj,
                         transparent: outlineRgba.a < 1,
                         opacity: outlineRgba.a,
-                        linewidth: outlineWidth, // Continent outline thickness
+                        depthTest: true,
+                        depthWrite: true,
                     })
 
                     // Use d3's geoPath to extract only the actual boundaries (like the source file does)
@@ -471,12 +600,15 @@ export default function Globe({
                     // Process each land feature - only draw the actual boundaries
                     let processedCount = 0
                     let skippedCount = 0
-                    
+
                     landFeatures.features.forEach((feature: any) => {
                         // Skip any features that might be grid-related
-                        const featureType = feature.properties?.featurecla || feature.properties?.type || ""
+                        const featureType =
+                            feature.properties?.featurecla ||
+                            feature.properties?.type ||
+                            ""
                         const featureName = feature.properties?.name || ""
-                        
+
                         // More aggressive filtering - skip anything that might be a grid
                         if (
                             featureType.toLowerCase().includes("graticule") ||
@@ -489,7 +621,7 @@ export default function Globe({
                             skippedCount++
                             return
                         }
-                        
+
                         processedCount++
 
                         // Use d3's path generator to get the path string, then extract coordinates
@@ -527,9 +659,12 @@ export default function Globe({
                         // Process only the outer ring of polygons (the actual boundaries)
                         const processRing = (ring: number[][]) => {
                             if (ring.length < 2) return
-                            
+
+                            // Simplify ring based on detail level
+                            const simplifiedRing = simplifyRing(ring, detail)
+
                             const positions: number[] = []
-                            ring.forEach((coord: number[]) => {
+                            simplifiedRing.forEach((coord: number[]) => {
                                 const [lng, lat] = coord
                                 const pos = latLngToPosition(lat, lng)
                                 positions.push(
@@ -539,36 +674,74 @@ export default function Globe({
                                 )
                             })
 
-                            if (positions.length >= 6) {
-                                const lineGeometry = new BufferGeometry()
-                                lineGeometry.setAttribute(
-                                    "position",
-                                    new Float32BufferAttribute(positions, 3)
-                                )
-                                // Use LineLoop for closed rings (continent boundaries)
-                                const line = new LineLoop(lineGeometry, outlineMaterial)
-                                continentOutlineGroup.add(line)
+                            if (positions && positions.length >= 6) {
+                                const points: any[] = []
+                                for (let i = 0; i < positions.length; i += 3) {
+                                    points.push(
+                                        new Vector3(
+                                            positions[i],
+                                            positions[i + 1],
+                                            positions[i + 2]
+                                        )
+                                    )
+                                }
+
+                                if (
+                                    points.length > 0 &&
+                                    points[0].distanceTo(
+                                        points[points.length - 1]
+                                    ) > 0.001
+                                ) {
+                                    points.push(points[0].clone())
+                                }
+
+                                if (points.length >= 2) {
+                                    const curve = new CatmullRomCurve3(points)
+                                    const radius = (outlineWidth / 10) * 0.01
+                                    const tubeGeometry = new TubeGeometry(
+                                        curve,
+                                        points.length * 2,
+                                        radius,
+                                        8,
+                                        false
+                                    )
+                                    const tubeMesh = new Mesh(
+                                        tubeGeometry,
+                                        outlineMaterial
+                                    )
+                                    tubeMesh.renderOrder = 0
+                                    continentOutlineGroup.add(tubeMesh)
+                                }
                             }
                         }
 
                         // Handle Polygon - only outer ring (index 0)
-                        if (geometry.type === "Polygon" && geometry.coordinates.length > 0) {
+                        if (
+                            geometry.type === "Polygon" &&
+                            geometry.coordinates.length > 0
+                        ) {
                             processRing(geometry.coordinates[0])
                         }
                         // Handle MultiPolygon - only outer ring of each polygon
                         else if (geometry.type === "MultiPolygon") {
-                            geometry.coordinates.forEach((polygon: number[][][]) => {
-                                if (polygon.length > 0) {
-                                    processRing(polygon[0])
+                            geometry.coordinates.forEach(
+                                (polygon: number[][][]) => {
+                                    if (polygon.length > 0) {
+                                        processRing(polygon[0])
+                                    }
                                 }
-                            })
+                            )
                         }
                     })
-                    
-                    console.log(`[Globe] Processed ${processedCount} land features, skipped ${skippedCount} grid features`)
 
-                    // Render after adding continent outlines
-                    renderer.render(scene, camera)
+                    console.log(
+                        `[Globe] Processed ${processedCount} land features, skipped ${skippedCount} grid features`
+                    )
+
+                    // In canvas mode, render immediately so props update is visible
+                    if (isCanvas) {
+                        renderer.render(scene, camera)
+                    }
                 }
 
                 // Create a high-resolution bitmap for accurate land detection
@@ -647,10 +820,6 @@ export default function Globe({
                     }
                 }
 
-                // Render globe immediately before adding dots
-                renderer.render(scene, camera)
-                setIsLoading(false)
-
                 // Create dots using instanced mesh (GPU-efficient)
                 if (dotCoordinates.length > 0) {
                     // Use simpler geometry (4 segments) for better performance
@@ -691,8 +860,26 @@ export default function Globe({
 
                     dotInstances.instanceMatrix.needsUpdate = true
                     globeGroup.add(dotInstances)
-                    renderer.render(scene, camera)
+
+                    // In canvas mode, render immediately so props update is visible
+                    if (isCanvas) {
+                        renderer.render(scene, camera)
+                    }
                 }
+
+                // Update markers before final render
+                updateMarkers()
+
+                // Final render
+                renderer.render(scene, camera)
+
+                // Show canvas only if we're not in canvas mode (in canvas, it's already visible)
+                if (!isCanvas) {
+                    canvas.style.opacity = "1"
+                    canvas.style.visibility = "visible"
+                }
+
+                setIsLoading(false)
             } catch (err) {
                 setError("Failed to load land map data")
                 setIsLoading(false)
@@ -765,7 +952,6 @@ export default function Globe({
         globeGroup.rotation.x = initialLatitudeRad
         scene.add(globeGroup)
         globeGroup.add(oceanMesh)
-        if (globeOutlineMesh) globeGroup.add(globeOutlineMesh)
         // Add graticule grid (independent from country contours, uses graticuleColor)
         if (graticuleColor && graticuleRgba.a > 0) {
             globeGroup.add(graticuleGroup)
@@ -882,7 +1068,7 @@ export default function Globe({
                 // Use proper spherical coordinate rotation
                 // Horizontal drag rotates around Y-axis (longitude)
                 // Vertical drag rotates around X-axis (latitude)
-                const sensitivity = 0.01
+                const sensitivity = mapLinear(dragSpeed, 0, 1, 0.001, 0.02)
                 const dx = moveEvent.clientX - lastMouseX
                 const dy = moveEvent.clientY - lastMouseY
 
@@ -963,12 +1149,8 @@ export default function Globe({
 
         resizeObserver.observe(container)
 
-        // Initial render - show globe immediately (ocean + graticule) before dots load
-        renderer.render(scene, camera)
-
-        // Load world data and update markers
+        // Load world data (which will call updateMarkers and show canvas when complete)
         loadWorldData()
-        updateMarkers()
 
         // Cleanup
         return () => {
@@ -998,6 +1180,8 @@ export default function Globe({
         graticuleColor,
         outlineWidth,
         gridWidth,
+        dragSpeed,
+        detail,
         rotationSpeed,
         dotSpacing,
         dotSizeMultiplier,
@@ -1070,6 +1254,14 @@ addPropertyControls(Globe, {
         min: 0,
         max: 1,
         step: 0.1,
+        defaultValue: 1,
+    },
+    dragSpeed: {
+        type: ControlType.Number,
+        title: "Drag Speed",
+        min: 0,
+        max: 1,
+        step: 0.1,
         defaultValue: 0.5,
     },
     scale: {
@@ -1083,7 +1275,7 @@ addPropertyControls(Globe, {
     stopOnHover: {
         type: ControlType.Boolean,
         title: "On Hover",
-        defaultValue: false,
+        defaultValue: true,
         enabledTitle: "Stop",
         disabledTitle: "Rotate",
     },
@@ -1093,7 +1285,7 @@ addPropertyControls(Globe, {
         min: -90,
         max: 90,
         step: 1,
-        defaultValue: 0,
+        defaultValue: 42,
     },
     initialLongitude: {
         type: ControlType.Number,
@@ -1101,7 +1293,7 @@ addPropertyControls(Globe, {
         min: -180,
         max: 180,
         step: 1,
-        defaultValue: 0,
+        defaultValue: -15,
     },
     density: {
         type: ControlType.Number,
@@ -1109,7 +1301,15 @@ addPropertyControls(Globe, {
         min: 0.1,
         max: 1,
         step: 0.1,
-        defaultValue: 0.7,
+        defaultValue: 0.8,
+    },
+    detail: {
+        type: ControlType.Number,
+        title: "Detail",
+        min: 0.1,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0.5,
     },
     dotSize: {
         type: ControlType.Number,
@@ -1141,7 +1341,7 @@ addPropertyControls(Globe, {
                             min: -90,
                             max: 90,
                             step: 0.1,
-                            defaultValue: 39,
+                            defaultValue: 25.2,
                         },
                         lng: {
                             type: ControlType.Number,
@@ -1149,7 +1349,7 @@ addPropertyControls(Globe, {
                             min: -180,
                             max: 180,
                             step: 0.1,
-                            defaultValue: 11,
+                            defaultValue: 55.5,
                         },
                     },
                 },
@@ -1157,28 +1357,22 @@ addPropertyControls(Globe, {
             color: {
                 type: ControlType.Color,
                 title: "Color",
-                defaultValue: "#ffffff",
+                defaultValue: "#00f7ff",
             },
-            radius: {
+            size: {
                 type: ControlType.Number,
-                title: "Radius",
+                title: "Size",
                 min: 0,
                 max: 100,
                 step: 0.1,
-                defaultValue: 50,
+                defaultValue: 40,
             },
         },
     },
     dotColor: {
         type: ControlType.Color,
         title: "Dots",
-        defaultValue: "#5E5E5E",
-    },
-    oceanColor: {
-        type: ControlType.Color,
-        title: "Ocean",
-        optional: true,
-        defaultValue: "rgba(0,0,0,0.8)",
+        defaultValue: "#ffffff",
     },
     outlineColor: {
         type: ControlType.Color,
@@ -1188,7 +1382,7 @@ addPropertyControls(Globe, {
     },
     outlineWidth: {
         type: ControlType.Number,
-        title: "Outline Width",
+        title: "Width",
         min: 0.5,
         max: 10,
         step: 0.5,
@@ -1199,16 +1393,22 @@ addPropertyControls(Globe, {
         type: ControlType.Color,
         title: "Grid",
         optional: true,
-        defaultValue: "rgba(255,255,255,0.15)",
+        defaultValue: "#616161",
     },
     gridWidth: {
         type: ControlType.Number,
-        title: "Grid Width",
+        title: "Width",
         min: 0.5,
         max: 10,
         step: 0.5,
         defaultValue: 1,
         hidden: (props: GlobeProps) => !props.graticuleColor,
+    },
+    oceanColor: {
+        type: ControlType.Color,
+        title: "Ocean",
+        optional: true,
+        defaultValue: "#000000",
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
