@@ -10,6 +10,7 @@ import {
     BoxGeometry,
     SkinnedMesh,
     MeshBasicMaterial,
+    MeshStandardMaterial,
     Texture,
     Vector3,
     Bone,
@@ -21,6 +22,10 @@ import {
     SRGBColorSpace,
     RGBAFormat,
     Color,
+    DirectionalLight,
+    AmbientLight,
+    PlaneGeometry,
+    Mesh,
 } from "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js"
 
 // GSAP import from CDN
@@ -53,6 +58,12 @@ interface StickerProps {
     curlRadius: number
     curlStart: number
     borderColor: string
+    // Lighting and shadows
+    enableShadows: boolean
+    shadowIntensity: number
+    lightIntensity: number
+    ambientIntensity: number
+    backgroundColor: string
     // Style (always last)
     style?: React.CSSProperties
 }
@@ -190,6 +201,11 @@ export default function Sticker({
     curlRadius = 0.5,
     curlStart = 0.4,
     borderColor = "#ffffff",
+    enableShadows = true,
+    shadowIntensity = 0.5,
+    lightIntensity = 1.0,
+    ambientIntensity = 0.4,
+    backgroundColor = "#ff9500",
     style,
 }: StickerProps) {
     // Refs
@@ -206,6 +222,9 @@ export default function Sticker({
     const loadedImageRef = useRef<HTMLImageElement | null>(null)
     const animatedCurlRef = useRef({ amount: curlAmount }) // Animated curl value for GSAP
     const isHoveringRef = useRef(false) // Track if currently hovering over sticker
+    const lightRef = useRef<any>(null)
+    const ambientLightRef = useRef<any>(null)
+    const backgroundPlaneRef = useRef<any>(null)
 
     // State
     const [textureLoaded, setTextureLoaded] = useState(false)
@@ -296,6 +315,12 @@ export default function Sticker({
         })
         renderer.setSize(Math.round(canvasWidth * dpr), Math.round(canvasHeight * dpr), false)
         renderer.setPixelRatio(1)
+        
+        // Enable shadow maps if shadows are enabled
+        if (enableShadows) {
+            renderer.shadowMap.enabled = true
+        }
+        
         rendererRef.current = renderer
 
         canvasRef.current.style.width = `${canvasWidth}px`
@@ -321,19 +346,25 @@ export default function Sticker({
         const skeleton = new Skeleton(bones)
 
         // Create materials for front and back
+        // Use MeshStandardMaterial for lighting support when shadows are enabled
         const resolvedBorderColor = resolveTokenColor(borderColor)
         const borderColorRgba = parseColorToRgba(resolvedBorderColor)
-        const frontMaterial = new MeshBasicMaterial({
+        const MaterialClass = enableShadows ? MeshStandardMaterial : MeshBasicMaterial
+        
+        const frontMaterial = new MaterialClass({
             color: 0xffffff,
             side: DoubleSide,
             transparent: true,
+            ...(enableShadows && { roughness: 0.3, metalness: 0.0 }),
         })
-        const backMaterial = new MeshBasicMaterial({
+        const backMaterial = new MaterialClass({
             color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
             side: DoubleSide,
+            ...(enableShadows && { roughness: 0.5, metalness: 0.0 }),
         })
-        const sideMaterial = new MeshBasicMaterial({
+        const sideMaterial = new MaterialClass({
             color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+            ...(enableShadows && { roughness: 0.5, metalness: 0.0 }),
         })
 
         // Materials array for BoxGeometry faces
@@ -353,14 +384,67 @@ export default function Sticker({
         mesh.bind(skeleton)
         mesh.frustumCulled = false
         
+        // Enable shadows if configured
+        if (enableShadows) {
+            mesh.castShadow = true
+            mesh.receiveShadow = true
+        }
+        
         // Position mesh so it's centered
         mesh.position.set(-width / 2, 0, 0)
         
         meshRef.current = mesh
         scene.add(mesh)
 
+        // Add lighting if shadows are enabled
+        if (enableShadows) {
+            // Ambient light for overall scene illumination
+            const ambientLight = new AmbientLight(0xffffff, ambientIntensity)
+            ambientLightRef.current = ambientLight
+            scene.add(ambientLight)
+            
+            // Directional light for shadows and depth
+            const directionalLight = new DirectionalLight(0xffffff, lightIntensity)
+            directionalLight.position.set(200, 300, 400)
+            directionalLight.castShadow = true
+            
+            // Configure shadow map
+            directionalLight.shadow.mapSize.width = 2048
+            directionalLight.shadow.mapSize.height = 2048
+            directionalLight.shadow.camera.near = 100
+            directionalLight.shadow.camera.far = 2000
+            directionalLight.shadow.camera.left = -width * 2
+            directionalLight.shadow.camera.right = width * 2
+            directionalLight.shadow.camera.top = height * 2
+            directionalLight.shadow.camera.bottom = -height * 2
+            directionalLight.shadow.bias = -0.0001
+            directionalLight.shadow.radius = 4
+            
+            lightRef.current = directionalLight
+            scene.add(directionalLight)
+            
+            // Add background plane to receive shadows
+            const resolvedBgColor = resolveTokenColor(backgroundColor)
+            const bgColorRgba = parseColorToRgba(resolvedBgColor)
+            const bgMaterial = new MeshStandardMaterial({
+                color: new Color(bgColorRgba.r, bgColorRgba.g, bgColorRgba.b),
+                roughness: 0.8,
+                metalness: 0.0,
+            })
+            
+            // Create large plane behind sticker
+            const planeSize = Math.max(width, height) * 3
+            const planeGeometry = new PlaneGeometry(planeSize, planeSize)
+            const backgroundPlane = new Mesh(planeGeometry, bgMaterial)
+            backgroundPlane.receiveShadow = true
+            backgroundPlane.position.set(0, 0, -STICKER_DEPTH * 2)
+            backgroundPlane.rotation.x = Math.PI // Face the sticker
+            backgroundPlaneRef.current = backgroundPlane
+            scene.add(backgroundPlane)
+        }
+
         return { scene, camera, renderer, mesh, bones }
-    }, [borderColor, createStickerGeometry])
+    }, [borderColor, createStickerGeometry, enableShadows, shadowIntensity, lightIntensity, ambientIntensity, backgroundColor])
 
     // ========================================================================
     // TEXTURE LOADING
@@ -688,6 +772,9 @@ export default function Sticker({
             }
             meshRef.current = null
             bonesRef.current = []
+            lightRef.current = null
+            ambientLightRef.current = null
+            backgroundPlaneRef.current = null
             return
         }
 
@@ -710,6 +797,9 @@ export default function Sticker({
                 sceneRef.current.clear()
                 sceneRef.current = null
             }
+            lightRef.current = null
+            ambientLightRef.current = null
+            backgroundPlaneRef.current = null
         }
     }, [hasContent, setupScene, loadTexture, updateBones])
 
@@ -773,6 +863,46 @@ export default function Sticker({
         
         renderFrame()
     }, [borderColor, renderFrame])
+
+    // Update lighting when settings change
+    useEffect(() => {
+        if (!enableShadows) return
+        
+        if (lightRef.current) {
+            // Control shadow darkness by adjusting light intensity relative to ambient
+            // Lower directional light + higher ambient = softer shadows
+            // Higher directional light + lower ambient = darker shadows
+            const adjustedLightIntensity = lightIntensity * (1 - shadowIntensity * 0.5)
+            lightRef.current.intensity = adjustedLightIntensity
+            lightRef.current.shadow.mapSize.width = 2048
+            lightRef.current.shadow.mapSize.height = 2048
+            lightRef.current.shadow.needsUpdate = true
+        }
+        
+        if (ambientLightRef.current) {
+            // Increase ambient light when shadow intensity is lower (softer shadows)
+            const adjustedAmbientIntensity = ambientIntensity + (1 - shadowIntensity) * 0.3
+            ambientLightRef.current.intensity = Math.min(adjustedAmbientIntensity, 1.0)
+        }
+        
+        renderFrame()
+    }, [enableShadows, lightIntensity, ambientIntensity, shadowIntensity, renderFrame])
+
+    // Update background color
+    useEffect(() => {
+        if (!enableShadows || !backgroundPlaneRef.current) return
+        
+        const resolvedBgColor = resolveTokenColor(backgroundColor)
+        const bgColorRgba = parseColorToRgba(resolvedBgColor)
+        const material = backgroundPlaneRef.current.material
+        
+        if (material) {
+            material.color.setRGB(bgColorRgba.r, bgColorRgba.g, bgColorRgba.b)
+            material.needsUpdate = true
+        }
+        
+        renderFrame()
+    }, [enableShadows, backgroundColor, renderFrame])
 
     // Size monitoring
     useEffect(() => {
@@ -907,6 +1037,46 @@ addPropertyControls(Sticker, {
         type: ControlType.Color,
         title: "Back Color",
         defaultValue: "#ffffff",
+    },
+    enableShadows: {
+        type: ControlType.Boolean,
+        title: "Shadows",
+        defaultValue: true,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+    },
+    shadowIntensity: {
+        type: ControlType.Number,
+        title: "Shadow Intensity",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.5,
+        hidden: (props) => !props.enableShadows,
+    },
+    lightIntensity: {
+        type: ControlType.Number,
+        title: "Light Intensity",
+        min: 0,
+        max: 2,
+        step: 0.1,
+        defaultValue: 1.0,
+        hidden: (props) => !props.enableShadows,
+    },
+    ambientIntensity: {
+        type: ControlType.Number,
+        title: "Ambient Light",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.4,
+        hidden: (props) => !props.enableShadows,
+    },
+    backgroundColor: {
+        type: ControlType.Color,
+        title: "Background",
+        defaultValue: "#ff9500",
+        hidden: (props) => !props.enableShadows,
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
