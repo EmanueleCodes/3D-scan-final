@@ -62,7 +62,7 @@ interface StickerProps {
     curlStart: number
     curlMode: "semicircle" | "spiral"
     borderColor: string
-    boneSegments: number
+    backColor: string
     // Position controls
     rotXDeg: number
     rotYDeg: number
@@ -257,7 +257,7 @@ export default function Sticker({
     curlStart = 0.4,
     curlMode = "semicircle",
     borderColor = "#ffffff",
-    boneSegments = 30,
+    backColor = "rgba(255, 255, 255, 0.5)",
     rotXDeg = 0,
     rotYDeg = 0,
     rotZDeg = 0,
@@ -295,6 +295,8 @@ export default function Sticker({
     const resolvedImageUrl = resolveImageSource(image)
     const isCanvas = RenderTarget.current() === RenderTarget.canvas
     const hasContent = !!resolvedImageUrl
+
+    const boneSegments = 150
     
 
     // ========================================================================
@@ -480,9 +482,14 @@ export default function Sticker({
                 transparent: true,
             })
             
+            // Back material: use backColor directly (will be set via texture or color in loadTexture)
+            const resolvedBackColor = resolveTokenColor(backColor)
+            const backColorRgba = parseColorToRgba(resolvedBackColor)
             backMaterial = new MeshBasicMaterial({
-                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
                 side: DoubleSide,
+                transparent: true,
+                opacity: backColorRgba.a,
             })
             
             sideMaterial = new MeshBasicMaterial({
@@ -620,6 +627,73 @@ export default function Sticker({
     }, [])
 
     // ========================================================================
+    // BACK TEXTURE CREATION
+    // ========================================================================
+
+    /**
+     * Creates a back texture that blends backColor with the front image
+     * If backColor is 100% opaque, shows just the color
+     * If backColor has transparency, blends it with the front image
+     */
+    const createBackTexture = useCallback((img: HTMLImageElement, backColorValue: string): any => {
+        const backCanvas = document.createElement("canvas")
+        backCanvas.width = img.width
+        backCanvas.height = img.height
+        const backCtx = backCanvas.getContext("2d")
+        
+        if (!backCtx) return null
+        
+        // Parse back color
+        const resolvedBackColor = resolveTokenColor(backColorValue)
+        const backColorRgba = parseColorToRgba(resolvedBackColor)
+        
+        // Draw the front image first (as base)
+        backCtx.drawImage(img, 0, 0)
+        const imageData = backCtx.getImageData(0, 0, img.width, img.height)
+        
+        // Blend backColor with the image based on opacity
+        // If opacity is 1.0, replace image with color
+        // If opacity < 1.0, blend color over image
+        const backR = Math.round(backColorRgba.r * 255)
+        const backG = Math.round(backColorRgba.g * 255)
+        const backB = Math.round(backColorRgba.b * 255)
+        const backA = backColorRgba.a
+        
+        for (let i = 0; i < imageData.data.length; i += 4) {
+            const imgR = imageData.data[i]
+            const imgG = imageData.data[i + 1]
+            const imgB = imageData.data[i + 2]
+            const imgA = imageData.data[i + 3] / 255 // Normalize alpha
+            
+            if (backA >= 1.0) {
+                // Fully opaque: replace with back color (but preserve image alpha shape)
+                imageData.data[i] = backR
+                imageData.data[i + 1] = backG
+                imageData.data[i + 2] = backB
+                // Keep original alpha to maintain image shape
+            } else if (backA > 0) {
+                // Semi-transparent: blend back color over image
+                // Alpha blending: result = backColor * backA + image * (1 - backA)
+                imageData.data[i] = Math.round(backR * backA + imgR * (1 - backA))
+                imageData.data[i + 1] = Math.round(backG * backA + imgG * (1 - backA))
+                imageData.data[i + 2] = Math.round(backB * backA + imgB * (1 - backA))
+                // Keep original alpha to maintain image shape
+            }
+            // If backA is 0, keep original image (fully transparent back color)
+        }
+        
+        backCtx.putImageData(imageData, 0, 0)
+        
+        const backTexture = new Texture(backCanvas)
+        backTexture.needsUpdate = true
+        backTexture.minFilter = LinearFilter
+        backTexture.colorSpace = SRGBColorSpace
+        backTexture.format = RGBAFormat
+        
+        return backTexture
+    }, [])
+
+    // ========================================================================
     // MESH RECREATION WITH ASPECT RATIO
     // ========================================================================
 
@@ -711,9 +785,14 @@ export default function Sticker({
                 transparent: true,
             })
             
+            // Back material: use backColor directly (will be set via texture or color in loadTexture)
+            const resolvedBackColor = resolveTokenColor(backColor)
+            const backColorRgba = parseColorToRgba(resolvedBackColor)
             backMaterial = new MeshBasicMaterial({
-                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
                 side: DoubleSide,
+                transparent: true,
+                opacity: backColorRgba.a,
             })
             
             sideMaterial = new MeshBasicMaterial({
@@ -760,29 +839,12 @@ export default function Sticker({
             texture.minFilter = LinearFilter
             texture.colorSpace = SRGBColorSpace
             texture.format = RGBAFormat
-            
-            // Create back texture
-            const backCanvas = document.createElement("canvas")
-            backCanvas.width = img.width
-            backCanvas.height = img.height
-            const backCtx = backCanvas.getContext("2d")
-            
-            let backTexture: any = null
-            if (backCtx) {
-                backCtx.drawImage(img, 0, 0)
-                const imageData = backCtx.getImageData(0, 0, img.width, img.height)
-                for (let i = 0; i < imageData.data.length; i += 4) {
-                    imageData.data[i] = Math.floor(imageData.data[i] * 0.7)
-                    imageData.data[i + 1] = Math.floor(imageData.data[i + 1] * 0.7)
-                    imageData.data[i + 2] = Math.floor(imageData.data[i + 2] * 0.7)
-                }
-                backCtx.putImageData(imageData, 0, 0)
-                backTexture = new Texture(backCanvas)
-                backTexture.needsUpdate = true
-                backTexture.minFilter = LinearFilter
-                backTexture.colorSpace = SRGBColorSpace
-                backTexture.format = RGBAFormat
-            }
+
+            // Create back texture: blend backColor with front image
+            // If backColor is fully transparent (0% opacity), use front texture directly
+            const resolvedBackColor = resolveTokenColor(backColor)
+            const backColorRgba = parseColorToRgba(resolvedBackColor)
+            const backTexture = backColorRgba.a <= 0 ? texture : createBackTexture(img, backColor)
             
             const meshMaterials = mesh.material as any[]
             if (Array.isArray(meshMaterials)) {
@@ -797,10 +859,44 @@ export default function Sticker({
                     }
                     meshMaterials[4].needsUpdate = true
                 }
-                if (meshMaterials[5] && backTexture) {
-                    meshMaterials[5].map = backTexture
-                    meshMaterials[5].transparent = true
-                    meshMaterials[5].alphaTest = 0.01
+                if (meshMaterials[5]) {
+                    const resolvedBackColor = resolveTokenColor(backColor)
+                    const backColorRgba = parseColorToRgba(resolvedBackColor)
+                    
+                    if (enableShadows) {
+                        // With shadows: use texture (MeshStandardMaterial)
+                        if (backTexture) {
+                            meshMaterials[5].map = backTexture
+                            meshMaterials[5].transparent = true
+                            meshMaterials[5].alphaTest = 0.01
+                            
+                            // When using front texture (0% opacity), match front material properties for identical appearance
+                            if (backColorRgba.a <= 0 && meshMaterials[5].emissiveIntensity !== undefined) {
+                                meshMaterials[5].emissiveMap = texture
+                                meshMaterials[5].emissive = new Color(0xffffff)
+                                meshMaterials[5].emissiveIntensity = 0.8 // Match front material
+                            }
+                        }
+                    } else {
+                        // No shadows: use texture if available, otherwise use flat color (MeshBasicMaterial)
+                        if (backTexture && backColorRgba.a > 0) {
+                            // Use texture for blended effect
+                            meshMaterials[5].map = backTexture
+                            meshMaterials[5].transparent = true
+                            meshMaterials[5].alphaTest = 0.01
+                        } else if (backColorRgba.a <= 0) {
+                            // Fully transparent: use front texture
+                            meshMaterials[5].map = texture
+                            meshMaterials[5].transparent = true
+                            meshMaterials[5].alphaTest = 0.01
+                        } else {
+                            // Fully opaque: use flat color (no texture needed)
+                            meshMaterials[5].map = null
+                            meshMaterials[5].color.setRGB(backColorRgba.r, backColorRgba.g, backColorRgba.b)
+                            meshMaterials[5].opacity = backColorRgba.a
+                        }
+                    }
+                    
                     meshMaterials[5].needsUpdate = true
                 }
                 for (let i = 0; i < 4; i++) {
@@ -815,7 +911,7 @@ export default function Sticker({
         }
         
         renderFrame()
-    }, [createStickerGeometry, boneSegments, borderColor, enableShadows, rotXDeg, rotYDeg, rotZDeg, renderFrame])
+    }, [createStickerGeometry, boneSegments, borderColor, backColor, enableShadows, rotXDeg, rotYDeg, rotZDeg, createBackTexture, renderFrame])
 
     // ========================================================================
     // TEXTURE LOADING
@@ -860,34 +956,11 @@ export default function Sticker({
             texture.colorSpace = SRGBColorSpace
             texture.format = RGBAFormat
 
-            // Create back face texture: use the actual image but darkened for shadow overlay effect
-            const backCanvas = document.createElement("canvas")
-            backCanvas.width = img.width
-            backCanvas.height = img.height
-            const backCtx = backCanvas.getContext("2d")
-            
-            let backTexture: any = null
-            if (backCtx) {
-                // Draw original image
-                backCtx.drawImage(img, 0, 0)
-                const imageData = backCtx.getImageData(0, 0, img.width, img.height)
-                
-                // Darken the image slightly to create shadow overlay effect
-                // Keep original colors but reduce brightness by ~30% for shadow effect
-                for (let i = 0; i < imageData.data.length; i += 4) {
-                    imageData.data[i] = Math.floor(imageData.data[i] * 0.7)     // R - darker
-                    imageData.data[i + 1] = Math.floor(imageData.data[i + 1] * 0.7) // G - darker
-                    imageData.data[i + 2] = Math.floor(imageData.data[i + 2] * 0.7) // B - darker
-                    // Keep original alpha (imageData.data[i + 3])
-                }
-                
-                backCtx.putImageData(imageData, 0, 0)
-                backTexture = new Texture(backCanvas)
-                backTexture.needsUpdate = true
-                backTexture.minFilter = LinearFilter
-                backTexture.colorSpace = SRGBColorSpace
-                backTexture.format = RGBAFormat
-            }
+            // Create back face texture: blend backColor with front image
+            // If backColor is fully transparent (0% opacity), use front texture directly
+            const resolvedBackColor = resolveTokenColor(backColor)
+            const backColorRgba = parseColorToRgba(resolvedBackColor)
+            const backTexture = backColorRgba.a <= 0 ? texture : createBackTexture(img, backColor)
 
             // Apply textures to materials
             const materials = meshRef.current.material as any[]
@@ -907,11 +980,45 @@ export default function Sticker({
                     }
                     materials[4].needsUpdate = true
                 }
-                // Back face: solid color with same alpha shape as front
-                if (materials[5] && backTexture) {
-                    materials[5].map = backTexture
-                    materials[5].transparent = true
-                    materials[5].alphaTest = 0.01
+                // Back face: apply texture or color based on backColor
+                if (materials[5]) {
+                    const resolvedBackColor = resolveTokenColor(backColor)
+                    const backColorRgba = parseColorToRgba(resolvedBackColor)
+                    
+                    if (enableShadows) {
+                        // With shadows: use texture (MeshStandardMaterial)
+                        if (backTexture) {
+                            materials[5].map = backTexture
+                            materials[5].transparent = true
+                            materials[5].alphaTest = 0.01
+                            
+                            // When using front texture (0% opacity), match front material properties for identical appearance
+                            if (backColorRgba.a <= 0 && materials[5].emissiveIntensity !== undefined) {
+                                materials[5].emissiveMap = texture
+                                materials[5].emissive = new Color(0xffffff)
+                                materials[5].emissiveIntensity = 0.8 // Match front material
+                            }
+                        }
+                    } else {
+                        // No shadows: use texture if available, otherwise use flat color (MeshBasicMaterial)
+                        if (backTexture && backColorRgba.a > 0) {
+                            // Use texture for blended effect
+                            materials[5].map = backTexture
+                            materials[5].transparent = true
+                            materials[5].alphaTest = 0.01
+                        } else if (backColorRgba.a <= 0) {
+                            // Fully transparent: use front texture
+                            materials[5].map = texture
+                            materials[5].transparent = true
+                            materials[5].alphaTest = 0.01
+                        } else {
+                            // Fully opaque: use flat color (no texture needed)
+                            materials[5].map = null
+                            materials[5].color.setRGB(backColorRgba.r, backColorRgba.g, backColorRgba.b)
+                            materials[5].opacity = backColorRgba.a
+                        }
+                    }
+                    
                     materials[5].needsUpdate = true
                 }
                 // Side faces: use alpha map for clean edges
@@ -933,7 +1040,7 @@ export default function Sticker({
             setTextureLoaded(false)
         }
         img.src = resolvedImageUrl
-    }, [resolvedImageUrl, boneSegments, renderFrame])
+    }, [resolvedImageUrl, boneSegments, backColor, createBackTexture, renderFrame])
 
     // ========================================================================
     // BONE ANIMATION (like book page flip)
@@ -1342,7 +1449,28 @@ export default function Sticker({
         updateBones()
     }, [curlStart, curlMode, updateBones])
 
-    // Update border color (back face and sides) - recreate textures with new color
+    // Update border color (side faces only)
+    useEffect(() => {
+        if (!meshRef.current?.material) return
+        
+        const materials = meshRef.current.material as any[]
+        if (!Array.isArray(materials)) return
+        
+        const resolvedBorderColor = resolveTokenColor(borderColor)
+        const borderColorRgba = parseColorToRgba(resolvedBorderColor)
+        
+        // Update side faces with border color
+        for (let i = 0; i < 4; i++) {
+            if (materials[i]) {
+                materials[i].color.setRGB(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b)
+                materials[i].needsUpdate = true
+            }
+        }
+        
+        renderFrame()
+    }, [borderColor, renderFrame])
+
+    // Update back color - recreate back texture when backColor changes
     useEffect(() => {
         if (!meshRef.current?.material || !loadedImageRef.current) return
         
@@ -1350,21 +1478,78 @@ export default function Sticker({
         const materials = meshRef.current.material as any[]
         if (!Array.isArray(materials)) return
         
-        // Back face now uses darkened image texture (not border color)
-        // Just update the texture if needed - the darkened image is created in loadTexture
-        // Note: borderColor is no longer used for back face texture
-        // Side faces still use the back texture for clean edges
-        if (materials[5] && materials[5].map) {
+        // Check if backColor is fully transparent (0% opacity)
+        const resolvedBackColor = resolveTokenColor(backColor)
+        const backColorRgba = parseColorToRgba(resolvedBackColor)
+        
+        // Get front texture to reuse if backColor is fully transparent
+        const frontTexture = materials[4]?.map
+        
+        // If backColor is fully transparent, use front texture directly
+        // Otherwise, create blended back texture
+        const backTexture = backColorRgba.a <= 0 && frontTexture 
+            ? frontTexture 
+            : createBackTexture(img, backColor)
+        
+        if (materials[5]) {
+            // Only dispose if it's a different texture (not the front texture)
+            if (materials[5].map && materials[5].map !== frontTexture && materials[5].map !== backTexture) {
+                materials[5].map.dispose()
+            }
+            
+            if (enableShadows) {
+                // With shadows: use texture (MeshStandardMaterial)
+                if (backTexture) {
+                    materials[5].map = backTexture
+                    materials[5].transparent = true
+                    materials[5].alphaTest = 0.01
+                    
+                    // When using front texture (0% opacity), match front material properties more closely
+                    if (backColorRgba.a <= 0 && materials[5].emissiveIntensity !== undefined) {
+                        // Match front material emissive for identical appearance
+                        materials[5].emissiveIntensity = materials[4]?.emissiveIntensity ?? 0.8
+                        materials[5].emissive = materials[4]?.emissive ?? new Color(0xffffff)
+                    }
+                }
+            } else {
+                // No shadows: use texture if available, otherwise use flat color (MeshBasicMaterial)
+                if (backTexture && backColorRgba.a > 0) {
+                    // Use texture for blended effect
+                    materials[5].map = backTexture
+                    materials[5].transparent = true
+                    materials[5].alphaTest = 0.01
+                } else if (backColorRgba.a <= 0) {
+                    // Fully transparent: use front texture
+                    materials[5].map = frontTexture
+                    materials[5].transparent = true
+                    materials[5].alphaTest = 0.01
+                } else {
+                    // Fully opaque: use flat color (no texture needed)
+                    materials[5].map = null
+                    materials[5].color.setRGB(backColorRgba.r, backColorRgba.g, backColorRgba.b)
+                    materials[5].opacity = backColorRgba.a
+                }
+            }
+            
             materials[5].needsUpdate = true
         }
+        
+        // Update side faces with back texture for clean edges
         for (let i = 0; i < 4; i++) {
-            if (materials[i] && materials[i].map) {
+            if (materials[i] && backTexture) {
+                // Only dispose if it's a different texture (not the front texture)
+                if (materials[i].map && materials[i].map !== frontTexture && materials[i].map !== backTexture) {
+                    materials[i].map.dispose()
+                }
+                materials[i].map = backTexture
+                materials[i].transparent = true
+                materials[i].alphaTest = 0.01
                 materials[i].needsUpdate = true
             }
         }
         
         renderFrame()
-    }, [borderColor, renderFrame])
+    }, [backColor, createBackTexture, enableShadows, renderFrame])
 
     // Update shadow position when settings change
     useEffect(() => {
@@ -1483,13 +1668,13 @@ export default function Sticker({
               })()
             : (() => {
                   // For preview/published mode, use ResizeObserver + window resize
-                  const resizeObserver = new ResizeObserver(handleResize)
-                  resizeObserver.observe(container)
+        const resizeObserver = new ResizeObserver(handleResize)
+        resizeObserver.observe(container)
                   window.addEventListener("resize", handleResize)
-                  return () => {
-                      resizeObserver.disconnect()
+        return () => {
+            resizeObserver.disconnect()
                       window.removeEventListener("resize", handleResize)
-                  }
+        }
               })()
 
         return resizeCleanup
@@ -1608,18 +1793,16 @@ addPropertyControls(Sticker, {
     },
     borderColor: {
         type: ControlType.Color,
-        title: "Back Color",
+        title: "Border Color",
         defaultValue: "#ffffff",
     },
-    boneSegments: {
-        type: ControlType.Number,
-        title: "Smoothness",
-        min: 30,
-        max: 300,
-        step: 5,
-        defaultValue: 30,
-        description: "Number of segments for smoother curves (higher = smoother but slower)",
+    backColor: {
+        type: ControlType.Color,
+        title: "Back Color",
+        defaultValue: "rgba(255, 255, 255, 0.5)",
+        description: "Color for the back of the sticker. Use transparency to blend with the front image.",
     },
+
     rotXDeg: {
         type: ControlType.Number,
         title: "Rotate X",
