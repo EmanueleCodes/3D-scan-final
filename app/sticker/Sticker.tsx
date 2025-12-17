@@ -60,6 +60,7 @@ interface StickerProps {
     curlAmount: number
     curlRadius: number
     curlStart: number
+    curlMode: "semicircle" | "spiral"
     borderColor: string
     boneSegments: number
     // Position controls
@@ -124,6 +125,37 @@ function mapLinear(
 function mapInteralRadiusToUIValue(ui: number): number {
     const clamped = Math.max(0.1, Math.min(1, ui))
     return mapLinear(clamped, 0.1, 1.0, 0.05, 1/Math.PI)
+}
+
+/**
+ * Calculates contained dimensions (like CSS object-fit: contain)
+ * Maintains image aspect ratio while fitting within container bounds
+ */
+function calculateContainedDimensions(
+    containerWidth: number,
+    containerHeight: number,
+    imageAspectRatio: number | null
+): { width: number; height: number } {
+    // If no image aspect ratio yet, use container dimensions (will be updated when image loads)
+    if (!imageAspectRatio) {
+        return { width: containerWidth, height: containerHeight }
+    }
+
+    const containerAspect = containerWidth / containerHeight
+
+    if (containerAspect > imageAspectRatio) {
+        // Container is wider than image: fit to height
+        return {
+            width: containerHeight * imageAspectRatio,
+            height: containerHeight,
+        }
+    } else {
+        // Container is taller than image: fit to width
+        return {
+            width: containerWidth,
+            height: containerWidth / imageAspectRatio,
+        }
+    }
 }
 
 // CSS variable token and color parsing (hex/rgba/var())
@@ -223,6 +255,7 @@ export default function Sticker({
     curlAmount = 0.3,
     curlRadius = 0.5,
     curlStart = 0.4,
+    curlMode = "semicircle",
     borderColor = "#ffffff",
     boneSegments = 30,
     rotXDeg = 0,
@@ -244,7 +277,7 @@ export default function Sticker({
     const meshRef = useRef<any>(null)
     const bonesRef = useRef<any[]>([])
     const zoomProbeRef = useRef<HTMLDivElement>(null)
-    const lastSizeRef = useRef({ width: 0, height: 0, zoom: 0 })
+    const lastSizeRef = useRef({ width: 0, height: 0, zoom: 0, aspect: 0, ts: 0 })
     const animationFrameRef = useRef<number | null>(null)
     const loadedImageRef = useRef<HTMLImageElement | null>(null)
     const animatedCurlRef = useRef({ amount: curlAmount }) // Animated curl value for GSAP
@@ -253,6 +286,7 @@ export default function Sticker({
     const ambientLightRef = useRef<any>(null)
     const backgroundPlaneRef = useRef<any>(null)
     const internalRadiusRef = useRef(mapInteralRadiusToUIValue(curlRadius))
+    const imageAspectRatioRef = useRef<number | null>(null) // Store image aspect ratio for contain behavior
 
     // State
     const [textureLoaded, setTextureLoaded] = useState(false)
@@ -322,12 +356,21 @@ export default function Sticker({
         if (!canvasRef.current || !containerRef.current) return null
 
         const container = containerRef.current
-        const width = container.clientWidth || container.offsetWidth || 1
-        const height = container.clientHeight || container.offsetHeight || 1
+        const containerWidth = container.clientWidth || container.offsetWidth || 1
+        const containerHeight = container.clientHeight || container.offsetHeight || 1
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
-        const canvasWidth = width * CANVAS_SCALE
-        const canvasHeight = height * CANVAS_SCALE
+        // Calculate contained dimensions (maintains image aspect ratio)
+        const contained = calculateContainedDimensions(
+            containerWidth,
+            containerHeight,
+            imageAspectRatioRef.current
+        )
+        const width = contained.width
+        const height = contained.height
+
+        const canvasWidth = containerWidth * CANVAS_SCALE
+        const canvasHeight = containerHeight * CANVAS_SCALE
 
         // Create scene
         const scene = new Scene()
@@ -365,8 +408,10 @@ export default function Sticker({
         canvasRef.current.style.width = `${canvasWidth}px`
         canvasRef.current.style.height = `${canvasHeight}px`
 
-        // Create geometry
-        const geometry = createStickerGeometry(width, height, boneSegments)
+        // Create geometry with base dimensions (1:1 or image aspect ratio if known)
+        // We'll scale the mesh uniformly to fit the container while maintaining aspect ratio
+        const baseSize = Math.min(containerWidth, containerHeight)
+        const geometry = createStickerGeometry(baseSize, baseSize, boneSegments)
 
         // Create bones along X axis (like book page)
         const bones: any[] = []
@@ -472,8 +517,27 @@ export default function Sticker({
             mesh.receiveShadow = false // Don't receive shadows to avoid acne
         }
         
+        // Calculate initial scale to fit container with aspect ratio (if image aspect ratio is known)
+        // Otherwise, use container dimensions
+        let initialScaleX = 1
+        let initialScaleY = 1
+        if (imageAspectRatioRef.current) {
+            const contained = calculateContainedDimensions(
+                containerWidth,
+                containerHeight,
+                imageAspectRatioRef.current
+            )
+            initialScaleX = contained.width / baseSize
+            initialScaleY = contained.height / baseSize
+        } else {
+            // No image yet - use container dimensions
+            initialScaleX = containerWidth / baseSize
+            initialScaleY = containerHeight / baseSize
+        }
+        mesh.scale.set(initialScaleX, initialScaleY, 1)
+        
         // Position mesh so it's centered
-        mesh.position.set(-width / 2, 0, 0)
+        mesh.position.set(-(baseSize * initialScaleX) / 2, 0, 0)
         
         meshRef.current = mesh
         scene.add(mesh)
@@ -502,10 +566,11 @@ export default function Sticker({
             directionalLight.shadow.mapSize.height = 2048
             directionalLight.shadow.camera.near = 100
             directionalLight.shadow.camera.far = 2000
-            directionalLight.shadow.camera.left = -width * 2
-            directionalLight.shadow.camera.right = width * 2
-            directionalLight.shadow.camera.top = height * 2
-            directionalLight.shadow.camera.bottom = -height * 2
+            // Use container dimensions for shadow camera (not contained dimensions)
+            directionalLight.shadow.camera.left = -containerWidth * 2
+            directionalLight.shadow.camera.right = containerWidth * 2
+            directionalLight.shadow.camera.top = containerHeight * 2
+            directionalLight.shadow.camera.bottom = -containerHeight * 2
             // Negative bias helps prevent shadow acne (per Three.js forum recommendations)
             // Small negative value prevents self-shadowing artifacts
             directionalLight.shadow.bias = -0.0001
@@ -523,8 +588,8 @@ export default function Sticker({
                 metalness: 0.0,
             })
             
-            // Create large plane behind sticker
-            const planeSize = Math.max(width, height) * 3
+            // Create large plane behind sticker (use container dimensions)
+            const planeSize = Math.max(containerWidth, containerHeight) * 3
             const planeGeometry = new PlaneGeometry(planeSize, planeSize)
             const backgroundPlane = new Mesh(planeGeometry, bgMaterial)
             backgroundPlane.receiveShadow = true
@@ -546,6 +611,213 @@ export default function Sticker({
     }, [borderColor, createStickerGeometry, enableShadows, shadowIntensity, shadowPositionX, shadowPositionY, backgroundColor, boneSegments, rotXDeg, rotYDeg, rotZDeg])
 
     // ========================================================================
+    // RENDERING
+    // ========================================================================
+
+    const renderFrame = useCallback(() => {
+        if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return
+        rendererRef.current.render(sceneRef.current, cameraRef.current)
+    }, [])
+
+    // ========================================================================
+    // MESH RECREATION WITH ASPECT RATIO
+    // ========================================================================
+
+    // Function to recreate geometry and mesh with correct aspect ratio
+    const recreateMeshWithAspectRatio = useCallback((aspectRatio: number) => {
+        if (!sceneRef.current || !containerRef.current || !rendererRef.current || !cameraRef.current) return
+        
+        const container = containerRef.current
+        const containerWidth = container.clientWidth || container.offsetWidth || 1
+        const containerHeight = container.clientHeight || container.offsetHeight || 1
+        
+        // Calculate contained dimensions
+        const contained = calculateContainedDimensions(
+            containerWidth,
+            containerHeight,
+            aspectRatio
+        )
+        
+        // Remove old mesh if it exists
+        if (meshRef.current) {
+            sceneRef.current.remove(meshRef.current)
+            meshRef.current.geometry.dispose()
+            if (Array.isArray(meshRef.current.material)) {
+                meshRef.current.material.forEach((mat: any) => mat.dispose())
+            } else {
+                meshRef.current.material.dispose()
+            }
+        }
+        
+        // Create new geometry with correct aspect ratio
+        const geometry = createStickerGeometry(contained.width, contained.height, boneSegments)
+        
+        // Recreate bones
+        const bones: any[] = []
+        const segmentWidth = contained.width / boneSegments
+        
+        for (let i = 0; i <= boneSegments; i++) {
+            const bone = new Bone()
+            bone.position.x = i === 0 ? 0 : segmentWidth
+            if (i > 0) {
+                bones[i - 1].add(bone)
+            }
+            bones.push(bone)
+        }
+        
+        bonesRef.current = bones
+        const skeleton = new Skeleton(bones)
+        
+        // Recreate materials (reuse existing material setup logic from setupScene)
+        const resolvedBorderColor = resolveTokenColor(borderColor)
+        const borderColorRgba = parseColorToRgba(resolvedBorderColor)
+        
+        let frontMaterial: any
+        let backMaterial: any
+        let sideMaterial: any
+        
+        if (enableShadows) {
+            frontMaterial = new MeshStandardMaterial({
+                color: 0xffffff,
+                side: DoubleSide,
+                transparent: true,
+                roughness: 0.2,
+                metalness: 0.4,
+                emissive: 0xffffff,
+                emissiveIntensity: 0.8,
+            })
+            
+            backMaterial = new MeshStandardMaterial({
+                color: 0xffffff,
+                side: DoubleSide,
+                transparent: true,
+                roughness: 0.3,
+                metalness: 0.0,
+                emissive: 0xffffff,
+                emissiveIntensity: 0.3,
+            })
+            
+            sideMaterial = new MeshStandardMaterial({
+                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                transparent: true,
+                opacity: 1,
+                roughness: 0.1,
+                metalness: 0.0,
+            })
+        } else {
+            frontMaterial = new MeshBasicMaterial({
+                color: 0xffffff,
+                side: DoubleSide,
+                transparent: true,
+            })
+            
+            backMaterial = new MeshBasicMaterial({
+                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                side: DoubleSide,
+            })
+            
+            sideMaterial = new MeshBasicMaterial({
+                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                transparent: true,
+                opacity: 0,
+            })
+        }
+        
+        const materials = [
+            sideMaterial, sideMaterial, sideMaterial, sideMaterial,
+            frontMaterial, backMaterial,
+        ]
+        
+        // Create new mesh
+        const mesh = new SkinnedMesh(geometry, materials)
+        mesh.add(bones[0])
+        mesh.bind(skeleton)
+        mesh.frustumCulled = false
+        
+        if (enableShadows) {
+            mesh.castShadow = true
+            mesh.receiveShadow = false
+        }
+        
+        mesh.position.set(-contained.width / 2, 0, 0)
+        
+        // Apply rotation
+        const rx = (rotXDeg * Math.PI) / 180
+        const ry = (rotYDeg * Math.PI) / 180
+        const rz = (rotZDeg * Math.PI) / 180
+        mesh.rotation.x = rx
+        mesh.rotation.y = ry
+        mesh.rotation.z = rz
+        
+        meshRef.current = mesh
+        sceneRef.current.add(mesh)
+        
+        // Apply textures if they're already loaded
+        if (loadedImageRef.current) {
+            const img = loadedImageRef.current
+            const texture = new Texture(img)
+            texture.needsUpdate = true
+            texture.minFilter = LinearFilter
+            texture.colorSpace = SRGBColorSpace
+            texture.format = RGBAFormat
+            
+            // Create back texture
+            const backCanvas = document.createElement("canvas")
+            backCanvas.width = img.width
+            backCanvas.height = img.height
+            const backCtx = backCanvas.getContext("2d")
+            
+            let backTexture: any = null
+            if (backCtx) {
+                backCtx.drawImage(img, 0, 0)
+                const imageData = backCtx.getImageData(0, 0, img.width, img.height)
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    imageData.data[i] = Math.floor(imageData.data[i] * 0.7)
+                    imageData.data[i + 1] = Math.floor(imageData.data[i + 1] * 0.7)
+                    imageData.data[i + 2] = Math.floor(imageData.data[i + 2] * 0.7)
+                }
+                backCtx.putImageData(imageData, 0, 0)
+                backTexture = new Texture(backCanvas)
+                backTexture.needsUpdate = true
+                backTexture.minFilter = LinearFilter
+                backTexture.colorSpace = SRGBColorSpace
+                backTexture.format = RGBAFormat
+            }
+            
+            const meshMaterials = mesh.material as any[]
+            if (Array.isArray(meshMaterials)) {
+                if (meshMaterials[4]) {
+                    meshMaterials[4].map = texture
+                    meshMaterials[4].transparent = true
+                    meshMaterials[4].alphaTest = 0.01
+                    if (meshMaterials[4].emissiveIntensity !== undefined) {
+                        meshMaterials[4].emissiveMap = texture
+                        meshMaterials[4].emissive = new Color(0xffffff)
+                        meshMaterials[4].emissiveIntensity = 0.8
+                    }
+                    meshMaterials[4].needsUpdate = true
+                }
+                if (meshMaterials[5] && backTexture) {
+                    meshMaterials[5].map = backTexture
+                    meshMaterials[5].transparent = true
+                    meshMaterials[5].alphaTest = 0.01
+                    meshMaterials[5].needsUpdate = true
+                }
+                for (let i = 0; i < 4; i++) {
+                    if (meshMaterials[i] && backTexture) {
+                        meshMaterials[i].map = backTexture
+                        meshMaterials[i].transparent = true
+                        meshMaterials[i].alphaTest = 0.01
+                        meshMaterials[i].needsUpdate = true
+                    }
+                }
+            }
+        }
+        
+        renderFrame()
+    }, [createStickerGeometry, boneSegments, borderColor, enableShadows, rotXDeg, rotYDeg, rotZDeg, renderFrame])
+
+    // ========================================================================
     // TEXTURE LOADING
     // ========================================================================
 
@@ -564,6 +836,22 @@ export default function Sticker({
             
             // Store reference for border color updates
             loadedImageRef.current = img
+            
+            // Detect and store image aspect ratio for contain behavior
+            if (img.width && img.height) {
+                const aspectRatio = img.width / img.height
+                imageAspectRatioRef.current = aspectRatio
+                
+                // Recreate mesh with correct aspect ratio geometry
+                recreateMeshWithAspectRatio(aspectRatio)
+                
+                // Update bones after mesh is recreated
+                setTimeout(() => {
+                    if (meshRef.current && bonesRef.current.length > 0) {
+                        updateBones()
+                    }
+                }, 0)
+            }
 
             // Create main texture for front face
             const texture = new Texture(img)
@@ -645,16 +933,7 @@ export default function Sticker({
             setTextureLoaded(false)
         }
         img.src = resolvedImageUrl
-    }, [resolvedImageUrl])
-
-    // ========================================================================
-    // RENDERING
-    // ========================================================================
-
-    const renderFrame = useCallback(() => {
-        if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return
-        rendererRef.current.render(sceneRef.current, cameraRef.current)
-    }, [])
+    }, [resolvedImageUrl, boneSegments, renderFrame])
 
     // ========================================================================
     // BONE ANIMATION (like book page flip)
@@ -669,36 +948,135 @@ export default function Sticker({
         
         // Arc length of a semicircle = π * r (normalized to sticker length)
         const arcLength = Math.PI * r
+        const semicircleEnd = Math.min(curlStart + arcLength, 1) // end of semicircle section
         
-        // Define the three sections:
-        // 1. Flat from 0 to curlStart
-        // 2. Curved from curlStart to curlStart + arcLength
-        // 3. Flat from curlStart + arcLength to 1
-        const curlEnd = Math.min(curlStart + arcLength, 1) // clamp to sticker length
-        
-        // Count bones in the curved section for uniform rotation distribution
-        let bonesInCurve = 0
+        if (curlMode === "semicircle") {
+            // SEMICIRCLE MODE: flat → semicircle → flat
+            // Define the three sections:
+            // 1. Flat from 0 to curlStart
+            // 2. Curved from curlStart to curlStart + arcLength
+            // 3. Flat from curlStart + arcLength to 1
+            const curlEnd = semicircleEnd
+            
+            // Count bones in the curved section for uniform rotation distribution
+            let bonesInCurve = 0
         for (let i = 0; i < bones.length; i++) {
-            const t = i / (bones.length - 1)
-            if (t >= curlStart && t < curlEnd) bonesInCurve++
-        }
-        
-        // For a semicircle with uniform curvature, each bone rotates by the same angle
-        // Total rotation = π (180°), distributed evenly across curved bones
-        const perBoneRotation = bonesInCurve > 0 
-            ? (Math.PI * curlFactor) / bonesInCurve 
-            : 0
+                const t = i / (bones.length - 1)
+                if (t >= curlStart && t < curlEnd) bonesInCurve++
+            }
+            
+            // For a semicircle with uniform curvature, each bone rotates by the same angle
+            // Total rotation = π (180°), distributed evenly across curved bones
+            const perBoneRotation = bonesInCurve > 0 
+                ? (Math.PI * curlFactor) / bonesInCurve 
+                : 0
 
-        for (let i = 0; i < bones.length; i++) {
-            const bone = bones[i]
+            for (let i = 0; i < bones.length; i++) {
+                const bone = bones[i]
             const t = i / (bones.length - 1)
             
-            if (t < curlStart || t >= curlEnd) {
-                // Flat sections: no rotation
+                if (t < curlStart || t >= curlEnd) {
+                    // Flat sections: no rotation
                 bone.rotation.y = 0
-            } else {
-                // Curved section: uniform rotation per bone = perfect circle
-                bone.rotation.y = -perBoneRotation
+                } else {
+                    // Curved section: uniform rotation per bone = perfect circle
+                    bone.rotation.y = -perBoneRotation
+                }
+            }
+        } else {
+            // SPIRAL MODE: flat → first semicircle (controlled by curl & radius) → additional semicircles with decreasing radii
+            // First semicircle is IDENTICAL to semicircle mode (curl and radius apply only to it)
+            // Additional semicircles fill remaining space with progressively smaller radii
+            
+            // First semicircle (same as semicircle mode)
+            const firstArcLength = Math.PI * r
+            const firstSemicircleEnd = Math.min(curlStart + firstArcLength, 1)
+            
+            // Build list of all semicircles
+            const semicircles: Array<{ 
+                start: number
+                end: number
+                radius: number
+                isFirst: boolean
+            }> = []
+            
+            // Add first semicircle (controlled by curl amount)
+            semicircles.push({
+                start: curlStart,
+                end: firstSemicircleEnd,
+                radius: r,
+                isFirst: true
+            })
+            
+            // Add additional semicircles with decreasing radii to fill remaining space
+            const radiusDecay = 0.75 // Each subsequent semicircle has 90% of previous radius
+            const minRadius = 0.1 // Minimum radius to prevent infinite loops
+            
+            let currentPos = firstSemicircleEnd
+            let currentRadius = r * radiusDecay
+            
+            while (currentPos < 1 && currentRadius >= minRadius) {
+                const arcLength = Math.PI * currentRadius
+                const endPos = Math.min(currentPos + arcLength, 1)
+                
+                semicircles.push({
+                    start: currentPos,
+                    end: endPos,
+                    radius: currentRadius,
+                    isFirst: false
+                })
+                
+                currentPos = endPos
+                currentRadius *= radiusDecay
+            }
+            
+            // Calculate cumulative rotation for each semicircle
+            let cumulativeRotation = 0
+            const semicircleData = semicircles.map((semicircle, index) => {
+                const rotationForThisSemicircle = semicircle.isFirst 
+                    ? Math.PI * curlFactor // First semicircle respects curl amount
+                    : Math.PI // Subsequent semicircles are always full π rotation
+                
+                const data = {
+                    ...semicircle,
+                    cumulativeRotationStart: cumulativeRotation,
+                    rotationAmount: rotationForThisSemicircle
+                }
+                
+                cumulativeRotation += rotationForThisSemicircle
+                return data
+            })
+            
+            // Apply rotations
+            for (let i = 0; i < bones.length; i++) {
+                const bone = bones[i]
+                const t = i / (bones.length - 1)
+                
+                if (t < curlStart) {
+                    // Flat section: no rotation
+                    bone.rotation.y = 0
+                } else {
+                    // Find which semicircle this bone belongs to
+                    let found = false
+                    for (const semicircle of semicircleData) {
+                        if (t >= semicircle.start && t < semicircle.end) {
+                            // Position within this semicircle [0, 1]
+                            const localT = (t - semicircle.start) / (semicircle.end - semicircle.start)
+                            
+                            // Rotation = cumulative rotation from previous semicircles + progress through current one
+                            const rotationInSemicircle = localT * semicircle.rotationAmount
+                            bone.rotation.y = -(semicircle.cumulativeRotationStart + rotationInSemicircle)
+                            found = true
+                            break
+                        }
+                    }
+                    
+                    if (!found && semicircleData.length > 0) {
+                        // Past all semicircles: use final cumulative rotation
+                        const lastSemicircle = semicircleData[semicircleData.length - 1]
+                        bone.rotation.y = -(lastSemicircle.cumulativeRotationStart + lastSemicircle.rotationAmount)
+                    }
+                }
             }
         }
 
@@ -707,7 +1085,7 @@ export default function Sticker({
         }
 
         renderFrame()
-    }, [curlStart, renderFrame, curlAmount])
+    }, [curlStart, curlMode, renderFrame, curlAmount])
 
     // ========================================================================
     // HOVER ANIMATION WITH GSAP
@@ -724,30 +1102,43 @@ export default function Sticker({
         const img = loadedImageRef.current
         const rect = canvas.getBoundingClientRect()
         
-        // Get container dimensions (actual sticker size)
+        // Get container dimensions
         const containerWidth = container.clientWidth || container.offsetWidth || 1
         const containerHeight = container.clientHeight || container.offsetHeight || 1
+        
+        // Calculate contained dimensions (actual sticker size)
+        const contained = calculateContainedDimensions(
+            containerWidth,
+            containerHeight,
+            imageAspectRatioRef.current
+        )
+        const stickerWidth = contained.width
+        const stickerHeight = contained.height
         
         // Calculate mouse position relative to canvas
         const canvasX = event.clientX - rect.left
         const canvasY = event.clientY - rect.top
         
         // Account for canvas scale offset (canvas is larger than container)
-        const offsetX = (rect.width - containerWidth) / 2
-        const offsetY = (rect.height - containerHeight) / 2
+        const canvasOffsetX = (rect.width - containerWidth) / 2
+        const canvasOffsetY = (rect.height - containerHeight) / 2
         
-        // Convert to container-relative coordinates
-        const containerX = canvasX - offsetX
-        const containerY = canvasY - offsetY
+        // Account for sticker centering within container (contained dimensions are smaller)
+        const stickerOffsetX = (containerWidth - stickerWidth) / 2
+        const stickerOffsetY = (containerHeight - stickerHeight) / 2
         
-        // Check if mouse is within container bounds
-        if (containerX < 0 || containerX > containerWidth || containerY < 0 || containerY > containerHeight) {
+        // Convert to sticker-relative coordinates
+        const stickerX = canvasX - canvasOffsetX - stickerOffsetX
+        const stickerY = canvasY - canvasOffsetY - stickerOffsetY
+        
+        // Check if mouse is within sticker bounds
+        if (stickerX < 0 || stickerX > stickerWidth || stickerY < 0 || stickerY > stickerHeight) {
             return false
         }
         
-        // Map container coordinates to image coordinates
-        const imageX = Math.floor((containerX / containerWidth) * img.width)
-        const imageY = Math.floor((containerY / containerHeight) * img.height)
+        // Map sticker coordinates to image coordinates
+        const imageX = Math.floor((stickerX / stickerWidth) * img.width)
+        const imageY = Math.floor((stickerY / stickerHeight) * img.height)
         
         // Clamp coordinates to image bounds
         const clampedX = Math.max(0, Math.min(img.width - 1, imageX))
@@ -817,25 +1208,63 @@ export default function Sticker({
     // RESIZE HANDLING
     // ========================================================================
 
-    const updateSize = useCallback((width: number, height: number) => {
+    const updateSize = useCallback((containerWidth: number, containerHeight: number) => {
         if (!cameraRef.current || !rendererRef.current || !meshRef.current || !canvasRef.current) return
 
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
-        const canvasWidth = width * CANVAS_SCALE
-        const canvasHeight = height * CANVAS_SCALE
+        const canvasWidth = containerWidth * CANVAS_SCALE
+        const canvasHeight = containerHeight * CANVAS_SCALE
 
+        // Calculate contained dimensions (maintains image aspect ratio)
+        const contained = calculateContainedDimensions(
+            containerWidth,
+            containerHeight,
+            imageAspectRatioRef.current
+        )
+        const width = contained.width
+        const height = contained.height
+
+        // Update camera
         cameraRef.current.aspect = canvasWidth / canvasHeight
         cameraRef.current.fov = calculateCameraFov(canvasWidth, canvasHeight, CAMERA_DISTANCE)
         cameraRef.current.updateProjectionMatrix()
 
+        // Update renderer
         rendererRef.current.setSize(Math.round(canvasWidth * dpr), Math.round(canvasHeight * dpr), false)
         canvasRef.current.style.width = `${canvasWidth}px`
         canvasRef.current.style.height = `${canvasHeight}px`
-    }, [])
+
+        // If we have an image aspect ratio, recreate mesh with correct geometry
+        // Otherwise, scale the existing mesh uniformly
+        if (imageAspectRatioRef.current && meshRef.current) {
+            // Recreate mesh with correct aspect ratio geometry
+            recreateMeshWithAspectRatio(imageAspectRatioRef.current)
+        } else if (meshRef.current) {
+            // No image aspect ratio yet - scale uniformly based on container
+            const baseSize = meshRef.current.geometry.parameters.width
+            const uniformScale = Math.min(containerWidth, containerHeight) / baseSize
+            meshRef.current.scale.set(uniformScale, uniformScale, 1)
+            meshRef.current.position.set(-(baseSize * uniformScale) / 2, 0, 0)
+        }
+
+        // Update shadow camera if shadows are enabled
+        if (enableShadows && lightRef.current) {
+            lightRef.current.shadow.camera.left = -containerWidth * 2
+            lightRef.current.shadow.camera.right = containerWidth * 2
+            lightRef.current.shadow.camera.top = containerHeight * 2
+            lightRef.current.shadow.camera.bottom = -containerHeight * 2
+            lightRef.current.shadow.camera.updateProjectionMatrix()
+        }
+    }, [boneSegments, enableShadows])
 
     // ========================================================================
     // EFFECTS
     // ========================================================================
+
+    // Reset aspect ratio when image changes
+    useEffect(() => {
+        imageAspectRatioRef.current = null
+    }, [resolvedImageUrl])
 
     // Initialize scene
     useEffect(() => {
@@ -853,6 +1282,7 @@ export default function Sticker({
             lightRef.current = null
             ambientLightRef.current = null
             backgroundPlaneRef.current = null
+            imageAspectRatioRef.current = null
             return
         }
 
@@ -879,7 +1309,7 @@ export default function Sticker({
             ambientLightRef.current = null
             backgroundPlaneRef.current = null
         }
-    }, [hasContent, setupScene, loadTexture, updateBones])
+    }, [hasContent, setupScene, loadTexture, recreateMeshWithAspectRatio])
 
     // Sync animated curl ref with prop changes
     useEffect(() => {
@@ -906,11 +1336,11 @@ export default function Sticker({
         updateBones()
     }, [curlRadius, updateBones])
 
-    // Update bones when curlStart changes
+    // Update bones when curlStart or curlMode changes
     // Note: curlAmount is handled by GSAP animations via animatedCurlRef
     useEffect(() => {
         updateBones()
-    }, [curlStart, updateBones])
+    }, [curlStart, curlMode, updateBones])
 
     // Update border color (back face and sides) - recreate textures with new color
     useEffect(() => {
@@ -984,7 +1414,7 @@ export default function Sticker({
         renderFrame()
     }, [enableShadows, backgroundColor, renderFrame])
 
-    // Size monitoring
+    // Size monitoring - optimized for Framer canvas
     useEffect(() => {
         const container = containerRef.current
         if (!container) return
@@ -993,7 +1423,9 @@ export default function Sticker({
             const width = container.clientWidth || container.offsetWidth || 1
             const height = container.clientHeight || container.offsetHeight || 1
             const last = lastSizeRef.current
-            if (Math.abs(width - last.width) > 1 || Math.abs(height - last.height) > 1) {
+            const sizeChanged =
+                Math.abs(width - last.width) > 1 || Math.abs(height - last.height) > 1
+            if (sizeChanged) {
                 last.width = width
                 last.height = height
                 updateSize(width, height)
@@ -1001,15 +1433,67 @@ export default function Sticker({
             }
         }
 
+        // Initial resize
         handleResize()
 
-        const resizeObserver = new ResizeObserver(handleResize)
-        resizeObserver.observe(container)
+        // Use requestAnimationFrame-based monitoring for canvas mode (like interactive-thermal3.tsx)
+        const resizeCleanup = isCanvas
+            ? (() => {
+                  let rafId = 0
+                  const TICK_MS = 250
+                  const EPS_ASPECT = 0.001
+                  const tick = (now?: number) => {
+                      if (!container) return
+                      const probe = zoomProbeRef.current
+                      if (!probe) {
+                          rafId = requestAnimationFrame(tick)
+                          return
+                      }
 
-        return () => {
-            resizeObserver.disconnect()
-        }
-    }, [updateSize, renderFrame])
+                      const cw = container.clientWidth || container.offsetWidth || 1
+                      const ch = container.clientHeight || container.offsetHeight || 1
+                      const aspect = cw / ch
+                      const zoom = probe.getBoundingClientRect().width / 20
+
+                      const timeOk =
+                          !lastSizeRef.current.ts ||
+                          (now || performance.now()) - lastSizeRef.current.ts >= TICK_MS
+                      const aspectChanged =
+                          Math.abs(aspect - lastSizeRef.current.aspect) > EPS_ASPECT
+                      const sizeChanged =
+                          Math.abs(cw - lastSizeRef.current.width) > 1 ||
+                          Math.abs(ch - lastSizeRef.current.height) > 1
+
+                      if (timeOk && (aspectChanged || sizeChanged)) {
+                          lastSizeRef.current = {
+                              width: cw,
+                              height: ch,
+                              aspect,
+                              zoom,
+                              ts: now || performance.now(),
+                          }
+                          updateSize(cw, ch)
+                          renderFrame()
+                      }
+
+                      rafId = requestAnimationFrame(tick)
+                  }
+                  rafId = requestAnimationFrame(tick)
+                  return () => cancelAnimationFrame(rafId)
+              })()
+            : (() => {
+                  // For preview/published mode, use ResizeObserver + window resize
+                  const resizeObserver = new ResizeObserver(handleResize)
+                  resizeObserver.observe(container)
+                  window.addEventListener("resize", handleResize)
+                  return () => {
+                      resizeObserver.disconnect()
+                      window.removeEventListener("resize", handleResize)
+                  }
+              })()
+
+        return resizeCleanup
+    }, [updateSize, renderFrame, isCanvas])
 
     // ========================================================================
     // RENDER
@@ -1112,6 +1596,15 @@ addPropertyControls(Sticker, {
         max: 1,
         step: 0.05,
         defaultValue: 0.4,
+    },
+    curlMode: {
+        type: ControlType.Enum,
+        title: "Mode",
+        options: ["semicircle", "spiral"],
+        optionTitles: ["Semicircle", "Spiral"],
+        defaultValue: "semicircle",
+        displaySegmentedControl: true,
+        segmentedControlDirection: "vertical",
     },
     borderColor: {
         type: ControlType.Color,

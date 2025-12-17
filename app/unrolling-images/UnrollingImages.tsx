@@ -265,7 +265,7 @@ export default function UnrollingImages({
 
     // Refs for resize detection
     const zoomProbeRef = useRef<HTMLDivElement>(null)
-    const lastSizeRef = useRef({ width: 0, height: 0, zoom: 0 })
+    const lastSizeRef = useRef({ width: 0, height: 0, zoom: 0, aspect: 0, ts: 0 })
     const animationFrameRef = useRef<number | null>(null)
     const triggerModeRef = useRef(triggerMode)
 
@@ -603,7 +603,7 @@ export default function UnrollingImages({
         }
     }, [hasContent, isCanvas, setupScene, loadTexture, stopRenderLoop, renderFrame])
 
-    // Continuous size monitoring
+    // Continuous size monitoring - optimized for Framer canvas
     useEffect(() => {
         const container = containerRef.current
         if (!container) return
@@ -622,25 +622,67 @@ export default function UnrollingImages({
             }
         }
 
+        // Initial resize
         handleResize()
 
-        const resizeObserver = new ResizeObserver(handleResize)
-        resizeObserver.observe(container)
+        // Use requestAnimationFrame-based monitoring for canvas mode (like interactive-thermal3.tsx)
+        const resizeCleanup = isCanvas
+            ? (() => {
+                  let rafId = 0
+                  const TICK_MS = 250
+                  const EPS_ASPECT = 0.001
+                  const tick = (now?: number) => {
+                      if (!container) return
+                      const probe = zoomProbeRef.current
+                      if (!probe) {
+                          rafId = requestAnimationFrame(tick)
+                          return
+                      }
 
-        const zoomMonitor = setInterval(() => {
-            const probeWidth = zoomProbeRef.current?.getBoundingClientRect().width ?? 20
-            const last = lastSizeRef.current
-            if (Math.abs(probeWidth - last.zoom) > 0.5) {
-                last.zoom = probeWidth
-                handleResize()
-            }
-        }, 250)
+                      const cw = container.clientWidth || container.offsetWidth || 1
+                      const ch = container.clientHeight || container.offsetHeight || 1
+                      const aspect = cw / ch
+                      const zoom = probe.getBoundingClientRect().width / 20
 
-        return () => {
-            resizeObserver.disconnect()
-            clearInterval(zoomMonitor)
-        }
-    }, [updateSize, renderFrame])
+                      const timeOk =
+                          !lastSizeRef.current.ts ||
+                          (now || performance.now()) - lastSizeRef.current.ts >= TICK_MS
+                      const aspectChanged =
+                          Math.abs(aspect - lastSizeRef.current.aspect) > EPS_ASPECT
+                      const sizeChanged =
+                          Math.abs(cw - lastSizeRef.current.width) > 1 ||
+                          Math.abs(ch - lastSizeRef.current.height) > 1
+
+                      if (timeOk && (aspectChanged || sizeChanged)) {
+                          lastSizeRef.current = {
+                              width: cw,
+                              height: ch,
+                              aspect,
+                              zoom,
+                              ts: now || performance.now(),
+                          }
+                          updateSize(cw, ch)
+                          renderFrame()
+                      }
+
+                      rafId = requestAnimationFrame(tick)
+                  }
+                  rafId = requestAnimationFrame(tick)
+                  return () => cancelAnimationFrame(rafId)
+              })()
+            : (() => {
+                  // For preview/published mode, use ResizeObserver + window resize
+                  const resizeObserver = new ResizeObserver(handleResize)
+                  resizeObserver.observe(container)
+                  window.addEventListener("resize", handleResize)
+                  return () => {
+                      resizeObserver.disconnect()
+                      window.removeEventListener("resize", handleResize)
+                  }
+              })()
+
+        return resizeCleanup
+    }, [updateSize, renderFrame, isCanvas])
 
     // Update angle, rolls, and rollRadius when props change
     useEffect(() => {
