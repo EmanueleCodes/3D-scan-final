@@ -13,11 +13,14 @@ import {
     MeshStandardMaterial,
     Texture,
     Vector3,
+    Quaternion,
     Bone,
     Skeleton,
     Float32BufferAttribute,
     Uint16BufferAttribute,
     DoubleSide,
+    FrontSide,
+    RepeatWrapping,
     LinearFilter,
     SRGBColorSpace,
     RGBAFormat,
@@ -26,6 +29,9 @@ import {
     AmbientLight,
     PlaneGeometry,
     Mesh,
+    Group,
+    ShadowMaterial,
+    PCFSoftShadowMap,
 } from "https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js"
 
 // GSAP import from CDN
@@ -52,27 +58,23 @@ type ResponsiveImageSource =
     | undefined
 
 interface StickerProps {
-    // Preview control (always first)
-    preview: boolean
     // Main content
     image?: ResponsiveImageSource
     // Sticker settings
     curlAmount: number
     curlRadius: number
     curlStart: number
+    curlRotation: number // Curl direction rotation in degrees (0-360)
     curlMode: "semicircle" | "spiral"
-    borderColor: string
     backColor: string
-    // Position controls
-    rotXDeg: number
-    rotYDeg: number
-    rotZDeg: number
     // Lighting and shadows
     enableShadows: boolean
     shadowIntensity: number
+    animationDuration: number
     shadowPositionX: number
     shadowPositionY: number
-    backgroundColor: string
+    shadowBgColor: string
+    castShadowOpacity: number
     // Style (always last)
     style?: React.CSSProperties
 }
@@ -237,6 +239,23 @@ function parseColorToRgba(input: string): {
     return { r: 0, g: 0, b: 0, a: 1 }
 }
 
+/**
+ * When you show the same image on the back of a thin surface, it must be mirrored
+ * to look consistent to the viewer when the sticker flips/curls.
+ *
+ * Important: never mutate the front texture. If `tex` is the same as `frontTex`,
+ * we clone before mirroring.
+ */
+function makeBackTextureViewConsistent(tex: any, frontTex?: any): any {
+    if (!tex) return null
+    const out: any = tex === frontTex && typeof tex.clone === "function" ? tex.clone() : tex
+    out.wrapS = RepeatWrapping
+    out.repeat.x = -1
+    out.offset.x = 1
+    out.needsUpdate = true
+    return out
+}
+
 // ============================================================================
 // FRAMER ANNOTATIONS
 // ============================================================================
@@ -250,22 +269,20 @@ function parseColorToRgba(input: string): {
  */
 
 export default function Sticker({
-    preview = false,
     image,
-    curlAmount = 0.3,
-    curlRadius = 0.5,
-    curlStart = 0.4,
-    curlMode = "semicircle",
-    borderColor = "#ffffff",
-    backColor = "rgba(255, 255, 255, 0.5)",
-    rotXDeg = 0,
-    rotYDeg = 0,
-    rotZDeg = 0,
+    curlAmount = 0.05,
+    curlRadius = 1,
+    curlStart = 0.45,
+    curlRotation = 0, // 0° = curl from left, 90° = from bottom, 180° = from right, 270° = from top
+    curlMode = "spiral",
+    backColor = "rgba(255, 255, 255, 1)",
     enableShadows = true,
-    shadowIntensity = 0.5,
-    shadowPositionX = 200,
-    shadowPositionY = 300,
-    backgroundColor = "#ff9500",
+    animationDuration = 0.6,
+    shadowIntensity = 1,
+    shadowPositionX = -400,
+    shadowPositionY = 0,
+    shadowBgColor = "rgba(0, 0, 0, 0)",
+    castShadowOpacity = 0.3,
     style,
 }: StickerProps) {
     // Refs
@@ -275,6 +292,7 @@ export default function Sticker({
     const rendererRef = useRef<any>(null)
     const cameraRef = useRef<any>(null)
     const meshRef = useRef<any>(null)
+    const groupRef = useRef<any>(null) // Group for rotation around center
     const bonesRef = useRef<any[]>([])
     const zoomProbeRef = useRef<HTMLDivElement>(null)
     const lastSizeRef = useRef({ width: 0, height: 0, zoom: 0, aspect: 0, ts: 0 })
@@ -398,11 +416,10 @@ export default function Sticker({
         renderer.setSize(Math.round(canvasWidth * dpr), Math.round(canvasHeight * dpr), false)
         renderer.setPixelRatio(1)
         
-        // Enable shadow maps if shadows are enabled
+        // Enable high-quality shadow maps if shadows are enabled
         if (enableShadows) {
             renderer.shadowMap.enabled = true
-            // Enable dithering to reduce shadow acne and banding
-            renderer.dithering = true
+            renderer.shadowMap.type = PCFSoftShadowMap // High quality soft shadows
         }
         
         rendererRef.current = renderer
@@ -434,8 +451,10 @@ export default function Sticker({
         // Create materials for front and back
         // Use MeshStandardMaterial with low roughness (0.1) like Reference.tsx for smoothness
         // This prevents striations while still casting shadows
-        const resolvedBorderColor = resolveTokenColor(borderColor)
-        const borderColorRgba = parseColorToRgba(resolvedBorderColor)
+        
+        // Parse back color for side material (border) - use color but always 100% opaque
+        const resolvedBackColor = resolveTokenColor(backColor)
+        const backColorRgba = parseColorToRgba(resolvedBackColor)
         
         let frontMaterial: any
         let backMaterial: any
@@ -445,7 +464,7 @@ export default function Sticker({
             // All faces use MeshStandardMaterial with smooth roughness (like Reference.tsx)
             frontMaterial = new MeshStandardMaterial({
                 color: 0xffffff,
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
                 roughness: 0.2, // Higher roughness = more diffuse, reduces contrast
                 metalness: 0.4,
@@ -457,7 +476,7 @@ export default function Sticker({
             // Back face: transparent with image texture, but darker with shadow overlay
             backMaterial = new MeshStandardMaterial({
                 color: 0xffffff, // White base to show image colors
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
                 roughness: 0.3, // Slightly rougher for subtle shadow effect
                 metalness: 0.0,
@@ -466,11 +485,11 @@ export default function Sticker({
                 emissiveIntensity: 0.3, // Lower emissive = more affected by lighting/shadows
             })
             
-            // Side material is fully transparent to avoid visible striations from segments
+            // Side material: will use front texture when loaded (blends with front image), back color as fallback
             sideMaterial = new MeshStandardMaterial({
-                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
                 transparent: true,
-                opacity: 1, // Hide side faces completely (they're negligibly thin)
+                opacity: 1, // Visible with back color until front texture loads
                 roughness: 0.1,
                 metalness: 0.0,
             })
@@ -478,24 +497,23 @@ export default function Sticker({
             // No shadows: use MeshBasicMaterial for all (simpler, no lighting needed)
             frontMaterial = new MeshBasicMaterial({
                 color: 0xffffff,
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
             })
             
             // Back material: use backColor directly (will be set via texture or color in loadTexture)
-            const resolvedBackColor = resolveTokenColor(backColor)
-            const backColorRgba = parseColorToRgba(resolvedBackColor)
             backMaterial = new MeshBasicMaterial({
                 color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
                 opacity: backColorRgba.a,
             })
             
+            // Side material: will use front texture when loaded (blends with front image), back color as fallback
             sideMaterial = new MeshBasicMaterial({
-                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
                 transparent: true,
-                opacity: 0,
+                opacity: 1, // Visible with back color until front texture loads
             })
         }
 
@@ -543,11 +561,23 @@ export default function Sticker({
         }
         mesh.scale.set(initialScaleX, initialScaleY, 1)
         
-        // Position mesh so it's centered
-        mesh.position.set(-(baseSize * initialScaleX) / 2, 0, 0)
+        // Create a group to rotate around the center
+        const group = new Group()
+        groupRef.current = group
         
+        // Position mesh so its center is at the group's origin
+        // The geometry is already translated by width/2, so we need to offset by -width/2 to center it
+        const meshWidth = baseSize * initialScaleX
+        mesh.position.set(-meshWidth / 2, 0, 0)
+        
+        group.add(mesh)
         meshRef.current = mesh
-        scene.add(mesh)
+        scene.add(group)
+
+        // Group stays at 0 rotation - curl direction is handled by bone rotation axis
+        group.rotation.x = 0
+        group.rotation.y = 0
+        group.rotation.z = 0
 
         // Add lighting if shadows are enabled
         if (enableShadows) {
@@ -558,8 +588,8 @@ export default function Sticker({
             const initialAmbientIntensity = Math.max(1.0 - shadowIntensity * 0.6, 0.4) // 1.0 to 0.4 (lower at max for drama)
             
             // Ambient light for overall scene illumination
-            // Higher ambient reduces contrast between segments
-            const ambientLight = new AmbientLight(0xffffff, 0.8)
+            // Lower ambient allows shadows to be more visible
+            const ambientLight = new AmbientLight(0xffffff, initialAmbientIntensity)
             ambientLightRef.current = ambientLight
             scene.add(ambientLight)
             
@@ -568,54 +598,45 @@ export default function Sticker({
             directionalLight.position.set(shadowPositionX, shadowPositionY, 400)
             directionalLight.castShadow = true
             
-            // Configure shadow map
-            directionalLight.shadow.mapSize.width = 2048
-            directionalLight.shadow.mapSize.height = 2048
-            directionalLight.shadow.camera.near = 100
+            // Configure shadow map for high-quality, soft shadows
+            directionalLight.shadow.mapSize.width = 4096
+            directionalLight.shadow.mapSize.height = 4096
+            directionalLight.shadow.camera.near = 1
             directionalLight.shadow.camera.far = 2000
             // Use container dimensions for shadow camera (not contained dimensions)
             directionalLight.shadow.camera.left = -containerWidth * 2
             directionalLight.shadow.camera.right = containerWidth * 2
             directionalLight.shadow.camera.top = containerHeight * 2
             directionalLight.shadow.camera.bottom = -containerHeight * 2
-            // Negative bias helps prevent shadow acne (per Three.js forum recommendations)
-            // Small negative value prevents self-shadowing artifacts
-            directionalLight.shadow.bias = -0.0001
-            directionalLight.shadow.radius = 4
+            // Very small bias to prevent acne while keeping shadow visible
+            directionalLight.shadow.bias = -0.00001
+            directionalLight.shadow.radius = 8 // Softer shadow edges
             
             lightRef.current = directionalLight
             scene.add(directionalLight)
             
             // Add background plane to receive shadows
-            const resolvedBgColor = resolveTokenColor(backgroundColor)
-            const bgColorRgba = parseColorToRgba(resolvedBgColor)
-            const bgMaterial = new MeshStandardMaterial({
-                color: new Color(bgColorRgba.r, bgColorRgba.g, bgColorRgba.b),
-                roughness: 0.8,
-                metalness: 0.0,
+            // Add shadow-only plane (transparent background with visible shadow)
+            // ShadowMaterial shows ONLY shadows on transparent background
+            const shadowMat = new ShadowMaterial({
+                opacity: castShadowOpacity,
+                color: 0x000000, // Black shadow
             })
             
-            // Create large plane behind sticker (use container dimensions)
-            const planeSize = Math.max(containerWidth, containerHeight) * 3
-            const planeGeometry = new PlaneGeometry(planeSize, planeSize)
-            const backgroundPlane = new Mesh(planeGeometry, bgMaterial)
+            // Create plane sized to component (slightly larger for shadow overflow)
+            const planeWidth = Math.max(containerWidth, width) * 1.5
+            const planeHeight = Math.max(containerHeight, height) * 1.5
+            const planeGeometry = new PlaneGeometry(planeWidth, planeHeight)
+            const backgroundPlane = new Mesh(planeGeometry, shadowMat)
             backgroundPlane.receiveShadow = true
-            backgroundPlane.position.set(0, 0, -STICKER_DEPTH * 2)
-            backgroundPlane.rotation.x = Math.PI // Face the sticker
+            // Position very slightly behind sticker
+            backgroundPlane.position.set(0, 0, -1)
             backgroundPlaneRef.current = backgroundPlane
             scene.add(backgroundPlane)
         }
 
-        // Apply initial rotation from props (degrees to radians)
-        const rx = (rotXDeg * Math.PI) / 180
-        const ry = (rotYDeg * Math.PI) / 180
-        const rz = (rotZDeg * Math.PI) / 180
-        mesh.rotation.x = rx
-        mesh.rotation.y = ry
-        mesh.rotation.z = rz
-
         return { scene, camera, renderer, mesh, bones }
-    }, [borderColor, createStickerGeometry, enableShadows, shadowIntensity, shadowPositionX, shadowPositionY, backgroundColor, boneSegments, rotXDeg, rotYDeg, rotZDeg])
+    }, [createStickerGeometry, enableShadows, shadowIntensity, shadowPositionX, shadowPositionY, castShadowOpacity, boneSegments])
 
     // ========================================================================
     // RENDERING
@@ -691,7 +712,7 @@ export default function Sticker({
         backTexture.format = RGBAFormat
         
         return backTexture
-    }, [])
+    }, [enableShadows])
 
     // ========================================================================
     // MESH RECREATION WITH ASPECT RATIO
@@ -743,8 +764,9 @@ export default function Sticker({
         const skeleton = new Skeleton(bones)
         
         // Recreate materials (reuse existing material setup logic from setupScene)
-        const resolvedBorderColor = resolveTokenColor(borderColor)
-        const borderColorRgba = parseColorToRgba(resolvedBorderColor)
+        // Parse back color for side material (border) - use color but always 100% opaque
+        const resolvedBackColor = resolveTokenColor(backColor)
+        const backColorRgba = parseColorToRgba(resolvedBackColor)
         
         let frontMaterial: any
         let backMaterial: any
@@ -753,7 +775,7 @@ export default function Sticker({
         if (enableShadows) {
             frontMaterial = new MeshStandardMaterial({
                 color: 0xffffff,
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
                 roughness: 0.2,
                 metalness: 0.4,
@@ -763,7 +785,7 @@ export default function Sticker({
             
             backMaterial = new MeshStandardMaterial({
                 color: 0xffffff,
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
                 roughness: 0.3,
                 metalness: 0.0,
@@ -771,34 +793,34 @@ export default function Sticker({
                 emissiveIntensity: 0.3,
             })
             
+            // Side material: will use front texture when loaded (blends with front image), back color as fallback
             sideMaterial = new MeshStandardMaterial({
-                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
                 transparent: true,
-                opacity: 1,
+                opacity: 1, // Visible with back color until front texture loads
                 roughness: 0.1,
                 metalness: 0.0,
             })
         } else {
             frontMaterial = new MeshBasicMaterial({
                 color: 0xffffff,
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
             })
             
             // Back material: use backColor directly (will be set via texture or color in loadTexture)
-            const resolvedBackColor = resolveTokenColor(backColor)
-            const backColorRgba = parseColorToRgba(resolvedBackColor)
             backMaterial = new MeshBasicMaterial({
                 color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
-                side: DoubleSide,
+                side: FrontSide,
                 transparent: true,
                 opacity: backColorRgba.a,
             })
             
+            // Side material: will use front texture when loaded (blends with front image), back color as fallback
             sideMaterial = new MeshBasicMaterial({
-                color: new Color(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b),
+                color: new Color(backColorRgba.r, backColorRgba.g, backColorRgba.b),
                 transparent: true,
-                opacity: 0,
+                opacity: 1, // Visible with back color until front texture loads
             })
         }
         
@@ -818,18 +840,31 @@ export default function Sticker({
             mesh.receiveShadow = false
         }
         
+        // Position mesh so its center is at the group's origin
         mesh.position.set(-contained.width / 2, 0, 0)
         
-        // Apply rotation
-        const rx = (rotXDeg * Math.PI) / 180
-        const ry = (rotYDeg * Math.PI) / 180
-        const rz = (rotZDeg * Math.PI) / 180
-        mesh.rotation.x = rx
-        mesh.rotation.y = ry
-        mesh.rotation.z = rz
+        // Create or get group for rotation around center
+        let group = groupRef.current
+        if (!group) {
+            group = new Group()
+            groupRef.current = group
+            sceneRef.current.add(group)
+        } else {
+            // Remove old mesh from group if it exists
+            const oldMesh = group.children.find((child: any) => child === meshRef.current)
+            if (oldMesh) {
+                group.remove(oldMesh)
+            }
+        }
+        
+        group.add(mesh)
+        
+        // Group stays at 0 rotation - curl direction is handled by bone rotation axis
+        group.rotation.x = 0
+        group.rotation.y = 0
+        group.rotation.z = 0
         
         meshRef.current = mesh
-        sceneRef.current.add(mesh)
         
         // Apply textures if they're already loaded
         if (loadedImageRef.current) {
@@ -844,7 +879,8 @@ export default function Sticker({
             // If backColor is fully transparent (0% opacity), use front texture directly
             const resolvedBackColor = resolveTokenColor(backColor)
             const backColorRgba = parseColorToRgba(resolvedBackColor)
-            const backTexture = backColorRgba.a <= 0 ? texture : createBackTexture(img, backColor)
+            const rawBackTexture = backColorRgba.a <= 0 ? texture : createBackTexture(img, backColor)
+            const backTexture = makeBackTextureViewConsistent(rawBackTexture, texture)
             
             const meshMaterials = mesh.material as any[]
             if (Array.isArray(meshMaterials)) {
@@ -899,11 +935,19 @@ export default function Sticker({
                     
                     meshMaterials[5].needsUpdate = true
                 }
+                // Side faces (border): use front face texture - blends with front image, not background
                 for (let i = 0; i < 4; i++) {
-                    if (meshMaterials[i] && backTexture) {
-                        meshMaterials[i].map = backTexture
+                    if (meshMaterials[i] && texture) {
+                        // Use front face texture so border blends with front image
+                        meshMaterials[i].map = texture
                         meshMaterials[i].transparent = true
                         meshMaterials[i].alphaTest = 0.01
+                        // Match front material properties if using MeshStandardMaterial
+                        if (meshMaterials[i].emissiveIntensity !== undefined && meshMaterials[4]?.emissiveIntensity !== undefined) {
+                            meshMaterials[i].emissiveMap = texture
+                            meshMaterials[i].emissive = meshMaterials[4].emissive || new Color(0xffffff)
+                            meshMaterials[i].emissiveIntensity = meshMaterials[4].emissiveIntensity || 0.8
+                        }
                         meshMaterials[i].needsUpdate = true
                     }
                 }
@@ -911,7 +955,7 @@ export default function Sticker({
         }
         
         renderFrame()
-    }, [createStickerGeometry, boneSegments, borderColor, backColor, enableShadows, rotXDeg, rotYDeg, rotZDeg, createBackTexture, renderFrame])
+    }, [createStickerGeometry, boneSegments, backColor, enableShadows, createBackTexture, renderFrame])
 
     // ========================================================================
     // TEXTURE LOADING
@@ -943,8 +987,11 @@ export default function Sticker({
                 
                 // Update bones after mesh is recreated
                 setTimeout(() => {
-                    if (meshRef.current && bonesRef.current.length > 0) {
-                        updateBones()
+                    if (meshRef.current && groupRef.current) {
+                        if (bonesRef.current.length > 0) {
+                            updateBones()
+                        }
+                        renderFrame()
                     }
                 }, 0)
             }
@@ -960,7 +1007,8 @@ export default function Sticker({
             // If backColor is fully transparent (0% opacity), use front texture directly
             const resolvedBackColor = resolveTokenColor(backColor)
             const backColorRgba = parseColorToRgba(resolvedBackColor)
-            const backTexture = backColorRgba.a <= 0 ? texture : createBackTexture(img, backColor)
+            const rawBackTexture = backColorRgba.a <= 0 ? texture : createBackTexture(img, backColor)
+            const backTexture = makeBackTextureViewConsistent(rawBackTexture, texture)
 
             // Apply textures to materials
             const materials = meshRef.current.material as any[]
@@ -988,9 +1036,9 @@ export default function Sticker({
                     if (enableShadows) {
                         // With shadows: use texture (MeshStandardMaterial)
                         if (backTexture) {
-                            materials[5].map = backTexture
-                            materials[5].transparent = true
-                            materials[5].alphaTest = 0.01
+                    materials[5].map = backTexture
+                    materials[5].transparent = true
+                    materials[5].alphaTest = 0.01
                             
                             // When using front texture (0% opacity), match front material properties for identical appearance
                             if (backColorRgba.a <= 0 && materials[5].emissiveIntensity !== undefined) {
@@ -1021,12 +1069,19 @@ export default function Sticker({
                     
                     materials[5].needsUpdate = true
                 }
-                // Side faces: use alpha map for clean edges
+                // Side faces (border): use front face texture - blends with front image, not background
                 for (let i = 0; i < 4; i++) {
-                    if (materials[i] && backTexture) {
-                        materials[i].map = backTexture
+                    if (materials[i] && texture) {
+                        // Use front face texture so border blends with front image
+                        materials[i].map = texture
                         materials[i].transparent = true
                         materials[i].alphaTest = 0.01
+                        // Match front material properties if using MeshStandardMaterial
+                        if (materials[i].emissiveIntensity !== undefined && materials[4]?.emissiveIntensity !== undefined) {
+                            materials[i].emissiveMap = texture
+                            materials[i].emissive = materials[4].emissive || new Color(0xffffff)
+                            materials[i].emissiveIntensity = materials[4].emissiveIntensity || 0.8
+                        }
                         materials[i].needsUpdate = true
                     }
                 }
@@ -1053,49 +1108,61 @@ export default function Sticker({
         const curlFactor = animatedCurlRef.current.amount // 0 to 1, scales the curl
         const r = internalRadiusRef.current // normalized radius
         
+        // Calculate rotation axis based on curlRotation
+        // At 0°: axis = (0, 1, 0) = Y axis (curl from left)
+        // At 90°: axis = (1, 0, 0) = X axis (curl from bottom)
+        // At 180°: axis = (0, -1, 0) = -Y axis (curl from right)
+        // At 270°: axis = (-1, 0, 0) = -X axis (curl from top)
+        const curlRotationRad = curlRotation * (Math.PI / 180)
+        const rotationAxis = new Vector3(
+            Math.sin(curlRotationRad),
+            Math.cos(curlRotationRad),
+            0
+        ).normalize()
+        
+        // Helper to apply rotation to a bone using quaternion around custom axis
+        const applyBoneRotation = (bone: any, angle: number) => {
+            if (angle === 0) {
+                bone.quaternion.identity()
+            } else {
+                bone.quaternion.setFromAxisAngle(rotationAxis, -angle)
+            }
+        }
+        
         // Arc length of a semicircle = π * r (normalized to sticker length)
         const arcLength = Math.PI * r
         const semicircleEnd = Math.min(curlStart + arcLength, 1) // end of semicircle section
         
         if (curlMode === "semicircle") {
             // SEMICIRCLE MODE: flat → semicircle → flat
-            // Define the three sections:
-            // 1. Flat from 0 to curlStart
-            // 2. Curved from curlStart to curlStart + arcLength
-            // 3. Flat from curlStart + arcLength to 1
             const curlEnd = semicircleEnd
             
             // Count bones in the curved section for uniform rotation distribution
             let bonesInCurve = 0
-        for (let i = 0; i < bones.length; i++) {
+            for (let i = 0; i < bones.length; i++) {
                 const t = i / (bones.length - 1)
                 if (t >= curlStart && t < curlEnd) bonesInCurve++
             }
             
             // For a semicircle with uniform curvature, each bone rotates by the same angle
-            // Total rotation = π (180°), distributed evenly across curved bones
             const perBoneRotation = bonesInCurve > 0 
                 ? (Math.PI * curlFactor) / bonesInCurve 
                 : 0
 
             for (let i = 0; i < bones.length; i++) {
                 const bone = bones[i]
-            const t = i / (bones.length - 1)
+                const t = i / (bones.length - 1)
             
                 if (t < curlStart || t >= curlEnd) {
                     // Flat sections: no rotation
-                bone.rotation.y = 0
+                    applyBoneRotation(bone, 0)
                 } else {
-                    // Curved section: uniform rotation per bone = perfect circle
-                    bone.rotation.y = -perBoneRotation
+                    // Curved section: uniform rotation per bone
+                    applyBoneRotation(bone, perBoneRotation)
                 }
             }
         } else {
-            // SPIRAL MODE: flat → first semicircle (controlled by curl & radius) → additional semicircles with decreasing radii
-            // First semicircle is IDENTICAL to semicircle mode (curl and radius apply only to it)
-            // Additional semicircles fill remaining space with progressively smaller radii
-            
-            // First semicircle (same as semicircle mode)
+            // SPIRAL MODE: flat → first semicircle → additional semicircles with decreasing radii
             const firstArcLength = Math.PI * r
             const firstSemicircleEnd = Math.min(curlStart + firstArcLength, 1)
             
@@ -1107,7 +1174,6 @@ export default function Sticker({
                 isFirst: boolean
             }> = []
             
-            // Add first semicircle (controlled by curl amount)
             semicircles.push({
                 start: curlStart,
                 end: firstSemicircleEnd,
@@ -1115,16 +1181,15 @@ export default function Sticker({
                 isFirst: true
             })
             
-            // Add additional semicircles with decreasing radii to fill remaining space
-            const radiusDecay = 0.75 // Each subsequent semicircle has 90% of previous radius
-            const minRadius = 0.1 // Minimum radius to prevent infinite loops
+            const radiusDecay = 0.75
+            const minRadius = 0.1
             
             let currentPos = firstSemicircleEnd
             let currentRadius = r * radiusDecay
             
             while (currentPos < 1 && currentRadius >= minRadius) {
-                const arcLength = Math.PI * currentRadius
-                const endPos = Math.min(currentPos + arcLength, 1)
+                const arcLen = Math.PI * currentRadius
+                const endPos = Math.min(currentPos + arcLen, 1)
                 
                 semicircles.push({
                     start: currentPos,
@@ -1139,10 +1204,10 @@ export default function Sticker({
             
             // Calculate cumulative rotation for each semicircle
             let cumulativeRotation = 0
-            const semicircleData = semicircles.map((semicircle, index) => {
+            const semicircleData = semicircles.map((semicircle) => {
                 const rotationForThisSemicircle = semicircle.isFirst 
-                    ? Math.PI * curlFactor // First semicircle respects curl amount
-                    : Math.PI // Subsequent semicircles are always full π rotation
+                    ? Math.PI * curlFactor
+                    : Math.PI
                 
                 const data = {
                     ...semicircle,
@@ -1154,34 +1219,28 @@ export default function Sticker({
                 return data
             })
             
-            // Apply rotations
+            // Apply rotations using quaternions around custom axis
             for (let i = 0; i < bones.length; i++) {
                 const bone = bones[i]
                 const t = i / (bones.length - 1)
                 
                 if (t < curlStart) {
-                    // Flat section: no rotation
-                    bone.rotation.y = 0
+                    applyBoneRotation(bone, 0)
                 } else {
-                    // Find which semicircle this bone belongs to
                     let found = false
                     for (const semicircle of semicircleData) {
                         if (t >= semicircle.start && t < semicircle.end) {
-                            // Position within this semicircle [0, 1]
                             const localT = (t - semicircle.start) / (semicircle.end - semicircle.start)
-                            
-                            // Rotation = cumulative rotation from previous semicircles + progress through current one
                             const rotationInSemicircle = localT * semicircle.rotationAmount
-                            bone.rotation.y = -(semicircle.cumulativeRotationStart + rotationInSemicircle)
+                            applyBoneRotation(bone, semicircle.cumulativeRotationStart + rotationInSemicircle)
                             found = true
                             break
                         }
                     }
                     
                     if (!found && semicircleData.length > 0) {
-                        // Past all semicircles: use final cumulative rotation
                         const lastSemicircle = semicircleData[semicircleData.length - 1]
-                        bone.rotation.y = -(lastSemicircle.cumulativeRotationStart + lastSemicircle.rotationAmount)
+                        applyBoneRotation(bone, lastSemicircle.cumulativeRotationStart + lastSemicircle.rotationAmount)
                     }
                 }
             }
@@ -1192,7 +1251,7 @@ export default function Sticker({
         }
 
         renderFrame()
-    }, [curlStart, curlMode, renderFrame, curlAmount])
+    }, [curlStart, curlMode, curlRotation, renderFrame, curlAmount])
 
     // ========================================================================
     // HOVER ANIMATION WITH GSAP
@@ -1276,8 +1335,8 @@ export default function Sticker({
             isHoveringRef.current = true
             gsap.to(animatedCurlRef.current, {
                 amount: 0,
-                duration: 0.6,
-                ease: "power2.out",
+                duration: animationDuration,
+                ease: "power2.inOut",
                 onUpdate: () => {
                     updateBones()
                 },
@@ -1287,8 +1346,8 @@ export default function Sticker({
             isHoveringRef.current = false
             gsap.to(animatedCurlRef.current, {
                 amount: curlAmount,
-                duration: 0.6,
-                ease: "power2.out",
+                duration: animationDuration,
+                ease: "power2.inOut",
                 onUpdate: () => {
                     updateBones()
                 },
@@ -1302,7 +1361,7 @@ export default function Sticker({
             isHoveringRef.current = false
             gsap.to(animatedCurlRef.current, {
                 amount: curlAmount,
-                duration: 0.6,
+                duration: animationDuration,
                 ease: "power2.out",
                 onUpdate: () => {
                     updateBones()
@@ -1346,12 +1405,21 @@ export default function Sticker({
         if (imageAspectRatioRef.current && meshRef.current) {
             // Recreate mesh with correct aspect ratio geometry
             recreateMeshWithAspectRatio(imageAspectRatioRef.current)
+            // Restore curl after mesh recreation
+            setTimeout(() => {
+                if (meshRef.current && bonesRef.current.length > 0) {
+                    updateBones()
+                    renderFrame()
+                }
+            }, 0)
         } else if (meshRef.current) {
             // No image aspect ratio yet - scale uniformly based on container
             const baseSize = meshRef.current.geometry.parameters.width
             const uniformScale = Math.min(containerWidth, containerHeight) / baseSize
             meshRef.current.scale.set(uniformScale, uniformScale, 1)
-            meshRef.current.position.set(-(baseSize * uniformScale) / 2, 0, 0)
+            // Update mesh position to keep center at group origin
+            const meshWidth = baseSize * uniformScale
+            meshRef.current.position.set(-meshWidth / 2, 0, 0)
         }
 
         // Update shadow camera if shadows are enabled
@@ -1362,7 +1430,7 @@ export default function Sticker({
             lightRef.current.shadow.camera.bottom = -containerHeight * 2
             lightRef.current.shadow.camera.updateProjectionMatrix()
         }
-    }, [boneSegments, enableShadows])
+    }, [boneSegments, enableShadows, recreateMeshWithAspectRatio, updateBones, renderFrame])
 
     // ========================================================================
     // EFFECTS
@@ -1423,20 +1491,6 @@ export default function Sticker({
         animatedCurlRef.current.amount = curlAmount
     }, [curlAmount])
 
-    // Update mesh rotation when position props change
-    useEffect(() => {
-        if (!meshRef.current) return
-        
-        const rx = (rotXDeg * Math.PI) / 180
-        const ry = (rotYDeg * Math.PI) / 180
-        const rz = (rotZDeg * Math.PI) / 180
-        meshRef.current.rotation.x = rx
-        meshRef.current.rotation.y = ry
-        meshRef.current.rotation.z = rz
-        
-        renderFrame()
-    }, [rotXDeg, rotYDeg, rotZDeg, renderFrame])
-
     // Update internalRadius when curlRadius prop changes
     useEffect(() => {
         internalRadiusRef.current = mapInteralRadiusToUIValue(curlRadius)
@@ -1449,26 +1503,13 @@ export default function Sticker({
         updateBones()
     }, [curlStart, curlMode, updateBones])
 
-    // Update border color (side faces only)
+    // Update curl direction when curlRotation changes
+    // The curl direction is now handled by the bone rotation axis in updateBones
     useEffect(() => {
-        if (!meshRef.current?.material) return
-        
-        const materials = meshRef.current.material as any[]
-        if (!Array.isArray(materials)) return
-        
-        const resolvedBorderColor = resolveTokenColor(borderColor)
-        const borderColorRgba = parseColorToRgba(resolvedBorderColor)
-        
-        // Update side faces with border color
-        for (let i = 0; i < 4; i++) {
-            if (materials[i]) {
-                materials[i].color.setRGB(borderColorRgba.r, borderColorRgba.g, borderColorRgba.b)
-                materials[i].needsUpdate = true
-            }
-        }
-        
+        updateBones()
         renderFrame()
-    }, [borderColor, renderFrame])
+    }, [curlRotation, updateBones, renderFrame])
+
 
     // Update back color - recreate back texture when backColor changes
     useEffect(() => {
@@ -1487,9 +1528,10 @@ export default function Sticker({
         
         // If backColor is fully transparent, use front texture directly
         // Otherwise, create blended back texture
-        const backTexture = backColorRgba.a <= 0 && frontTexture 
+        const rawBackTexture = backColorRgba.a <= 0 && frontTexture 
             ? frontTexture 
             : createBackTexture(img, backColor)
+        const backTexture = makeBackTextureViewConsistent(rawBackTexture, frontTexture)
         
         if (materials[5]) {
             // Only dispose if it's a different texture (not the front texture)
@@ -1534,16 +1576,27 @@ export default function Sticker({
             materials[5].needsUpdate = true
         }
         
-        // Update side faces with back texture for clean edges
+        // Update side faces (border) to use front face texture - blends with front image, not background
         for (let i = 0; i < 4; i++) {
-            if (materials[i] && backTexture) {
-                // Only dispose if it's a different texture (not the front texture)
-                if (materials[i].map && materials[i].map !== frontTexture && materials[i].map !== backTexture) {
-                    materials[i].map.dispose()
+            if (materials[i]) {
+                // Use front face texture so border blends with front image
+                if (frontTexture) {
+                    materials[i].map = frontTexture
+                    materials[i].transparent = true
+                    materials[i].alphaTest = 0.01
+                    // Match front material properties if using MeshStandardMaterial
+                    if (materials[i].emissiveIntensity !== undefined && materials[4]?.emissiveIntensity !== undefined) {
+                        materials[i].emissiveMap = frontTexture
+                        materials[i].emissive = materials[4].emissive || new Color(0xffffff)
+                        materials[i].emissiveIntensity = materials[4].emissiveIntensity || 0.8
+                    }
+                } else {
+                    // No texture yet - use back color as fallback
+                    materials[i].map = null
+                    materials[i].color.setRGB(backColorRgba.r, backColorRgba.g, backColorRgba.b)
+                    materials[i].transparent = true
+                    materials[i].opacity = 1
                 }
-                materials[i].map = backTexture
-                materials[i].transparent = true
-                materials[i].alphaTest = 0.01
                 materials[i].needsUpdate = true
             }
         }
@@ -1556,8 +1609,10 @@ export default function Sticker({
         if (!enableShadows || !lightRef.current) return
         
         lightRef.current.position.set(shadowPositionX, shadowPositionY, 400)
-        lightRef.current.shadow.mapSize.width = 2048
-        lightRef.current.shadow.mapSize.height = 2048
+        lightRef.current.shadow.mapSize.width = 4096
+        lightRef.current.shadow.mapSize.height = 4096
+        lightRef.current.shadow.bias = -0.00001
+        lightRef.current.shadow.radius = 8
         lightRef.current.shadow.needsUpdate = true
         
         renderFrame()
@@ -1583,21 +1638,17 @@ export default function Sticker({
         renderFrame()
     }, [enableShadows, shadowIntensity, renderFrame])
 
-    // Update background color
+    // Update cast shadow opacity when it changes
     useEffect(() => {
         if (!enableShadows || !backgroundPlaneRef.current) return
         
-        const resolvedBgColor = resolveTokenColor(backgroundColor)
-        const bgColorRgba = parseColorToRgba(resolvedBgColor)
-        const material = backgroundPlaneRef.current.material
-        
-        if (material) {
-            material.color.setRGB(bgColorRgba.r, bgColorRgba.g, bgColorRgba.b)
-            material.needsUpdate = true
-        }
+        const material = backgroundPlaneRef.current.material as any
+        // ShadowMaterial: adjust opacity based on castShadowOpacity
+        material.opacity = castShadowOpacity
+        material.needsUpdate = true
         
         renderFrame()
-    }, [enableShadows, backgroundColor, renderFrame])
+    }, [enableShadows, castShadowOpacity, renderFrame])
 
     // Size monitoring - optimized for Framer canvas
     useEffect(() => {
@@ -1701,6 +1752,8 @@ export default function Sticker({
     }
 
     const offsetPercent = ((CANVAS_SCALE - 1) / 2) * 100
+    // Hide canvas until texture is loaded to avoid visual jump
+    const isReady = textureLoaded && meshRef.current !== null
 
     return (
         <div
@@ -1736,6 +1789,7 @@ export default function Sticker({
                     left: `-${offsetPercent}%`,
                     display: "block",
                     cursor: "pointer",
+                    opacity: isReady ? 1 : 0,
                 }}
             />
         </div>
@@ -1747,13 +1801,6 @@ export default function Sticker({
 // ============================================================================
 
 addPropertyControls(Sticker, {
-    preview: {
-        type: ControlType.Boolean,
-        title: "Preview",
-        defaultValue: true,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-    },
     image: {
         type: ControlType.ResponsiveImage,
         title: "Image",
@@ -1764,7 +1811,7 @@ addPropertyControls(Sticker, {
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.3,
+        defaultValue: 0.05,
     },
     curlRadius: {
         type: ControlType.Number,
@@ -1772,7 +1819,7 @@ addPropertyControls(Sticker, {
         min: 0.1,
         max: 1,
         step: 0.05,
-        defaultValue: 0.5,
+        defaultValue: 1,
     },
     curlStart: {
         type: ControlType.Number,
@@ -1780,95 +1827,88 @@ addPropertyControls(Sticker, {
         min: 0,
         max: 1,
         step: 0.05,
-        defaultValue: 0.4,
+        defaultValue: 0.45,
+    },
+    curlRotation: {
+        type: ControlType.Number,
+        title: "Direction",
+        min: 0,
+        max: 360,
+        step: 15,
+        defaultValue: 0,
+        unit: "°",
     },
     curlMode: {
         type: ControlType.Enum,
         title: "Mode",
         options: ["semicircle", "spiral"],
         optionTitles: ["Semicircle", "Spiral"],
-        defaultValue: "semicircle",
+        defaultValue: "spiral",
         displaySegmentedControl: true,
         segmentedControlDirection: "vertical",
     },
-    borderColor: {
-        type: ControlType.Color,
-        title: "Border Color",
-        defaultValue: "#ffffff",
-    },
-    backColor: {
-        type: ControlType.Color,
-        title: "Back Color",
-        defaultValue: "rgba(255, 255, 255, 0.5)",
-        description: "Color for the back of the sticker. Use transparency to blend with the front image.",
-    },
-
-    rotXDeg: {
-        type: ControlType.Number,
-        title: "Rotate X",
-        min: -180,
-        max: 180,
-        step: 1,
-        defaultValue: -90,
-        unit: "°",
-    },
-    rotYDeg: {
-        type: ControlType.Number,
-        title: "Rotate Y",
-        min: -180,
-        max: 180,
-        step: 1,
-        defaultValue: 0,
-        unit: "°",
-    },
-    rotZDeg: {
-        type: ControlType.Number,
-        title: "Rotate Z",
-        min: -180,
-        max: 180,
-        step: 1,
-        defaultValue: 90,
-        unit: "°",
-    },
     enableShadows: {
         type: ControlType.Boolean,
-        title: "Shadows",
+        title: "Ligthing",
         defaultValue: true,
         enabledTitle: "On",
         disabledTitle: "Off",
     },
     shadowIntensity: {
         type: ControlType.Number,
-        title: "Shadow Intensity",
-        min: 0,
+        title: "Light",
+        min: 0.1,
         max: 1,
         step: 0.05,
-        defaultValue: 0.5,
+        defaultValue: 1,
         hidden: (props) => !props.enableShadows,
     },
     shadowPositionX: {
         type: ControlType.Number,
-        title: "Shadow X",
+        title: "Light X",
         min: -500,
         max: 500,
         step: 10,
-        defaultValue: 200,
+        defaultValue: -400,
         hidden: (props) => !props.enableShadows,
     },
     shadowPositionY: {
         type: ControlType.Number,
-        title: "Shadow Y",
+        title: "Light Y",
         min: -500,
         max: 500,
         step: 10,
-        defaultValue: 300,
+        defaultValue: 0,
         hidden: (props) => !props.enableShadows,
     },
-    backgroundColor: {
-        type: ControlType.Color,
-        title: "Background",
-        defaultValue: "#ff9500",
+    castShadowOpacity: {
+        type: ControlType.Number,
+        title: "Shadow",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        defaultValue: 0.3,
         hidden: (props) => !props.enableShadows,
+    },
+    shadowBgColor: {
+        type: ControlType.Color,
+        title: "Shadow Bg",
+        defaultValue: "rgba(0, 0, 0, 0)",
+        hidden: () => true, // Hidden - ShadowMaterial handles transparency automatically
+    },
+    animationDuration:{
+        type: ControlType.Number,
+        title: "Duration",
+        min: 0.1,
+        max: 5,
+        step: 0.1,
+        defaultValue: 0.6,
+        unit: "s",
+    },
+    backColor: {
+        type: ControlType.Color,
+        title: "Back Color",
+        defaultValue: "rgba(255, 255, 255, 1)",
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },
