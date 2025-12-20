@@ -261,29 +261,6 @@ function makeBackTextureViewConsistent(tex: any, frontTex?: any): any {
     return out
 }
 
-/**
- * Apply counter-rotation to a texture so the image stays upright
- * when the mesh group is rotated for curl direction.
- * @param tex - The texture to rotate
- * @param rotationDeg - The curl rotation in degrees (will apply negative)
- * @param isMirrored - If true, texture has repeat.x = -1 (back face), use positive rotation
- */
-function applyTextureCounterRotation(
-    tex: any,
-    rotationDeg: number,
-    isMirrored: boolean = false
-): void {
-    if (!tex || rotationDeg === 0) return
-    // Set center to rotate around texture center (default is 0,0 = bottom-left)
-    if (!tex.center) tex.center = { set: () => {} } // Fallback if center doesn't exist
-    tex.center.set(0.5, 0.5)
-    // Counter-rotate: for mirrored textures, rotation direction is reversed
-    const sign = isMirrored ? 1 : -1
-    const rotationRad = (sign * rotationDeg * Math.PI) / 180
-    tex.rotation = rotationRad
-    tex.needsUpdate = true
-}
-
 // ============================================================================
 // FRAMER ANNOTATIONS
 // ============================================================================
@@ -639,10 +616,19 @@ export default function Sticker({
         meshRef.current = mesh
         scene.add(group)
 
-        // Keep group unrotated - curl direction is handled by bone rotation axis
+        // Don't rotate the group - we'll rotate the bone chain via the root bone
         group.rotation.x = 0
         group.rotation.y = 0
         group.rotation.z = 0
+        
+        // Rotate the root bone to orient the bone chain (this rotates the curl direction)
+        // The mesh position stays fixed because bones are relative to the mesh
+        if (bones.length > 0) {
+            bones[0].rotation.z = curlRotation * (Math.PI / 180)
+        }
+        
+        // Counter-rotate the mesh to keep the image texture fixed
+        mesh.rotation.z = -curlRotation * (Math.PI / 180)
 
         // Add lighting if shadows are enabled
         if (enableShadows) {
@@ -665,7 +651,6 @@ export default function Sticker({
             scene.add(ambientLight)
 
             // Directional light for shadows (reduced intensity to minimize band contrast)
-            // Light stays in world space - group rotation handles curl direction
             const directionalLight = new DirectionalLight(
                 0xffffff,
                 initialLightIntensity
@@ -986,10 +971,18 @@ export default function Sticker({
 
             group.add(mesh)
 
-            // Keep group unrotated - curl direction is handled by bone rotation axis
+            // Don't rotate the group - we'll rotate the bone chain via the root bone
             group.rotation.x = 0
             group.rotation.y = 0
             group.rotation.z = 0
+            
+            // Rotate the root bone to orient the bone chain (this rotates the curl direction)
+            if (bones.length > 0) {
+                bones[0].rotation.z = curlRotation * (Math.PI / 180)
+            }
+            
+            // Counter-rotate the mesh to keep the image texture fixed
+            mesh.rotation.z = -curlRotation * (Math.PI / 180)
 
             meshRef.current = mesh
 
@@ -1001,7 +994,6 @@ export default function Sticker({
                 texture.minFilter = LinearFilter
                 texture.colorSpace = SRGBColorSpace
                 texture.format = RGBAFormat
-                // Don't rotate textures - let image rotate with curl direction
 
                 // Create back texture: blend backColor with front image
                 // If backColor is fully transparent (0% opacity), use front texture directly
@@ -1151,6 +1143,19 @@ export default function Sticker({
                 // Update bones after mesh is recreated
                 setTimeout(() => {
                     if (meshRef.current && groupRef.current) {
+                        // Don't rotate the group - we'll rotate the bone chain via the root bone
+                        groupRef.current.rotation.x = 0
+                        groupRef.current.rotation.y = 0
+                        groupRef.current.rotation.z = 0
+                        
+                        // Rotate the root bone to orient the bone chain (this rotates the curl direction)
+                        if (bonesRef.current.length > 0) {
+                            bonesRef.current[0].rotation.z = curlRotation * (Math.PI / 180)
+                        }
+                        
+                        // Counter-rotate the mesh to keep the image texture fixed
+                        meshRef.current.rotation.z = -curlRotation * (Math.PI / 180)
+
                         if (bonesRef.current.length > 0) {
                             updateBones()
                         }
@@ -1165,7 +1170,6 @@ export default function Sticker({
             texture.minFilter = LinearFilter
             texture.colorSpace = SRGBColorSpace
             texture.format = RGBAFormat
-            // Don't rotate textures - let image rotate with curl direction to avoid distortion
 
             // Create back face texture: blend backColor with front image
             // If backColor is fully transparent (0% opacity), use front texture directly
@@ -1297,27 +1301,27 @@ export default function Sticker({
         const curlFactor = animatedCurlRef.current.amount // 0 to 1, scales the curl
         const r = internalRadiusRef.current // normalized radius
 
-        // Calculate curl direction rotation components
-        // Rotate bone rotation axis instead of rotating the group (keeps image upright)
-        const directionRad = (curlRotation * Math.PI) / 180
-        const cosDir = Math.cos(directionRad)
-        const sinDir = Math.sin(directionRad)
-
+        // Arc length of a semicircle = π * r (normalized to sticker length)
         const arcLength = Math.PI * r
-        const semicircleEnd = Math.min(curlStart + arcLength, 1)
+        const semicircleEnd = Math.min(curlStart + arcLength, 1) // end of semicircle section
 
         if (curlMode === "semicircle") {
             // SEMICIRCLE MODE: flat → semicircle → flat
+            // Define the three sections:
+            // 1. Flat from 0 to curlStart
+            // 2. Curved from curlStart to curlStart + arcLength
+            // 3. Flat from curlStart + arcLength to 1
             const curlEnd = semicircleEnd
 
-            // Count bones in the curved section
+            // Count bones in the curved section for uniform rotation distribution
             let bonesInCurve = 0
             for (let i = 0; i < bones.length; i++) {
-                const t = i / (bones.length - 1) // Normalized position 0-1
+                const t = i / (bones.length - 1)
                 if (t >= curlStart && t < curlEnd) bonesInCurve++
             }
 
-            // Uniform rotation per bone for perfect circle
+            // For a semicircle with uniform curvature, each bone rotates by the same angle
+            // Total rotation = π (180°), distributed evenly across curved bones
             const perBoneRotation =
                 bonesInCurve > 0 ? (Math.PI * curlFactor) / bonesInCurve : 0
 
@@ -1326,16 +1330,25 @@ export default function Sticker({
                 const t = i / (bones.length - 1)
 
                 if (t < curlStart || t >= curlEnd) {
+                    // Flat sections: no rotation
+                    bone.rotation.x = 0
                     bone.rotation.y = 0
                     bone.rotation.z = 0
                 } else {
-                    // Distribute rotation between Y and Z based on curl direction
-                    bone.rotation.y = -perBoneRotation * cosDir
-                    bone.rotation.z = -perBoneRotation * sinDir
+                    // Curved section: uniform rotation per bone = perfect circle
+                    // The bone chain is already rotated by curlRotation via the group,
+                    // so we just need to rotate around Y axis (which is now oriented correctly)
+                    bone.rotation.x = 0
+                    bone.rotation.y = -perBoneRotation
+                    bone.rotation.z = 0
                 }
             }
         } else {
-            // SPIRAL MODE: flat → semicircles with decreasing radii
+            // SPIRAL MODE: flat → first semicircle (controlled by curl & radius) → additional semicircles with decreasing radii
+            // First semicircle is IDENTICAL to semicircle mode (curl and radius apply only to it)
+            // Additional semicircles fill remaining space with progressively smaller radii
+
+            // First semicircle (same as semicircle mode)
             const firstArcLength = Math.PI * r
             const firstSemicircleEnd = Math.min(curlStart + firstArcLength, 1)
 
@@ -1347,6 +1360,7 @@ export default function Sticker({
                 isFirst: boolean
             }> = []
 
+            // Add first semicircle (controlled by curl amount)
             semicircles.push({
                 start: curlStart,
                 end: firstSemicircleEnd,
@@ -1354,15 +1368,16 @@ export default function Sticker({
                 isFirst: true,
             })
 
-            const radiusDecay = 0.75
-            const minRadius = 0.1
+            // Add additional semicircles with decreasing radii to fill remaining space
+            const radiusDecay = 0.75 // Each subsequent semicircle has 90% of previous radius
+            const minRadius = 0.1 // Minimum radius to prevent infinite loops
 
             let currentPos = firstSemicircleEnd
             let currentRadius = r * radiusDecay
 
             while (currentPos < 1 && currentRadius >= minRadius) {
-                const arcLen = Math.PI * currentRadius
-                const endPos = Math.min(currentPos + arcLen, 1)
+                const arcLength = Math.PI * currentRadius
+                const endPos = Math.min(currentPos + arcLength, 1)
 
                 semicircles.push({
                     start: currentPos,
@@ -1375,20 +1390,20 @@ export default function Sticker({
                 currentRadius *= radiusDecay
             }
 
-            // Calculate cumulative rotation
+            // Calculate cumulative rotation for each semicircle
             let cumulativeRotation = 0
-            const semicircleData = semicircles.map((semicircle) => {
-                const rotationAmount = semicircle.isFirst
-                    ? Math.PI * curlFactor
-                    : Math.PI
+            const semicircleData = semicircles.map((semicircle, index) => {
+                const rotationForThisSemicircle = semicircle.isFirst
+                    ? Math.PI * curlFactor // First semicircle respects curl amount
+                    : Math.PI // Subsequent semicircles are always full π rotation
 
                 const data = {
                     ...semicircle,
                     cumulativeRotationStart: cumulativeRotation,
-                    rotationAmount,
+                    rotationAmount: rotationForThisSemicircle,
                 }
 
-                cumulativeRotation += rotationAmount
+                cumulativeRotation += rotationForThisSemicircle
                 return data
             })
 
@@ -1398,48 +1413,50 @@ export default function Sticker({
                 const t = i / (bones.length - 1)
 
                 if (t < curlStart) {
+                    // Flat section: no rotation
+                    bone.rotation.x = 0
                     bone.rotation.y = 0
                     bone.rotation.z = 0
                 } else {
+                    // Find which semicircle this bone belongs to
                     let found = false
                     for (const semicircle of semicircleData) {
                         if (t >= semicircle.start && t < semicircle.end) {
+                            // Position within this semicircle [0, 1]
                             const localT =
                                 (t - semicircle.start) /
                                 (semicircle.end - semicircle.start)
+
+                            // Rotation = cumulative rotation from previous semicircles + progress through current one
                             const rotationInSemicircle =
                                 localT * semicircle.rotationAmount
-                            const totalRotation = -(
+                            const totalRotation =
                                 semicircle.cumulativeRotationStart +
                                 rotationInSemicircle
-                            )
-                            // Distribute rotation between Y and Z based on curl direction
-                            bone.rotation.y = totalRotation * cosDir
-                            bone.rotation.z = totalRotation * sinDir
+                            
+                            // The bone chain is already rotated by curlRotation via the group,
+                            // so we just need to rotate around Y axis (which is now oriented correctly)
+                            bone.rotation.x = 0
+                            bone.rotation.y = -totalRotation
+                            bone.rotation.z = 0
                             found = true
                             break
                         }
                     }
 
                     if (!found && semicircleData.length > 0) {
+                        // Past all semicircles: use final cumulative rotation
                         const lastSemicircle =
                             semicircleData[semicircleData.length - 1]
-                        const totalRotation = -(
+                        const totalRotation =
                             lastSemicircle.cumulativeRotationStart +
                             lastSemicircle.rotationAmount
-                        )
-                        bone.rotation.y = totalRotation * cosDir
-                        bone.rotation.z = totalRotation * sinDir
+                        bone.rotation.x = 0
+                        bone.rotation.y = -totalRotation
+                        bone.rotation.z = 0
                     }
                 }
             }
-        }
-
-        // Keep group unrotated - curl direction is handled by bone rotation axis
-        if (groupRef.current) {
-            groupRef.current.rotation.x = 0
-            groupRef.current.rotation.y = 0
-            groupRef.current.rotation.z = 0
         }
 
         if (meshRef.current.skeleton) {
@@ -1740,8 +1757,17 @@ export default function Sticker({
         updateBones()
     }, [curlStart, curlMode, updateBones])
 
-    // Update bones when curlRotation changes (group rotation handles direction)
+    // Update curl direction when curlRotation changes
     useEffect(() => {
+        if (!meshRef.current || !bonesRef.current.length) return
+        
+        // Rotate the root bone to orient the bone chain (this rotates the curl direction)
+        // The mesh position stays fixed because bones are relative to the mesh
+        bonesRef.current[0].rotation.z = curlRotation * (Math.PI / 180)
+        
+        // Counter-rotate the mesh to keep the image texture fixed
+        meshRef.current.rotation.z = -curlRotation * (Math.PI / 180)
+        
         updateBones()
         renderFrame()
     }, [curlRotation, updateBones, renderFrame])
@@ -1771,7 +1797,6 @@ export default function Sticker({
             rawBackTexture,
             frontTexture
         )
-        // Don't rotate textures - let image rotate with curl direction
 
         if (materials[5]) {
             // Only dispose if it's a different texture (not the front texture)
@@ -1864,10 +1889,9 @@ export default function Sticker({
         }
 
         renderFrame()
-    }, [backColor, createBackTexture, enableShadows, renderFrame, curlRotation])
+    }, [backColor, createBackTexture, enableShadows, renderFrame])
 
     // Update shadow position when settings change
-    // Light stays in world space - group rotation handles curl direction
     useEffect(() => {
         if (!enableShadows || !lightRef.current) return
 

@@ -295,7 +295,7 @@ export default function Globe({
     initialLatitude = 42,
     initialLongitude = -15,
     oceanColor = "#000000",
-    outlineColor = "#ffffff",
+    outlineColor ,
     dotColor = "#ffffff",
     graticuleColor = "#616161",
     outlineWidth = 1,
