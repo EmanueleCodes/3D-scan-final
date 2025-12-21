@@ -1,6 +1,6 @@
-import React, { useRef } from "react"
+import React, { useRef, useState, useEffect } from "react"
 import { addPropertyControls, ControlType, RenderTarget } from "framer"
-import Snowfall from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/snow.js"
+import Snowfall from "https://cdn.jsdelivr.net/gh/framer-university/components/npm-bundles/snow-final.js"
 
 // CSS variable token and color parsing (hex/rgba/var())
 const cssVariableRegex =
@@ -21,65 +21,33 @@ function resolveTokenColor(input: string | undefined): string {
     return extractDefaultValue(input)
 }
 
-function parseColorToRgba(input: string): {
-    r: number
-    g: number
-    b: number
-    a: number
-} {
-    if (!input) return { r: 0, g: 0, b: 0, a: 1 }
-    const str = input.trim()
+// Linear mapping function for normalizing UI values to internal values
+function mapLinear(
+    value: number,
+    inMin: number,
+    inMax: number,
+    outMin: number,
+    outMax: number
+): number {
+    if (inMax === inMin) return outMin
+    const t = (value - inMin) / (inMax - inMin)
+    return outMin + t * (outMax - outMin)
+}
 
-    // Handle rgba() format
-    const rgbaMatch = str.match(
-        /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/i
-    )
-    if (rgbaMatch) {
-        const r = Math.max(0, Math.min(255, parseFloat(rgbaMatch[1]))) / 255
-        const g = Math.max(0, Math.min(255, parseFloat(rgbaMatch[2]))) / 255
-        const b = Math.max(0, Math.min(255, parseFloat(rgbaMatch[3]))) / 255
-        const a =
-            rgbaMatch[4] !== undefined
-                ? Math.max(0, Math.min(1, parseFloat(rgbaMatch[4])))
-                : 1
-        return { r, g, b, a }
-    }
+// Mapping functions for UI (0-1 or -1 to 1) to internal values
+// Speed: UI 0-1 → Internal 0.1-10
+function mapSpeed(ui: number): number {
+    return mapLinear(Math.max(0, Math.min(1, ui)), 0, 1, 0.1, 10)
+}
 
-    // Handle hex formats
-    const hex = str.replace(/^#/, "")
-    if (hex.length === 8) {
-        return {
-            r: parseInt(hex.slice(0, 2), 16) / 255,
-            g: parseInt(hex.slice(2, 4), 16) / 255,
-            b: parseInt(hex.slice(4, 6), 16) / 255,
-            a: parseInt(hex.slice(6, 8), 16) / 255,
-        }
-    }
-    if (hex.length === 6) {
-        return {
-            r: parseInt(hex.slice(0, 2), 16) / 255,
-            g: parseInt(hex.slice(2, 4), 16) / 255,
-            b: parseInt(hex.slice(4, 6), 16) / 255,
-            a: 1,
-        }
-    }
-    if (hex.length === 4) {
-        return {
-            r: parseInt(hex[0] + hex[0], 16) / 255,
-            g: parseInt(hex[1] + hex[1], 16) / 255,
-            b: parseInt(hex[2] + hex[2], 16) / 255,
-            a: parseInt(hex[3] + hex[3], 16) / 255,
-        }
-    }
-    if (hex.length === 3) {
-        return {
-            r: parseInt(hex[0] + hex[0], 16) / 255,
-            g: parseInt(hex[1] + hex[1], 16) / 255,
-            b: parseInt(hex[2] + hex[2], 16) / 255,
-            a: 1,
-        }
-    }
-    return { r: 0, g: 0, b: 0, a: 1 }
+// Wind: UI -1 to 1 → Internal -10 to 10
+function mapWind(ui: number): number {
+    return mapLinear(Math.max(-1, Math.min(1, ui)), -1, 1, -10, 10)
+}
+
+// Radius: UI 0-1 → Internal 0.1-20
+function mapRadius(ui: number): number {
+    return mapLinear(Math.max(0, Math.min(1, ui)), 0, 1, 0.1, 5)
 }
 
 interface SnowFallProps {
@@ -87,37 +55,27 @@ interface SnowFallProps {
     background?: string
     color?: string
     snowflakeCount?: number
-    speedMin?: number
-    speedMax?: number
-    windMin?: number
-    windMax?: number
-    radiusMin?: number
-    radiusMax?: number
-    useImages?: boolean
-    opacityMin?: number
-    opacityMax?: number
-    rotationSpeedMin?: number
-    rotationSpeedMax?: number
+    speed?: { min: number; max: number }
+    wind?: { min: number; max: number }
+    radius?: { min: number; max: number }
+    opacity?: { min: number; max: number }
+    direction?: "down" | "up"
     transitionTime?: number
     style?: React.CSSProperties
 }
 
+// UI defaults (normalized values that users see)
+// Speed: 0-1, Wind: -1 to 1, Radius: 0-1, Opacity: 0-1 (no mapping)
 const DEFAULTS = {
     background: "#000000",
     color: "#dee4fd",
     snowflakeCount: 150,
-    speedMin: 1.0,
-    speedMax: 3.0,
-    windMin: -0.5,
-    windMax: 2.0,
-    radiusMin: 0.5,
-    radiusMax: 3.0,
-    useImages: false,
-    opacityMin: 0.1,
-    opacityMax: 0.2,
-    rotationSpeedMin: -1.0,
-    rotationSpeedMax: 1.0,
-    transitionTime: 500, // Transition time in milliseconds (0 = instant)
+    speed: { min: 0.1, max: 0.3 },      // UI: 0-1 → Internal: 0.1-10 (maps to ~1.0-3.0)
+    wind: { min: -0.05, max: 0.2 },     // UI: -1 to 1 → Internal: -10 to 10 (maps to ~-0.5-2.0)
+    radius: { min: 0.1, max: 0.4 },   // UI: 0-1 → Internal: 0.1-20 (maps to ~0.5-3.0)
+    opacity: { min: 0.5, max: 1 },    // No mapping needed (already 0-1)
+    direction: "down" as const,
+    transitionTime: 0.5, // Transition time in seconds (0 = instant)
 }
 
 /**
@@ -129,42 +87,91 @@ const DEFAULTS = {
  */
 export default function SnowFall({
     preview = false,
-    background = DEFAULTS.background,
+    background,
     color = DEFAULTS.color,
     snowflakeCount = DEFAULTS.snowflakeCount,
-    speedMin = DEFAULTS.speedMin,
-    speedMax = DEFAULTS.speedMax,
-    windMin = DEFAULTS.windMin,
-    windMax = DEFAULTS.windMax,
-    radiusMin = DEFAULTS.radiusMin,
-    radiusMax = DEFAULTS.radiusMax,
-    useImages = DEFAULTS.useImages,
-    opacityMin = DEFAULTS.opacityMin,
-    opacityMax = DEFAULTS.opacityMax,
-    rotationSpeedMin = DEFAULTS.rotationSpeedMin,
-    rotationSpeedMax = DEFAULTS.rotationSpeedMax,
+    speed = DEFAULTS.speed,
+    wind = DEFAULTS.wind,
+    radius = DEFAULTS.radius,
+    opacity = DEFAULTS.opacity,
+    direction = DEFAULTS.direction,
     transitionTime = DEFAULTS.transitionTime,
     style,
 }: SnowFallProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const isCanvasMode = RenderTarget.current() === RenderTarget.canvas
-    const shouldAnimate = !isCanvasMode || preview
+    const [isInViewport, setIsInViewport] = useState(true)
+    const [isPageVisible, setIsPageVisible] = useState(true)
+
+    // Track viewport visibility using IntersectionObserver
+    useEffect(() => {
+        if (isCanvasMode) {
+            // In canvas mode, always consider it visible
+            setIsInViewport(true)
+            return
+        }
+
+        const element = containerRef.current
+        if (!element) return
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const entry = entries[0]
+                setIsInViewport(!!entry?.isIntersecting)
+            },
+            {
+                threshold: 0, // Trigger when any part of element is visible
+                rootMargin: "0px",
+            }
+        )
+
+        observer.observe(element)
+
+        return () => {
+            observer.disconnect()
+        }
+    }, [isCanvasMode])
+
+    // Track page visibility (tab hidden/visible)
+    useEffect(() => {
+        if (isCanvasMode) {
+            setIsPageVisible(true)
+            return
+        }
+
+        const handleVisibilityChange = () => {
+            setIsPageVisible(!document.hidden)
+        }
+
+        document.addEventListener("visibilitychange", handleVisibilityChange)
+        return () => {
+            document.removeEventListener("visibilitychange", handleVisibilityChange)
+        }
+    }, [isCanvasMode])
+
+    // Combine all conditions: should animate only if in viewport, page visible, and (preview enabled or not in canvas)
+    const shouldAnimate = isInViewport && isPageVisible && (!isCanvasMode || preview)
 
     // Resolve colors with token support
     const resolvedBackground = resolveTokenColor(background)
     const resolvedColor = resolveTokenColor(color)
 
+    // Map UI values (normalized 0-1 or -1 to 1) to internal values
+    const mappedSpeed: [number, number] = [mapSpeed(speed.min), mapSpeed(speed.max)]
+    const mappedWind: [number, number] = [mapWind(wind.min), mapWind(wind.max)]
+    const mappedRadius: [number, number] = [mapRadius(radius.min), mapRadius(radius.max)]
+
     // Prepare snowfall config
+    // Convert transitionTime from seconds to milliseconds for the bundle
     const snowfallConfig = {
         color: resolvedColor,
         snowflakeCount,
-        speed: [speedMin, speedMax] as [number, number],
-        wind: [windMin, windMax] as [number, number],
-        radius: [radiusMin, radiusMax] as [number, number],
-        rotationSpeed: [rotationSpeedMin, rotationSpeedMax] as [number, number],
-        opacity: [opacityMin, opacityMax] as [number, number],
-        transitionTime, // Transition time in milliseconds (0 = instant)
-        // Note: images prop not implemented - react-snowfall uses default circles when undefined
+        speed: mappedSpeed,
+        wind: mappedWind,
+        radius: mappedRadius,
+        opacity: [opacity.min, opacity.max] as [number, number], // Opacity is already 0-1, no mapping needed
+        direction,
+        transitionTime: transitionTime * 1000, // Convert seconds to milliseconds for the bundle
     }
 
     return (
@@ -197,113 +204,127 @@ addPropertyControls(SnowFall, {
     preview: {
         type: ControlType.Boolean,
         title: "Preview",
-        defaultValue: false,
+        defaultValue: true,
         enabledTitle: "On",
         disabledTitle: "Off",
     },
     snowflakeCount: {
         type: ControlType.Number,
-        title: "Snowflake Count",
-        min: 0,
+        title: "Count",
+        min: 10,
         max: 1000,
-        step: 1,
+        step: 10,
         defaultValue: DEFAULTS.snowflakeCount,
     },
-    speedMin: {
-        type: ControlType.Number,
-        title: "Speed Min",
-        min: 0.1,
-        max: 10,
-        step: 0.1,
-        defaultValue: DEFAULTS.speedMin,
+    speed: {
+        type: ControlType.Object,
+        title: "Speed",
+        controls: {
+            min: {
+                type: ControlType.Number,
+                title: "Min",
+                min: 0,
+                max: 1,
+                step: 0.01,
+                defaultValue: DEFAULTS.speed.min,
+            },
+            max: {
+                type: ControlType.Number,
+                title: "Max",
+                min: 0,
+                max: 1,
+                step: 0.01,
+                defaultValue: DEFAULTS.speed.max,
+            },
+        },
+        defaultValue: DEFAULTS.speed,
     },
-    speedMax: {
-        type: ControlType.Number,
-        title: "Speed Max",
-        min: 0.1,
-        max: 10,
-        step: 0.1,
-        defaultValue: DEFAULTS.speedMax,
+    wind: {
+        type: ControlType.Object,
+        title: "Wind",
+        controls: {
+            min: {
+                type: ControlType.Number,
+                title: "Min",
+                min: -1,
+                max: 1,
+                step: 0.1,
+                defaultValue: DEFAULTS.wind.min,
+            },
+            max: {
+                type: ControlType.Number,
+                title: "Max",
+                min: -1,
+                max: 1,
+                step: 0.1,
+                defaultValue: DEFAULTS.wind.max,
+            },
+        },
+        defaultValue: DEFAULTS.wind,
     },
-    windMin: {
-        type: ControlType.Number,
-        title: "Wind Min",
-        min: -5,
-        max: 10,
-        step: 0.1,
-        defaultValue: DEFAULTS.windMin,
+    radius: {
+        type: ControlType.Object,
+        title: "Radius",
+        controls: {
+            min: {
+                type: ControlType.Number,
+                title: "Min",
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: DEFAULTS.radius.min,
+            },
+            max: {
+                type: ControlType.Number,
+                title: "Max",
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: DEFAULTS.radius.max,
+            },
+        },
+        defaultValue: DEFAULTS.radius,
     },
-    windMax: {
-        type: ControlType.Number,
-        title: "Wind Max",
-        min: -5,
-        max: 10,
-        step: 0.1,
-        defaultValue: DEFAULTS.windMax,
+    opacity: {
+        type: ControlType.Object,
+        title: "Opacity",
+        controls: {
+            min: {
+                type: ControlType.Number,
+                title: "Min",
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: DEFAULTS.opacity.min,
+            },
+            max: {
+                type: ControlType.Number,
+                title: "Max",
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: DEFAULTS.opacity.max,
+            },
+        },
+        defaultValue: DEFAULTS.opacity,
     },
-    radiusMin: {
-        type: ControlType.Number,
-        title: "Radius Min",
-        min: 0.1,
-        max: 20,
-        step: 0.1,
-        defaultValue: DEFAULTS.radiusMin,
-    },
-    radiusMax: {
-        type: ControlType.Number,
-        title: "Radius Max",
-        min: 0.1,
-        max: 20,
-        step: 0.1,
-        defaultValue: DEFAULTS.radiusMax,
-    },
-    useImages: {
-        type: ControlType.Boolean,
-        title: "Use Images",
-        defaultValue: DEFAULTS.useImages,
-        enabledTitle: "On",
-        disabledTitle: "Off",
-    },
-    opacityMin: {
-        type: ControlType.Number,
-        title: "Opacity Min",
-        min: 0,
-        max: 1,
-        step: 0.01,
-        defaultValue: DEFAULTS.opacityMin,
-    },
-    opacityMax: {
-        type: ControlType.Number,
-        title: "Opacity Max",
-        min: 0,
-        max: 1,
-        step: 0.01,
-        defaultValue: DEFAULTS.opacityMax,
-    },
-    rotationSpeedMin: {
-        type: ControlType.Number,
-        title: "Rotation Speed Min",
-        min: -5,
-        max: 5,
-        step: 0.1,
-        defaultValue: DEFAULTS.rotationSpeedMin,
-    },
-    rotationSpeedMax: {
-        type: ControlType.Number,
-        title: "Rotation Speed Max",
-        min: -5,
-        max: 5,
-        step: 0.1,
-        defaultValue: DEFAULTS.rotationSpeedMax,
+    direction: {
+        type: ControlType.Enum,
+        title: "Direction",
+        options: ["down", "up"],
+        optionTitles: ["Down", "Up"],
+        defaultValue: DEFAULTS.direction,
+        displaySegmentedControl: true,
+        segmentedControlDirection: "vertical",
     },
     transitionTime: {
         type: ControlType.Number,
         title: "Transition",
         min: 0,
-        max: 2000,
-        step: 50,
+        max: 5,
+        step: 0.1,
         defaultValue: DEFAULTS.transitionTime,
-        unit: "ms",
+        unit: "s",
     },
     color: {
         type: ControlType.Color,
@@ -314,6 +335,7 @@ addPropertyControls(SnowFall, {
         type: ControlType.Color,
         title: "Background",
         defaultValue: DEFAULTS.background,
+        optional:true,
         description:
             "More components at [Framer University](https://frameruni.link/cc).",
     },

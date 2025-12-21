@@ -81,6 +81,7 @@ interface GlobeProps {
     gridWidth?: number
     dragSpeed?: number
     detail?: number
+    drag?: boolean
     style?: React.CSSProperties
 }
 
@@ -302,6 +303,7 @@ export default function Globe({
     gridWidth = 1,
     dragSpeed = 0.5,
     detail = 1,
+    drag = true,
     style,
 }: GlobeProps) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -1055,8 +1057,9 @@ export default function Globe({
             startAnimation()
         }
 
-        // Mouse interaction handlers
+        // Mouse interaction handlers (only if drag is enabled)
         const handleMouseDown = (event: MouseEvent) => {
+            if (!drag) return
             isDragging = true
             velocity.x = 0
             velocity.y = 0
@@ -1102,7 +1105,9 @@ export default function Globe({
             document.addEventListener("mouseup", handleMouseUp)
         }
 
-        canvas.addEventListener("mousedown", handleMouseDown)
+        if (drag) {
+            canvas.addEventListener("mousedown", handleMouseDown)
+        }
 
         // Handle hover to stop auto-rotation (only when cursor is over the globe)
         const raycaster = new Raycaster()
@@ -1156,7 +1161,9 @@ export default function Globe({
         return () => {
             if (animationFrameId !== null)
                 cancelAnimationFrame(animationFrameId)
-            canvas.removeEventListener("mousedown", handleMouseDown)
+            if (drag) {
+                canvas.removeEventListener("mousedown", handleMouseDown)
+            }
             canvas.removeEventListener("mousemove", handleMouseMove)
             resizeObserver.disconnect()
             renderer.dispose()
@@ -1182,6 +1189,7 @@ export default function Globe({
         gridWidth,
         dragSpeed,
         detail,
+        drag,
         rotationSpeed,
         dotSpacing,
         dotSizeMultiplier,
@@ -1248,6 +1256,13 @@ addPropertyControls(Globe, {
         step: 0.1,
         defaultValue: 0.1,
     },
+    drag: {
+        type: ControlType.Boolean,
+        title: "Drag",
+        defaultValue: true,
+        enabledTitle: "On",
+        disabledTitle: "Off",
+    },
     smoothing: {
         type: ControlType.Number,
         title: "Smoothing",
@@ -1255,6 +1270,7 @@ addPropertyControls(Globe, {
         max: 1,
         step: 0.1,
         defaultValue: 1,
+        hidden: (props: GlobeProps) => !props.drag,
     },
     dragSpeed: {
         type: ControlType.Number,
